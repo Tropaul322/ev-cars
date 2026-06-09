@@ -36,8 +36,6 @@ The app works with local seed data without environment variables.
 
 Optional:
 
-
-
 ```bash
 GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-3.1-flash-lite
