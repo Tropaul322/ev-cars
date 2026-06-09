@@ -513,7 +513,7 @@ button {
 }
 
 .vehicle-media {
-  aspect-ratio: 2 / 3;
+  aspect-ratio: 4 / 3;
   background:
     linear-gradient(180deg, rgb(220 244 237 / 66%), rgb(255 255 255 / 94%)),
     var(--surface-soft);
