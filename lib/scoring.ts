@@ -9,7 +9,7 @@ import type {
 import { getRagEvidenceForVehicle } from "./rag.ts";
 import { blendSemanticSignals, scoreVehicleTopicAffinity } from "./semantic-scoring.ts";
 import { calculateTco } from "./tco.ts";
-import { vehicleMatchesModelPreferences } from "./vehicle-matching.ts";
+import { vehicleMatchesBrandOriginPreferences, vehicleMatchesModelPreferences } from "./vehicle-matching.ts";
 
 export type MatchEngineResult = {
   recommendations: MatchResult[];
@@ -124,6 +124,9 @@ export function getHardFilterReasons(vehicle: Vehicle, criteria: UserCriteria) {
   }
   if (criteria.bodyTypes.length && !criteria.bodyTypes.includes(vehicle.bodyType)) {
     reasons.push(`body type is ${vehicle.bodyType}`);
+  }
+  if (!vehicleMatchesBrandOriginPreferences(vehicle, criteria.preferredBrandOrigins)) {
+    reasons.push(`brand origin is ${vehicle.brandOrigin}, not ${criteria.preferredBrandOrigins.join(" or ")}`);
   }
   if (!vehicleMatchesModelPreferences(vehicle, criteria.modelPreferences)) {
     reasons.push(`model is ${vehicle.make} ${vehicle.model}, not ${criteria.modelPreferences.join(" or ")}`);

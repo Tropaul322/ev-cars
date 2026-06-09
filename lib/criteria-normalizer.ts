@@ -6,6 +6,7 @@ import {
   normalizeCriteriaShape
 } from "./criteria.ts";
 import type {
+  BrandOrigin,
   BodyType,
   ChargingAccess,
   Feature,
@@ -111,6 +112,7 @@ export function applyCriteriaPatch(
       criteria.brandPreferences = [];
       criteria.avoidedBrands = [];
     }
+    if (removal === "origin") criteria.preferredBrandOrigins = [];
     if (removal === "model") criteria.modelPreferences = [];
   }
 
@@ -222,6 +224,7 @@ function buildNormalizerInput(message: string, previousCriteria: UserCriteria | 
       bodyTypes: ["compact", "hatchback", "sedan", "suv", "crossover", "wagon", "van"],
       chargingAccess: ["home", "work", "public", "none", "unknown"],
       condition: ["new", "used", "any"],
+      preferredBrandOrigins: ["china", "europe", "other"],
       modelPreferences: [
         "EV6",
         "EV3",
@@ -285,6 +288,9 @@ function cleanPatch(patch: CriteriaPatch): CriteriaPatch {
   if (Array.isArray(patch.brandPreferences)) {
     clean.brandPreferences = patch.brandPreferences.filter((value): value is string => typeof value === "string");
   }
+  if (Array.isArray(patch.preferredBrandOrigins)) {
+    clean.preferredBrandOrigins = patch.preferredBrandOrigins.filter(isBrandOrigin);
+  }
   if (Array.isArray(patch.modelPreferences)) {
     clean.modelPreferences = patch.modelPreferences.filter((value): value is string => typeof value === "string");
   }
@@ -344,6 +350,10 @@ function isCondition(value: unknown): value is VehicleCondition | "any" {
 
 function isBodyType(value: unknown): value is BodyType {
   return value === "compact" || value === "hatchback" || value === "sedan" || value === "suv" || value === "crossover" || value === "wagon" || value === "van";
+}
+
+function isBrandOrigin(value: unknown): value is BrandOrigin {
+  return value === "china" || value === "europe" || value === "other";
 }
 
 function isTripNeed(value: unknown): value is TripNeed {

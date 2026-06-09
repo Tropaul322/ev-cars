@@ -124,6 +124,8 @@ export type Vehicle = {
   raw?: unknown;
 };
 
+export type BrandOrigin = Vehicle["brandOrigin"];
+
 export type UserCriteria = {
   language: Language;
   budgetMaxEUR: number | null;
@@ -141,6 +143,7 @@ export type UserCriteria = {
   preferredCondition: VehicleCondition | "any";
   bodyTypes: BodyType[];
   brandPreferences: string[];
+  preferredBrandOrigins: BrandOrigin[];
   modelPreferences: string[];
   avoidedBrands: string[];
   brandFit: Importance;

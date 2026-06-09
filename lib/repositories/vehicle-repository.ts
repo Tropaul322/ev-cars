@@ -1,7 +1,7 @@
 import { allVehicles } from "../data/all-vehicles.ts";
 import type { UserCriteria, Vehicle } from "../types.ts";
 import { sanitizeVehicleImages } from "../vehicle-images.ts";
-import { vehicleMatchesModelPreferences } from "../vehicle-matching.ts";
+import { vehicleMatchesBrandOriginPreferences, vehicleMatchesModelPreferences } from "../vehicle-matching.ts";
 import { getSupabaseRestConfig } from "./supabase-rest.ts";
 
 type SupabaseVehicleRow = {
@@ -182,6 +182,7 @@ function filterVehiclesForSearch(vehicles: Vehicle[], criteria: UserCriteria) {
     if (criteria.mileageMaxKm && vehicle.mileageKm !== null && vehicle.mileageKm > criteria.mileageMaxKm) return false;
     if (criteria.mileageMaxKm && vehicle.condition === "used" && vehicle.mileageKm === null) return false;
     if (criteria.bodyTypes.length && !criteria.bodyTypes.includes(vehicle.bodyType)) return false;
+    if (!vehicleMatchesBrandOriginPreferences(vehicle, criteria.preferredBrandOrigins)) return false;
     if (!vehicleMatchesModelPreferences(vehicle, criteria.modelPreferences)) return false;
     if (criteria.passengers && vehicle.seats < criteria.passengers) return false;
     if (criteria.avoidedBrands.some((brand) => sameBrand(brand, vehicle.make))) return false;

@@ -28,7 +28,10 @@ const baseVehicle: Vehicle = {
   powerKw: 150,
   available: true,
   features: ["apple_carplay"],
-  images: []
+  images: [],
+  notes: "Test vehicle fixture.",
+  brandOrigin: "china",
+  reviewTags: []
 };
 
 test("normalizeVehicleImageUrl strips _hoved before extension", () => {

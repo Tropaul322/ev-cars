@@ -1,4 +1,5 @@
 import type {
+  BrandOrigin,
   BodyType,
   ChargingAccess,
   Feature,
@@ -179,6 +180,7 @@ export function emptyCriteria(rawPrompt = "", language: Language = "en"): UserCr
     preferredCondition: "any",
     bodyTypes: [],
     brandPreferences: [],
+    preferredBrandOrigins: [],
     modelPreferences: [],
     avoidedBrands: [],
     brandFit: "medium",
@@ -233,6 +235,9 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
   const tripNeeds = removals.has("use_case") ? [] : mergeUnique(base.tripNeeds, extractTripNeeds(text));
   const mustHaveFeatures = removals.has("features") ? [] : mergeUnique(base.mustHaveFeatures, extractFeatures(text));
   const brandPreferences = removals.has("brand") ? [] : mergeUnique(base.brandPreferences, extractBrandPreferences(text));
+  const preferredBrandOrigins = removals.has("origin")
+    ? []
+    : mergeUnique(base.preferredBrandOrigins, extractPreferredBrandOrigins(text));
   const modelPreferences = removals.has("model")
     ? []
     : mergeUnique(base.modelPreferences, extractModelPreferences(normalizedPrompt));
@@ -261,6 +266,7 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
     preferredCondition,
     bodyTypes,
     brandPreferences,
+    preferredBrandOrigins,
     modelPreferences,
     avoidedBrands,
     brandFit,
@@ -346,6 +352,7 @@ export function criteriaSummary(criteria: UserCriteria) {
   if (criteria.batterySoHMin) parts.push(`SoH ${criteria.batterySoHMin}%+`);
   if (criteria.preferredCondition !== "any") parts.push(criteria.preferredCondition);
   if (criteria.bodyTypes.length) parts.push(criteria.bodyTypes.join(", "));
+  if (criteria.preferredBrandOrigins.length) parts.push(`${criteria.preferredBrandOrigins.join(", ")} origin`);
   if (criteria.modelPreferences?.length) parts.push(criteria.modelPreferences.join(", "));
   if (criteria.tripNeeds.length) parts.push(criteria.tripNeeds.join(", "));
   if (criteria.chargingAccess !== "unknown") parts.push(`${criteria.chargingAccess} charging`);
@@ -366,6 +373,7 @@ export type CriteriaChipKey =
   | "passengers"
   | "cargo"
   | "brand"
+  | "origin"
   | "model"
   | "features"
   | "qualitative"
@@ -403,6 +411,9 @@ export function criteriaChips(criteria: UserCriteria): CriteriaChip[] {
   if (criteria.passengers) chips.push({ key: "passengers", label: `${criteria.passengers} seats` });
   if (criteria.cargoNeeds) chips.push({ key: "cargo", label: `${criteria.cargoNeeds} cargo` });
   if (criteria.brandPreferences.length) chips.push({ key: "brand", label: criteria.brandPreferences.join(", ") });
+  if (criteria.preferredBrandOrigins.length) {
+    chips.push({ key: "origin", label: `${criteria.preferredBrandOrigins.join(", ")} origin` });
+  }
   if (criteria.modelPreferences?.length) chips.push({ key: "model", label: criteria.modelPreferences.join(", ") });
   if (criteria.avoidedBrands.length) chips.push({ key: "brand", label: `no ${criteria.avoidedBrands.join(", ")}` });
   if (criteria.mustHaveFeatures.length) chips.push({ key: "features", label: criteria.mustHaveFeatures.join(", ") });
@@ -440,6 +451,7 @@ export function removeCriteriaKey(criteria: UserCriteria, key: CriteriaChipKey):
     next.avoidedBrands = [];
     next.brandFit = "medium";
   }
+  if (key === "origin") next.preferredBrandOrigins = [];
   if (key === "model") next.modelPreferences = [];
   if (key === "features") next.mustHaveFeatures = [];
   if (key === "qualitative") next.qualitativeSignals = [];
@@ -454,6 +466,7 @@ export function normalizeCriteriaShape(criteria: UserCriteria): UserCriteria {
     tripNeeds: criteria.tripNeeds ?? [],
     bodyTypes: criteria.bodyTypes ?? [],
     brandPreferences: criteria.brandPreferences ?? [],
+    preferredBrandOrigins: criteria.preferredBrandOrigins ?? [],
     modelPreferences: criteria.modelPreferences ?? [],
     avoidedBrands: criteria.avoidedBrands ?? [],
     mustHaveFeatures: criteria.mustHaveFeatures ?? [],
@@ -489,6 +502,7 @@ function hasVehiclePreferenceSignal(criteria: UserCriteria) {
       criteria.batterySoHMin ||
       criteria.batteryHealthRequired ||
       criteria.brandPreferences.length ||
+      criteria.preferredBrandOrigins.length ||
       criteria.modelPreferences?.length ||
       criteria.avoidedBrands.length ||
       criteria.mustHaveFeatures.length ||
@@ -514,6 +528,9 @@ function extractRemovals(text: string) {
   if (/\b(seats|sitze|passengers|personen)\b/i.test(text)) removals.add("passengers");
   if (/\b(cargo|trunk|kofferraum|boot)\b/i.test(text)) removals.add("cargo");
   if (/\b(brand|marke|tesla|bmw|audi|mercedes|vw|volkswagen)\b/i.test(text)) removals.add("brand");
+  if (/\b(origin|country|herkunft|china|chinese|chinesisch|chinesische|chinesisches|european|europe|europäisch|europaeisch|korean|korea|koreanisch)\b/i.test(text)) {
+    removals.add("origin");
+  }
   if (/\b(model|modell|ev6|ev3|id\.?3|id\.?4|model 3|model y|ioniq|q4|e-tron)\b/i.test(text)) {
     removals.add("model");
   }
@@ -713,10 +730,14 @@ function extractBrandPreferences(text: string) {
   const explicit = brandNames.filter((brand) =>
     new RegExp(`\\b${escapeRegExp(brand.toLowerCase())}\\b`, "i").test(text)
   );
-  if (/(chinese|china|chinesisch|chinesisches|chinesische)/i.test(text)) {
-    explicit.push("MG", "BYD", "XPeng", "NIO");
-  }
   return Array.from(new Set(explicit));
+}
+
+function extractPreferredBrandOrigins(text: string): BrandOrigin[] {
+  const origins: BrandOrigin[] = [];
+  if (/(chinese|china|chinesisch|chinesisches|chinesische)/i.test(text)) origins.push("china");
+  if (/(european|europe|europäisch|europaeisch|europa)/i.test(text)) origins.push("europe");
+  return Array.from(new Set(origins));
 }
 
 function extractModelPreferences(text: string) {

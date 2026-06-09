@@ -77,6 +77,14 @@ test("extracts model intent from car-name searches", () => {
   assert.ok(criteria.tripNeeds.includes("road_trip"));
 });
 
+test("extracts country origin intent without turning it into fixed brand picks", () => {
+  const criteria = extractCriteria("Chinese SUV under 50000 EUR for family road trips and public charging.");
+
+  assert.deepEqual(criteria.preferredBrandOrigins, ["china"]);
+  assert.deepEqual(criteria.brandPreferences, []);
+  assert.deepEqual(criteria.bodyTypes, ["suv"]);
+});
+
 test("normalizer returns structured fallback output with missing criteria", async () => {
   const normalized = await normalizeCriteria({
     message: "I need a premium EV with good battery health."
@@ -130,6 +138,21 @@ test("hard filters enforce explicit model searches", () => {
     assert.equal(recommendation.vehicle.model, "EV6");
   }
   assert.ok(result.rejected.some((item) => item.reasons.some((reason) => reason.includes("not EV6"))));
+});
+
+test("hard filters enforce requested brand origin", () => {
+  const criteria = extractCriteria(
+    "Chinese EV under 60000 EUR for road trips, 420 km range, fast charging and CarPlay."
+  );
+  const result = matchVehicles(seedVehicles, criteria);
+
+  assert.ok(result.recommendations.length > 0);
+  for (const recommendation of result.recommendations) {
+    assert.equal(recommendation.vehicle.brandOrigin, "china");
+  }
+  assert.ok(result.rejected.some((item) => item.vehicle.make === "Kia"));
+  assert.ok(result.rejected.some((item) => item.vehicle.make === "Hyundai"));
+  assert.ok(result.rejected.some((item) => item.reasons.some((reason) => reason.includes("brand origin"))));
 });
 
 test("used EVs with undisclosed battery health are explicit and not invented", () => {
@@ -275,6 +298,59 @@ test("match route does not substitute a different Kia model for EV6 searches", a
   }
 });
 
+test("match route keeps Chinese car requests to Chinese-origin brands", async () => {
+  const data = await runMatchRequest({
+    message: "Chinese SUV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay."
+  });
+
+  assert.equal(data.type, "matches");
+  assert.deepEqual(data.criteria.preferredBrandOrigins, ["china"]);
+  assert.ok(data.recommendations.length > 0);
+  for (const recommendation of data.recommendations) {
+    assert.equal(recommendation.vehicle.brandOrigin, "china");
+  }
+});
+
+test("match route next batch excludes vehicles already shown in the session", async () => {
+  const first = await runMatchRequest({
+    message: "EV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay."
+  });
+  assert.equal(first.type, "matches");
+  assertNoDuplicateListingUrls(first.recommendations);
+
+  const second = await runMatchRequest({
+    message: "next batch",
+    sessionId: first.sessionId
+  });
+
+  assert.equal(second.type, "matches");
+  const firstIds = new Set(first.recommendations.map((recommendation) => recommendation.vehicle.id));
+  assert.ok(second.recommendations.length > 0);
+  for (const recommendation of second.recommendations) {
+    assert.equal(firstIds.has(recommendation.vehicle.id), false);
+  }
+});
+
+test("match route next batch still uses session exclusions when previousCriteria is supplied", async () => {
+  const first = await runMatchRequest({
+    message: "EV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay."
+  });
+  assert.equal(first.type, "matches");
+
+  const second = await runMatchRequest({
+    message: "show me more",
+    sessionId: first.sessionId,
+    previousCriteria: first.criteria
+  });
+
+  assert.equal(second.type, "matches");
+  const firstIds = new Set(first.recommendations.map((recommendation) => recommendation.vehicle.id));
+  assert.ok(second.recommendations.length > 0);
+  for (const recommendation of second.recommendations) {
+    assert.equal(firstIds.has(recommendation.vehicle.id), false);
+  }
+});
+
 test("match route explains the blocker for explicit model searches", async () => {
   const data = await runMatchRequest({
     message: "Kia EV6 under 45k for road trips, 450 km range, fast charging and CarPlay."
@@ -293,3 +369,10 @@ test("match route returns no_matches when hard filters eliminate the inventory",
   assert.equal(data.recommendations.length, 0);
   assert.ok(Array.isArray(data.rejectedSummary));
 });
+
+function assertNoDuplicateListingUrls(recommendations: Array<{ vehicle: { listingUrl?: string } }>) {
+  const listingUrls = recommendations
+    .map((recommendation) => recommendation.vehicle.listingUrl?.replace(/[?#].*$/, "").replace(/\/$/, "").toLowerCase())
+    .filter((url): url is string => Boolean(url));
+  assert.equal(new Set(listingUrls).size, listingUrls.length);
+}
