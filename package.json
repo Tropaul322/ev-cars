@@ -1,0 +1,42 @@
+{
+  "name": "flowryd-ev-alpha",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "eval": "node --experimental-strip-types scripts/run-evals.ts",
+    "supabase:upload-all": "node --experimental-strip-types scripts/upload_flowryd_data.ts",
+    "supabase:upload-flowryd": "node --experimental-strip-types scripts/upload_flowryd_data.ts",
+    "supabase:ingest-trusted-knowledge": "node --experimental-strip-types scripts/ingest_trusted_ev_knowledge.ts",
+    "inventory:crawl": "node --experimental-strip-types inventory-scraping/crawl-inventory.ts",
+    "inventory:willhaben:crawl": "node --experimental-strip-types inventory-scraping/willhaben/crawl.ts",
+    "inventory:willhaben:upload": "node --experimental-strip-types inventory-scraping/willhaben/upload.ts",
+    "inventory:list-sources": "node --experimental-strip-types inventory-scraping/crawl-inventory.ts --list-sources",
+    "supabase:verify-embeddings": "node --experimental-strip-types scripts/verify-embeddings.ts",
+    "supabase:backfill-vehicle-embeddings": "node --experimental-strip-types scripts/backfill_vehicle_embeddings.ts",
+    "inspect:ai-context": "node --experimental-strip-types scripts/inspect_ai_context.ts",
+    "ci": "npm run typecheck && npm run test && npm run eval && npm run build"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.10.3",
+    "@supabase/supabase-js": "^2.107.0",
+    "lucide-react": "^0.468.0",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.1",
+    "eslint": "^9.16.0",
+    "eslint-config-next": "^15.1.0",
+    "typescript": "^5.7.2"
+  }
+}
