@@ -1,0 +1,24 @@
+{
+  "url": "https://flowryd.paralect.com/",
+  "fetched_at": "2026-06-04T23:16:32.347347+00:00",
+  "stats": {
+    "sources": "8",
+    "total_rows": "238",
+    "real": "238",
+    "synthetic": "0",
+    "brands": "31"
+  },
+  "inventory_rows": 203,
+  "rag_rows": 20,
+  "inventory_sources": [
+    "autoscout24_at",
+    "bmw_boerse_at",
+    "gebrauchtwagen_at",
+    "vw_austria_ev_leasing",
+    "willhaben"
+  ],
+  "rag_sources": [
+    "econtrol_charging_info",
+    "umweltfoerderung_private"
+  ]
+}
