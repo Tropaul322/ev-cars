@@ -7,5 +7,5 @@ node_modules/
 coverage/
 *.tsbuildinfo
 dist/
-data/
+/data/
 inventory-scraping/
