@@ -1,525 +1,244 @@
 "use client";
 
 import {
-  BatteryCharging,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Info,
-  Loader2,
-  Search,
-  Send,
-  ShoppingBag,
+  ArrowUp,
+  Bookmark,
+  Mic,
+  SearchCheck,
+  ShieldCheck,
   Sparkles,
-  X
+  Users,
+  Zap
 } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import { criteriaChips, removeCriteriaKey, type CriteriaChip } from "@/lib/criteria";
-import { cn, formatEUR, formatNumber } from "@/lib/utils";
-import type { MatchResponse, MatchResult, RagEvidence, RejectedSummary, ScoringBreakdown, UserCriteria } from "@/lib/types";
-
-type ChatMessage = {
-  id: string;
-  role: "user" | "agent";
-  content: string;
-  recommendations?: MatchResult[];
-  rejectedSummary?: RejectedSummary[];
-  ragCitations?: RagEvidence[];
-};
 
 const starterPrompts = [
-  "Ich wohne in Wien ohne Wallbox, Budget 40k, brauche 400 km Reichweite und gute Assistenzsysteme.",
-  "Used EV under 35k for city commuting, CarPlay, heated seats, and low running costs.",
-  "Familien-SUV bis 50.000 EUR, großer Kofferraum, Autobahn und Winterfahrten.",
-  "New Chinese EV around 45k with strong tech, blind spot detection, and long range."
+  "Family SUV under $60k",
+  "Best for long commutes",
+  "Used Tesla Model 3",
+  "Lease for $500/mo"
+];
+
+const trendingMatches = [
+  {
+    id: "tesla-model-y",
+    make: "Tesla",
+    model: "Model Y",
+    location: "San Francisco, CA",
+    price: "$52,490",
+    condition: "New",
+    match: 100,
+    image: "/flowryd/car-tesla-y.jpg"
+  },
+  {
+    id: "cadillac-lyriq",
+    make: "Cadillac",
+    model: "LYRIQ 2024",
+    location: "San Francisco, CA",
+    price: "$60,695",
+    condition: "New",
+    match: 100,
+    image: "/flowryd/car-cadillac.jpg"
+  },
+  {
+    id: "tesla-model-3",
+    make: "Tesla",
+    model: "Model 3",
+    location: "San Francisco, CA",
+    price: "$38,630",
+    condition: "Used",
+    match: 92,
+    image: "/flowryd/car-tesla-3.jpg"
+  },
+  {
+    id: "rivian-r1s",
+    make: "Rivian",
+    model: "R1S",
+    location: "Los Angeles, CA",
+    price: "$77,400",
+    condition: "New",
+    match: 88,
+    image: "/flowryd/car-rivian.jpg"
+  }
 ];
 
 export function FlowRydAlphaApp() {
-  const [input, setInput] = React.useState("");
-  const [messages, setMessages] = React.useState<ChatMessage[]>([
-    {
-      id: "intro",
-      role: "agent",
-      content:
-        "Hey, how can I help you today? Tell me what kind of electric car you need; I will ask for missing details before ranking."
-    }
-  ]);
-  const [criteria, setCriteria] = React.useState<UserCriteria | null>(null);
-  const [sessionId, setSessionId] = React.useState<string | null>(null);
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-
-  const submitPrompt = React.useCallback(
-    async (
-      prompt: string,
-      options: { criteriaOverride?: UserCriteria; displayPrompt?: string } = {}
-    ) => {
-      const trimmed = prompt.trim();
-      if (!trimmed || loading) return;
-
-      setLoading(true);
-      setError(null);
-      setInput("");
-      setMessages((current) => [
-        ...current,
-        { id: crypto.randomUUID(), role: "user", content: options.displayPrompt ?? trimmed }
-      ]);
-
-      try {
-        const response = await fetch("/api/match", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: trimmed,
-            sessionId,
-            previousCriteria: options.criteriaOverride ?? criteria,
-            criteriaOverride: options.criteriaOverride
-          })
-        });
-        if (!response.ok) throw new Error("The matching service returned an error.");
-
-        const data = (await response.json()) as MatchResponse;
-        setSessionId(data.sessionId);
-        setCriteria(data.criteria);
-        setMessages((current) => [
-          ...current,
-          {
-            id: crypto.randomUUID(),
-            role: "agent",
-            content: data.assistantMessage,
-            recommendations: data.type === "matches" ? data.recommendations : undefined,
-            rejectedSummary: data.rejectedSummary.length ? data.rejectedSummary : undefined,
-            ragCitations: data.ragCitations.length ? data.ragCitations : undefined
-          }
-        ]);
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Something went wrong.");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [criteria, loading, sessionId]
-  );
-
-  const chips = criteria ? criteriaChips(criteria) : [];
-
-  const removeCriterion = (chip: CriteriaChip) => {
-    if (!criteria) return;
-    const nextCriteria = removeCriteriaKey(criteria, chip.key);
-    setCriteria(nextCriteria);
-    submitPrompt(`Removed ${chip.label}.`, {
-      criteriaOverride: nextCriteria,
-      displayPrompt: `Remove ${chip.label}`
-    });
-  };
+  const router = useRouter();
+  const [heroInput, setHeroInput] = React.useState("");
 
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand-mark">
-          <div className="brand-icon">FR</div>
-          <div>
-            <h1 className="brand-title">FlowRyd Alpha</h1>
-            <p className="brand-subtitle">Austria EV matching prototype</p>
-          </div>
-        </div>
-        <div className="status-row" aria-label="Alpha status">
-          <span className="status-pill">
-            <Check size={14} aria-hidden="true" /> Seed inventory
-          </span>
-          <span className="status-pill">
-            <Sparkles size={14} aria-hidden="true" /> Gemini + embeddings
-          </span>
-          <span className="status-pill">
-            <BatteryCharging size={14} aria-hidden="true" /> BEV only
-          </span>
+        <Link className="brand-mark" href="/" aria-label="FlowRyd search">
+          <span className="brand-title">FlowRyd</span>
+        </Link>
+        <nav className="nav-links" aria-label="Primary">
+          <Link className="nav-link nav-link-active" href="/">
+            <SearchCheck size={16} aria-hidden="true" /> Search
+          </Link>
+          <Link className="nav-link" href="/saved">
+            <Bookmark size={16} aria-hidden="true" /> Saved
+          </Link>
+          <Link className="nav-link" href="/social">
+            <Users size={16} aria-hidden="true" /> Social
+          </Link>
+          <Link className="nav-link" href="/perks">
+            <Zap size={16} aria-hidden="true" /> Perks
+          </Link>
+        </nav>
+        <div className="auth-actions" aria-label="Account">
+          <Button type="button" variant="ghost" size="sm">
+            Sign in
+          </Button>
+          <Button type="button" size="sm">
+            Sign up
+          </Button>
         </div>
       </header>
 
-      <section className="workspace">
-        <section className="surface chat-panel" aria-label="EV discovery chat">
-          <div className="panel-header">
-            <div className="panel-title-row">
-              <h2 className="panel-title">
-                <Search size={18} aria-hidden="true" /> Discovery
-              </h2>
-              {loading ? (
-                <span className="status-pill loading">
-                  <Loader2 size={14} aria-hidden="true" /> Matching
-                </span>
-              ) : null}
-            </div>
-            <p className="panel-note">
-              The agent chats first, collects enough criteria, then turns hard filters and weighted
-              preferences into explainable recommendations.
-            </p>
-          </div>
-
-          {chips.length ? (
-            <div className="criteria-strip" aria-label="Current matching criteria">
-              {chips.map((chip) => (
-                <button
-                  key={`${chip.key}-${chip.label}`}
-                  className="criteria-chip"
-                  type="button"
-                  onClick={() => removeCriterion(chip)}
-                  title={`Remove ${chip.label}`}
-                  disabled={loading}
-                >
-                  <span>{chip.label}</span>
-                  <X size={13} aria-hidden="true" />
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="chat-log" aria-busy={loading}>
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`message-group ${message.role === "user" ? "message-group-user" : "message-group-agent"}`}
-              >
-                <div
-                  className={`message ${message.role === "user" ? "message-user" : "message-agent"}`}
-                >
-                  {message.content}
-                </div>
-                {message.rejectedSummary?.length ? (
-                  <MatchInsights rejectedSummary={message.rejectedSummary} ragCitations={message.ragCitations} />
-                ) : null}
-                {message.recommendations?.length ? (
-                  <VehicleShortlist matches={message.recommendations} />
-                ) : null}
-              </div>
-            ))}
-            {loading ? <MatchingState /> : null}
-            {error ? <div className="message message-agent">{error}</div> : null}
-          </div>
-
-          <div className="starter-grid">
-            {starterPrompts.map((prompt) => (
-              <Button
-                key={prompt}
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => submitPrompt(prompt)}
-                disabled={loading}
-              >
-                <Sparkles size={14} aria-hidden="true" />
-                {prompt}
-              </Button>
-            ))}
-          </div>
-
+      <section className="hero-section" id="top">
+        <div className="hero-content">
+          <span className="hero-badge">
+            <Sparkles size={14} aria-hidden="true" /> AI-powered EV matching
+          </span>
+          <h1 className="hero-title">The first car-buying experience for your life.</h1>
           <form
-            className="input-form"
+            className="hero-search"
             onSubmit={(event) => {
               event.preventDefault();
-              submitPrompt(input);
+              const query = heroInput.trim();
+              if (query) router.push(`/chat?q=${encodeURIComponent(query)}`);
             }}
           >
-            <div className="input-row">
-              <textarea
-                className="composer-textarea"
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    submitPrompt(input);
-                  }
-                }}
-                placeholder="z.B. SUV bis 45k, keine Wallbox, Familie, 450 km Reichweite"
-                aria-label="Describe your EV needs"
-                rows={3}
-              />
-              <Button type="submit" disabled={loading || !input.trim()} title="Find matches">
-                {loading ? (
-                  <Loader2 className="spin-icon" size={16} aria-hidden="true" />
-                ) : (
-                  <Send size={16} aria-hidden="true" />
-                )}
-                Send
-              </Button>
-            </div>
-            <div className="input-hint">
-              Alpha note: the agent looks for budget plus use case, charging/range, and one preference before matching.
+            <input
+              className="hero-search-input"
+              value={heroInput}
+              onChange={(event) => setHeroInput(event.target.value)}
+              placeholder="Ask anything... e.g. 'a family SUV under $60k'"
+              aria-label="Ask FlowRyd for EV matches"
+            />
+            <div className="hero-search-actions">
+              <button className="hero-icon-button" type="button" aria-label="Voice" disabled>
+                <Mic size={16} aria-hidden="true" />
+              </button>
+              <button
+                className="hero-submit-button"
+                type="submit"
+                aria-label="Send"
+                disabled={!heroInput.trim()}
+              >
+                <ArrowUp size={16} aria-hidden="true" />
+              </button>
             </div>
           </form>
-        </section>
+          <div className="hero-prompt-row" aria-label="Example searches">
+            {starterPrompts.map((prompt) => (
+              <button
+                key={prompt}
+                className="hero-prompt"
+                type="button"
+                onClick={() => router.push(`/chat?q=${encodeURIComponent(prompt)}`)}
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+        </div>
       </section>
+
+      <section className="feature-band" id="perks" aria-label="FlowRyd benefits">
+        <article className="feature-card">
+          <span className="feature-icon">
+            <Sparkles size={22} aria-hidden="true" />
+          </span>
+          <h2>Matched to your life</h2>
+          <p>Conversational discovery that learns what actually matters to you.</p>
+        </article>
+        <article className="feature-card">
+          <span className="feature-icon">
+            <Zap size={22} aria-hidden="true" />
+          </span>
+          <h2>EV incentives, applied</h2>
+          <p>We surface federal &amp; state credits up to $7,500 right at the price.</p>
+        </article>
+        <article className="feature-card" id="social">
+          <span className="feature-icon">
+            <ShieldCheck size={22} aria-hidden="true" />
+          </span>
+          <h2>Concierge delivery</h2>
+          <p>Your car comes to your driveway, fully set up. No dealership.</p>
+        </article>
+      </section>
+
+      <section className="trending-section" id="matches" aria-label="Trending matches">
+        <div className="trending-header">
+          <h2>Trending matches</h2>
+          <Link href="/saved">View all &rarr;</Link>
+        </div>
+        <div className="trending-grid">
+          {trendingMatches.map((vehicle) => (
+            <Link className="trending-card" href={`/car/${vehicle.id}`} key={vehicle.id}>
+              <div className="trending-media">
+                <Image
+                  src={vehicle.image}
+                  alt={`${vehicle.make} ${vehicle.model}`}
+                  width={720}
+                  height={540}
+                  sizes="(max-width: 720px) calc(100vw - 32px), 290px"
+                />
+                <span className="trending-match">{vehicle.match}% match</span>
+                <span className="trending-save" aria-label={`Save ${vehicle.make} ${vehicle.model}`}>
+                  <Bookmark size={18} aria-hidden="true" />
+                </span>
+              </div>
+              <div className="trending-body">
+                <h3>
+                  {vehicle.make} {vehicle.model}
+                </h3>
+                <p>{vehicle.location}</p>
+                <div className="trending-meta">
+                  <span>{vehicle.price}</span>
+                  <span>{vehicle.condition}</span>
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <footer className="app-footer">
+        <div className="footer-grid">
+          <div>
+            <h2>FlowRyd</h2>
+            <p>The first car-buying experience for your life.</p>
+          </div>
+          <nav aria-label="Discover">
+            <h3>Discover</h3>
+            <a href="#">New EVs</a>
+            <a href="#">Used EVs</a>
+            <a href="#">Lease deals</a>
+            <a href="#">Compare</a>
+          </nav>
+          <nav aria-label="Company">
+            <h3>Company</h3>
+            <a href="#">About</a>
+            <a href="#">Press</a>
+            <a href="#">Careers</a>
+            <a href="#">Contact</a>
+          </nav>
+          <nav aria-label="Legal">
+            <h3>Legal</h3>
+            <a href="#">Privacy</a>
+            <a href="#">Terms</a>
+            <a href="#">Cookies</a>
+          </nav>
+        </div>
+        <div className="footer-bottom">© 2026 FlowRyd. All rights reserved.</div>
+      </footer>
     </main>
   );
-}
-
-function MatchingState() {
-  return (
-    <div className="message-group message-group-agent">
-      <div className="message message-agent matching-state" role="status" aria-live="polite">
-        <div className="matching-state-icon" aria-hidden="true">
-          <Loader2 size={16} />
-        </div>
-        <div>
-          <div className="matching-state-title">Matching against inventory</div>
-          <div className="matching-state-copy">Checking hard filters, range, charging fit, and tradeoffs.</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function VehicleShortlist({ matches }: { matches: MatchResult[] }) {
-  const [activeIndex, setActiveIndex] = React.useState(0);
-  const activeMatch = matches[activeIndex] ?? matches[0];
-  const hasMultipleMatches = matches.length > 1;
-
-  const goToPrevious = () => {
-    setActiveIndex((current) => (current === 0 ? matches.length - 1 : current - 1));
-  };
-
-  const goToNext = () => {
-    setActiveIndex((current) => (current === matches.length - 1 ? 0 : current + 1));
-  };
-
-  React.useEffect(() => {
-    setActiveIndex(0);
-  }, [matches]);
-
-  if (!activeMatch) return null;
-
-  return (
-    <section className="vehicle-shortlist" aria-label="Recommended vehicles">
-      <div className="shortlist-header">
-        <div>
-          <div className="shortlist-eyebrow">Recommended shortlist</div>
-          <h3 className="shortlist-title">
-            {activeIndex === 0 ? "Best fit first" : `Option ${activeIndex + 1}`}
-          </h3>
-        </div>
-        <div className="carousel-toolbar" aria-label="Recommendation carousel controls">
-          <span className="shortlist-count">
-            {activeIndex + 1} of {matches.length}
-          </span>
-          {hasMultipleMatches ? (
-            <div className="carousel-arrows">
-              <Button type="button" size="icon" variant="secondary" onClick={goToPrevious} title="Previous car">
-                <ChevronLeft size={16} aria-hidden="true" />
-              </Button>
-              <Button type="button" size="icon" variant="secondary" onClick={goToNext} title="Next car">
-                <ChevronRight size={16} aria-hidden="true" />
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      <VehicleCard
-        key={activeMatch.vehicle.id}
-        match={activeMatch}
-        rankLabel={activeIndex === 0 ? "Top pick" : `Option ${activeIndex + 1}`}
-      />
-
-      {hasMultipleMatches ? (
-        <div className="carousel-selector" aria-label="Choose a recommended vehicle">
-          {matches.map((match, index) => (
-            <button
-              key={match.vehicle.id}
-              className={cn("carousel-option", index === activeIndex && "carousel-option-active")}
-              type="button"
-              onClick={() => setActiveIndex(index)}
-              aria-current={index === activeIndex ? "true" : undefined}
-            >
-              <span className="carousel-dot" aria-hidden="true" />
-              <span>
-                {match.vehicle.make} {match.vehicle.model}
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function VehicleCard({
-  match,
-  rankLabel
-}: {
-  match: MatchResult;
-  rankLabel?: string;
-}) {
-  const [expanded, setExpanded] = React.useState(false);
-  const vehicle = match.vehicle;
-  const imageSrc = vehicle.images[0];
-  const isRemoteImage = imageSrc.startsWith("http://") || imageSrc.startsWith("https://");
-
-  return (
-    <article className={cn("vehicle-card", expanded && "vehicle-card-expanded")}>
-      <div className="vehicle-media">
-        <Image
-          className="vehicle-image"
-          src={imageSrc}
-          alt={`${vehicle.make} ${vehicle.model}`}
-          width={1200}
-          height={675}
-          sizes="(max-width: 720px) calc(100vw - 56px), 820px"
-          unoptimized={isRemoteImage}
-        />
-      </div>
-      <div className="vehicle-body">
-        <div className="vehicle-heading">
-          <div>
-            {rankLabel ? <div className="vehicle-rank">{rankLabel}</div> : null}
-            <h3 className="vehicle-title">
-              {vehicle.make} {vehicle.model}
-            </h3>
-            <div className="vehicle-meta">
-              {vehicle.year} · {vehicle.condition} · {vehicle.bodyType} · {vehicle.source}
-            </div>
-          </div>
-          <span className="score-badge">{match.score}% Match</span>
-        </div>
-
-        <div className="metric-grid">
-          <Metric label="Price" value={formatEUR(match.tco.purchasePriceWithVAT)} />
-          <Metric label="Lease" value={vehicle.monthlyLeaseEUR ? formatEUR(vehicle.monthlyLeaseEUR) : "n/a"} />
-          <Metric label="Range" value={`${formatNumber(vehicle.rangeKm)} km`} />
-          <Metric label="Cargo" value={`${formatNumber(vehicle.cargoLiters)} L`} />
-        </div>
-
-        <p className="why-copy">{match.explanation}</p>
-
-        {expanded ? (
-          <>
-            <div className="metric-grid">
-              <Metric label="Efficiency" value={`${vehicle.efficiencyKwhPer100Km} kWh/100 km`} />
-              <Metric label="Battery" value={`${vehicle.batteryKwh} kWh`} />
-              <Metric
-                label="SoH"
-                value={vehicle.condition === "new" ? "new" : vehicle.batterySoH ? `${vehicle.batterySoH}%` : "not disclosed"}
-              />
-            </div>
-            <div className="ruled-out">
-              {match.ruledOutReasons.length
-                ? match.ruledOutReasons.join("; ")
-                : "No major tradeoff surfaced for the stated criteria."}
-            </div>
-            <div className="rag-context">
-              <div className="rag-context-heading">Score breakdown</div>
-              <div className="score-breakdown">
-                {formatScoringBreakdown(match.scoringBreakdown).map((item) => (
-                  <div key={item.label} className="score-breakdown-item">
-                    <span>{item.label}</span>
-                    <span>{item.value}%</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            {match.ragEvidence.length ? (
-              <div className="rag-context">
-                <div className="rag-context-heading">Retrieved context</div>
-                {match.ragEvidence.slice(0, 3).map((evidence) => (
-                  <div key={`${evidence.sourceType}-${evidence.sourceId}`} className="rag-context-item">
-                    <div className="rag-context-title">
-                      {formatEvidenceSource(evidence.sourceType)} · {evidence.title} · {Math.round(evidence.score * 100)}%
-                    </div>
-                    <div className="rag-context-copy">{evidence.excerpt}</div>
-                    {evidence.sourceUrl ? (
-                      <a className="rag-context-link" href={evidence.sourceUrl} target="_blank" rel="noreferrer">
-                        Source
-                      </a>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </>
-        ) : null}
-
-        <div className="card-actions">
-          <Button type="button" size="sm" variant="secondary" onClick={() => setExpanded((value) => !value)}>
-            <Info size={14} aria-hidden="true" />
-            {expanded ? "Hide details" : "Show details"}
-          </Button>
-          <Button type="button" size="sm" variant="ghost" disabled title="Non-functional alpha CTA">
-            <ShoppingBag size={14} aria-hidden="true" />
-            Buy
-          </Button>
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function MatchInsights({
-  rejectedSummary,
-  ragCitations
-}: {
-  rejectedSummary: RejectedSummary[];
-  ragCitations?: RagEvidence[];
-}) {
-  return (
-    <div className="match-insights">
-      <div className="match-insights-section">
-        <div className="rag-context-heading">Ruled out</div>
-        <ul className="match-insights-list">
-          {rejectedSummary.map((item) => (
-            <li key={item.reason}>
-              {item.reason} ({item.count})
-            </li>
-          ))}
-        </ul>
-      </div>
-      {ragCitations?.length ? (
-        <div className="match-insights-section">
-          <div className="rag-context-heading">Knowledge retrieved</div>
-          {ragCitations.slice(0, 3).map((citation) => (
-            <div key={`${citation.sourceType}-${citation.sourceId}`} className="rag-context-item">
-              <div className="rag-context-title">
-                {formatEvidenceSource(citation.sourceType)} · {citation.title} · {Math.round(citation.score * 100)}%
-              </div>
-              <div className="rag-context-copy">{citation.excerpt}</div>
-              {citation.sourceUrl ? (
-                <a className="rag-context-link" href={citation.sourceUrl} target="_blank" rel="noreferrer">
-                  Source
-                </a>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function formatScoringBreakdown(breakdown: ScoringBreakdown) {
-  return [
-    { label: "Price", value: breakdown.priceFit },
-    { label: "Range", value: breakdown.rangeFit },
-    { label: "Efficiency", value: breakdown.efficiencyFit },
-    { label: "TCO", value: breakdown.tcoFit },
-    { label: "Brand", value: breakdown.brandFit },
-    { label: "Cargo / seats", value: breakdown.cargoPassengerFit },
-    { label: "Reliability", value: breakdown.reliabilityFit },
-    { label: "Features", value: breakdown.featureFit },
-    { label: "Persona", value: breakdown.personaFit },
-    { label: "Battery health", value: breakdown.batteryHealthFit },
-    { label: "Semantic", value: breakdown.semanticFit }
-  ];
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="metric">
-      <span className="metric-label">{label}</span>
-      <span className="metric-value">{value}</span>
-    </div>
-  );
-}
-
-function formatEvidenceSource(sourceType: MatchResult["ragEvidence"][number]["sourceType"]) {
-  return sourceType === "vehicle_payload" ? "Vehicle data" : "Knowledge";
 }

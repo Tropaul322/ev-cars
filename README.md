@@ -139,14 +139,12 @@ enabled and configure `GEMINI_API_KEY` or `OPENAI_API_KEY`.
 
 ## Austrian Inventory Scraping
 
-Inventory crawling lives in `inventory-scraping/` and uses Firecrawl for URL
-mapping plus page scraping. It covers willhaben.at, AutoScout24.at,
-gebrauchtwagen.at, selected Austrian OEM EV pages, and the requested context
-sources:
-
-- `https://eletric-vehicles.com/`
-- `https://www.umweltfoerderung.at/privatpersonen`
-- `https://nearcharger.sk/`
+Inventory crawling lives in `inventory-scraping/` and uses source-specific
+parsers (AutoScout24, willhaben, Tesla API, bmw-boerse, generic OEM cards, RAG
+context pages). Fetching is pluggable via `--fetcher=scrapingbee` (default) or
+`--fetcher=crawl4ai` (Python + headless Chromium). It covers willhaben.at, AutoScout24.at,
+gebrauchtwagen.at, selected Austrian OEM EV pages, and context sources such as
+umweltfoerderung.at and e-control.at.
 
 List configured sources:
 
@@ -154,7 +152,7 @@ List configured sources:
 npm run inventory:list-sources
 ```
 
-Dry-run a small Firecrawl crawl without DB writes:
+Dry-run without DB writes:
 
 ```bash
 npm run inventory:crawl -- --dry-run --skip-embeddings --max-listings-per-source=10
@@ -163,24 +161,39 @@ npm run inventory:crawl -- --dry-run --skip-embeddings --max-listings-per-source
 Run a subset:
 
 ```bash
-npm run inventory:crawl -- --source=willhaben_ev_used,autoscout24_at_ev_all --skip-embeddings
+npm run inventory:crawl -- --source=willhaben_at_ev,autoscout24_at_ev_all --skip-embeddings
 ```
 
-The crawler requires:
+Re-parse cached HTML without network access:
 
 ```bash
-FIRECRAWL_API_KEY=fc-...
+npm run inventory:crawl:offline -- --source=autoscout24_at_ev_all
+```
+
+**ScrapingBee (default):**
+
+```bash
+SCRAPINGBEE_API_KEY=...
+```
+
+**Crawl4AI (local Python browser):**
+
+```bash
+npm run inventory:crawl4ai:setup
+export FLOWRYD_PYTHON=inventory-scraping/crawl4ai/.venv/bin/python
+npm run inventory:crawl:crawl4ai -- --source=willhaben_at_ev --skip-db
+```
+
+**Supabase upload (optional):**
+
+```bash
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
-Use `--skip-db` for local-only crawling. Audit files are written to
-`inventory-scraping/output/`:
-
-- `raw-listings.json`
-- `vehicles.json`
-- `context-pages.json`
-- `latest.json`
+Use `--skip-db` for local-only crawling. Per-source audit files are written to
+`inventory-scraping/output/json/` and `inventory-scraping/output/csv/`, plus
+combined `vehicles.json`, `context-pages.json`, and `summary.json`.
 
 Apply `supabase/migrations/202606090001_add_inventory_scraping_metadata.sql`
 before DB uploads. Scraped vehicles include listing URL, seller type, VIN when

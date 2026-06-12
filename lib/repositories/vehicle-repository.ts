@@ -1,7 +1,12 @@
 import { allVehicles } from "../data/all-vehicles.ts";
 import type { UserCriteria, Vehicle } from "../types.ts";
 import { sanitizeVehicleImages } from "../vehicle-images.ts";
-import { vehicleMatchesBrandOriginPreferences, vehicleMatchesModelPreferences } from "../vehicle-matching.ts";
+import {
+  countryCodesForBrandOrigins,
+  vehicleMatchesBrandOriginPreferences,
+  vehicleMatchesBrandPreferences,
+  vehicleMatchesModelPreferences
+} from "../vehicle-matching.ts";
 import { getSupabaseRestConfig } from "./supabase-rest.ts";
 
 type SupabaseVehicleRow = {
@@ -47,6 +52,13 @@ export async function searchVehicles(criteria: UserCriteria): Promise<Vehicle[]>
   if (criteria.rangeFloorKm) params.set("range_km", `gte.${criteria.rangeFloorKm}`);
   if (criteria.mileageMaxKm) params.set("mileage_km", `lte.${criteria.mileageMaxKm}`);
   if (criteria.bodyTypes.length) params.set("body_type", `in.(${criteria.bodyTypes.join(",")})`);
+  if (criteria.brandPreferences.length) {
+    params.set("brand", `in.(${brandQueryValues(criteria.brandPreferences).map(formatPostgrestInValue).join(",")})`);
+  }
+  const manufacturerCountryCodes = countryCodesForBrandOrigins(criteria.preferredBrandOrigins);
+  if (manufacturerCountryCodes.length) {
+    params.set("manufacturer_country_code", `in.(${manufacturerCountryCodes.join(",")})`);
+  }
 
   try {
     const response = await fetch(`${supabase.url}/rest/v1/vehicles?${params}`, {
@@ -183,6 +195,7 @@ function filterVehiclesForSearch(vehicles: Vehicle[], criteria: UserCriteria) {
     if (criteria.mileageMaxKm && vehicle.condition === "used" && vehicle.mileageKm === null) return false;
     if (criteria.bodyTypes.length && !criteria.bodyTypes.includes(vehicle.bodyType)) return false;
     if (!vehicleMatchesBrandOriginPreferences(vehicle, criteria.preferredBrandOrigins)) return false;
+    if (!vehicleMatchesBrandPreferences(vehicle, criteria.brandPreferences)) return false;
     if (!vehicleMatchesModelPreferences(vehicle, criteria.modelPreferences)) return false;
     if (criteria.passengers && vehicle.seats < criteria.passengers) return false;
     if (criteria.avoidedBrands.some((brand) => sameBrand(brand, vehicle.make))) return false;
@@ -206,6 +219,27 @@ function sameBrand(input: string, make: string) {
 
 function normalizeBrand(value: string) {
   return value.toLowerCase().replace("mercedes-benz", "mercedes").replace("volkswagen", "vw");
+}
+
+function formatPostgrestInValue(value: string) {
+  return `"${value.replace(/"/g, '\\"')}"`;
+}
+
+function brandQueryValues(brandPreferences: string[]) {
+  const values = new Set<string>();
+  for (const brand of brandPreferences) {
+    values.add(brand);
+    const normalized = normalizeBrand(brand);
+    if (normalized === "vw") {
+      values.add("VW");
+      values.add("Volkswagen");
+    }
+    if (normalized === "mercedes") {
+      values.add("Mercedes");
+      values.add("Mercedes-Benz");
+    }
+  }
+  return [...values];
 }
 
 function chunk<T>(rows: T[], size: number) {

@@ -10,7 +10,11 @@ import {
 import { matchVehiclesByEmbedding } from "./repositories/vehicle-repository.ts";
 import type { Feature, RagContext, RagEvidence, UserCriteria, Vehicle } from "./types.ts";
 import { vehicleTitle, buildVehicleEmbeddingText } from "./vehicle-embedding-text.ts";
-import { vehicleMatchesModelPreferences } from "./vehicle-matching.ts";
+import {
+  vehicleMatchesBrandOriginPreferences,
+  vehicleMatchesBrandPreference,
+  vehicleMatchesModelPreferences
+} from "./vehicle-matching.ts";
 
 type BuildRagContextInput = {
   message: string;
@@ -310,6 +314,10 @@ function scoreCriteriaSignals(vehicle: Vehicle, criteria: UserCriteria) {
     score += 1.5;
   }
   if (criteria.brandPreferences.some((brand) => sameBrand(brand, vehicle.make))) score += 3;
+  if (criteria.brandPreferences.some((brand) => vehicleMatchesBrandPreference(vehicle, brand))) score += 3;
+  if (vehicleMatchesBrandOriginPreferences(vehicle, criteria.preferredBrandOrigins)) {
+    score += criteria.preferredBrandOrigins.length ? 2.5 : 0;
+  }
   if (criteria.modelPreferences.length && vehicleMatchesModelPreferences(vehicle, criteria.modelPreferences)) {
     score += 4;
   }

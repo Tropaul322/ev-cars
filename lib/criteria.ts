@@ -321,9 +321,14 @@ export function getCriteriaReadiness(criteria: UserCriteria): CriteriaReadiness 
   const missingCriteria = (Object.entries(groups) as Array<[MissingCriteria, boolean]>)
     .filter(([, present]) => !present)
     .map(([key]) => key);
+  const hasExplicitInventoryLookup = Boolean(
+    criteria.brandPreferences.length ||
+      criteria.preferredBrandOrigins.length ||
+      criteria.modelPreferences?.length
+  );
 
   return {
-    readyToMatch: groups.budget && collectedCriteriaCount >= 3,
+    readyToMatch: (groups.budget && collectedCriteriaCount >= 3) || hasExplicitInventoryLookup,
     collectedCriteriaCount,
     groups,
     missingCriteria

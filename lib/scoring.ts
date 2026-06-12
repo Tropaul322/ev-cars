@@ -9,7 +9,13 @@ import type {
 import { getRagEvidenceForVehicle } from "./rag.ts";
 import { blendSemanticSignals, scoreVehicleTopicAffinity } from "./semantic-scoring.ts";
 import { calculateTco } from "./tco.ts";
-import { vehicleMatchesBrandOriginPreferences, vehicleMatchesModelPreferences } from "./vehicle-matching.ts";
+import {
+  vehicleMatchesBrandOriginPreferences,
+  vehicleMatchesBrandPreferences,
+  vehicleMatchesBrandPreference,
+  vehicleMatchesModelPreferences,
+  vehiclePrimaryBrand
+} from "./vehicle-matching.ts";
 
 export type MatchEngineResult = {
   recommendations: MatchResult[];
@@ -128,6 +134,9 @@ export function getHardFilterReasons(vehicle: Vehicle, criteria: UserCriteria) {
   if (!vehicleMatchesBrandOriginPreferences(vehicle, criteria.preferredBrandOrigins)) {
     reasons.push(`brand origin is ${vehicle.brandOrigin}, not ${criteria.preferredBrandOrigins.join(" or ")}`);
   }
+  if (!vehicleMatchesBrandPreferences(vehicle, criteria.brandPreferences)) {
+    reasons.push(`brand is ${vehiclePrimaryBrand(vehicle)}, not ${criteria.brandPreferences.join(" or ")}`);
+  }
   if (!vehicleMatchesModelPreferences(vehicle, criteria.modelPreferences)) {
     reasons.push(`model is ${vehicle.make} ${vehicle.model}, not ${criteria.modelPreferences.join(" or ")}`);
   }
@@ -241,7 +250,7 @@ function scoreBrand(vehicle: Vehicle, criteria: UserCriteria) {
     if (criteria.qualitativeSignals.includes("premium") && premiumMakes.has(normalizeBrand(vehicle.make))) return 88;
     return 76;
   }
-  const brandScore = criteria.brandPreferences.some((brand) => sameBrand(brand, vehicle.make)) ? 100 : 52;
+  const brandScore = criteria.brandPreferences.some((brand) => vehicleMatchesBrandPreference(vehicle, brand)) ? 100 : 52;
   if (criteria.modelPreferences.length && vehicleMatchesModelPreferences(vehicle, criteria.modelPreferences)) {
     return Math.max(brandScore, 96);
   }

@@ -80,6 +80,7 @@ export type Vehicle = {
   listingCountry?: "AT";
   currency?: "EUR";
   title?: string;
+  brand?: string;
   make: string;
   model: string;
   trim: string;

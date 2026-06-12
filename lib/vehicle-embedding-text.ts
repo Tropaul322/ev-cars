@@ -24,6 +24,7 @@ export function vehicleTitle(vehicle: Vehicle) {
 export function buildVehicleEmbeddingText(vehicle: Vehicle) {
   return [
     vehicleTitle(vehicle),
+    vehicle.brand,
     vehicle.make,
     vehicle.model,
     vehicle.trim,

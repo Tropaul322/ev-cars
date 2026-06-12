@@ -1,7 +1,45 @@
 import type { BrandOrigin, Vehicle } from "./types.ts";
 
+const originCountryCodes: Record<BrandOrigin, string[]> = {
+  china: ["CN"],
+  europe: [
+    "AT",
+    "BE",
+    "CZ",
+    "DE",
+    "ES",
+    "FR",
+    "GB",
+    "IT",
+    "NL",
+    "PL",
+    "RO",
+    "SE",
+    "SK"
+  ],
+  other: []
+};
+
 export function vehicleMatchesModelPreferences(vehicle: Vehicle, modelPreferences: string[]) {
   return !modelPreferences.length || modelPreferences.some((model) => vehicleMatchesModelPreference(vehicle, model));
+}
+
+export function vehicleMatchesBrandPreferences(vehicle: Vehicle, brandPreferences: string[]) {
+  return !brandPreferences.length || brandPreferences.some((brand) => vehicleMatchesBrandPreference(vehicle, brand));
+}
+
+export function vehicleMatchesBrandPreference(vehicle: Vehicle, brandPreference: string) {
+  const preferred = normalizeVehicleText(brandPreference);
+  if (!preferred) return false;
+
+  return vehicleBrandCandidates(vehicle).some((candidate) => {
+    const normalizedCandidate = normalizeBrand(candidate);
+    return (
+      normalizedCandidate === preferred ||
+      normalizedCandidate.startsWith(`${preferred} `) ||
+      preferred.startsWith(`${normalizedCandidate} `)
+    );
+  });
 }
 
 export function vehicleMatchesBrandOriginPreferences(vehicle: Vehicle, origins: BrandOrigin[] = []) {
@@ -11,9 +49,10 @@ export function vehicleMatchesBrandOriginPreferences(vehicle: Vehicle, origins: 
 
 export function vehicleMatchesBrandOriginPreference(vehicle: Vehicle, origin: BrandOrigin) {
   if (vehicle.brandOrigin === origin) return true;
+  const countryCode = vehicle.manufacturerCountryCode?.toUpperCase();
+  if (countryCode && originCountryCodes[origin].includes(countryCode)) return true;
   if (origin === "china") {
     return (
-      vehicle.manufacturerCountryCode?.toUpperCase() === "CN" ||
       /china|chinese/i.test(vehicle.manufacturerCountry ?? "")
     );
   }
@@ -23,6 +62,14 @@ export function vehicleMatchesBrandOriginPreference(vehicle: Vehicle, origin: Br
     );
   }
   return false;
+}
+
+export function countryCodesForBrandOrigins(origins: BrandOrigin[]) {
+  return Array.from(new Set(origins.flatMap((origin) => originCountryCodes[origin])));
+}
+
+export function vehiclePrimaryBrand(vehicle: Vehicle) {
+  return vehicle.brand ?? vehicle.make;
 }
 
 export function vehicleMatchesModelPreference(vehicle: Vehicle, modelPreference: string) {
@@ -56,4 +103,12 @@ function normalizeVehicleText(value: string) {
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
     .replace(/\s+/g, " ");
+}
+
+function normalizeBrand(value: string) {
+  return normalizeVehicleText(value).replace("mercedes benz", "mercedes").replace("volkswagen", "vw");
+}
+
+function vehicleBrandCandidates(vehicle: Vehicle) {
+  return [vehicle.brand, vehicle.make].filter((value): value is string => Boolean(value));
 }

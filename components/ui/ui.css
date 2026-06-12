@@ -27,17 +27,17 @@
 }
 
 .ui-button:focus-visible {
-  box-shadow: 0 0 0 3px rgb(15 143 114 / 18%);
+  box-shadow: 0 0 0 3px rgb(69 102 245 / 18%);
 }
 
 .ui-button-primary {
-  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
-  box-shadow: 0 10px 22px rgb(8 113 87 / 20%);
+  background: var(--primary);
+  box-shadow: 0 10px 22px rgb(69 102 245 / 20%);
   color: white;
 }
 
 .ui-button-primary:hover {
-  background: linear-gradient(135deg, #129d7d, var(--primary-strong));
+  background: var(--primary-strong);
 }
 
 .ui-button-secondary {
@@ -47,7 +47,7 @@
 }
 
 .ui-button-secondary:hover {
-  border-color: rgb(15 143 114 / 28%);
+  border-color: rgb(69 102 245 / 28%);
   color: var(--primary-strong);
 }
 
@@ -57,7 +57,7 @@
 }
 
 .ui-button-ghost:hover {
-  background: rgb(237 244 239 / 72%);
+  background: rgb(238 240 255 / 72%);
 }
 
 .ui-button-danger {
@@ -98,5 +98,5 @@
 
 .ui-input:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgb(15 143 114 / 14%);
+  box-shadow: 0 0 0 3px rgb(69 102 245 / 14%);
 }

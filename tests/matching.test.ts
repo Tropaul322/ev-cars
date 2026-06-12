@@ -155,6 +155,15 @@ test("hard filters enforce requested brand origin", () => {
   assert.ok(result.rejected.some((item) => item.reasons.some((reason) => reason.includes("brand origin"))));
 });
 
+test("hard filters enforce requested brand", () => {
+  const criteria = extractCriteria("Ford car");
+  const result = matchVehicles(seedVehicles, criteria);
+
+  assert.equal(criteria.brandPreferences.includes("Ford"), true);
+  assert.equal(result.recommendations.length, 0);
+  assert.ok(result.rejected.some((item) => item.reasons.some((reason) => reason.includes("brand is"))));
+});
+
 test("used EVs with undisclosed battery health are explicit and not invented", () => {
   const criteria = extractCriteria("Gebrauchter SUV bis 50000 EUR, Batteriegesundheit wichtig.");
   const result = matchVehicles(seedVehicles, criteria);
@@ -308,6 +317,32 @@ test("match route keeps Chinese car requests to Chinese-origin brands", async ()
   assert.ok(data.recommendations.length > 0);
   for (const recommendation of data.recommendations) {
     assert.equal(recommendation.vehicle.brandOrigin, "china");
+  }
+});
+
+test("match route returns Chinese cars without requiring budget", async () => {
+  const data = await runMatchRequest({
+    message: "I need a Chinese car."
+  });
+
+  assert.equal(data.type, "matches");
+  assert.deepEqual(data.criteria.preferredBrandOrigins, ["china"]);
+  assert.ok(data.recommendations.length > 0);
+  for (const recommendation of data.recommendations) {
+    assert.equal(recommendation.vehicle.brandOrigin, "china");
+  }
+});
+
+test("match route returns Ford cars without requiring budget", async () => {
+  const data = await runMatchRequest({
+    message: "I need a Ford car."
+  });
+
+  assert.equal(data.type, "matches");
+  assert.deepEqual(data.criteria.brandPreferences, ["Ford"]);
+  assert.ok(data.recommendations.length > 0);
+  for (const recommendation of data.recommendations) {
+    assert.equal(recommendation.vehicle.make, "Ford");
   }
 });
 

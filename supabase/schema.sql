@@ -2,6 +2,7 @@ create table if not exists public.vehicles (
   id text primary key,
   payload jsonb not null,
   source text generated always as (payload ->> 'source') stored,
+  brand text generated always as (coalesce(payload ->> 'brand', payload ->> 'make')) stored,
   make text generated always as (payload ->> 'make') stored,
   model text generated always as (payload ->> 'model') stored,
   title text generated always as (payload ->> 'title') stored,
@@ -13,6 +14,9 @@ create table if not exists public.vehicles (
 
 create index if not exists vehicles_payload_make_idx
   on public.vehicles ((payload ->> 'make'));
+
+create index if not exists vehicles_brand_idx
+  on public.vehicles (brand);
 
 create index if not exists vehicles_payload_condition_idx
   on public.vehicles ((payload ->> 'condition'));

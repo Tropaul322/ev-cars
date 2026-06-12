@@ -71,7 +71,7 @@ function reconcileLlmPlan(
   let action = generated.action!;
   const assistantMessage = sanitizeAssistantMessage(generated.assistantMessage ?? "") ?? null;
 
-  if (action === "match" && !basePlan.readiness.readyToMatch) {
+  if (action === "match" && !canMatch(input.criteria, basePlan.readiness)) {
     action = "clarification";
   }
 
@@ -96,7 +96,7 @@ function buildFallbackPlan(
     readiness
   };
 
-  if (readiness.readyToMatch && preferredAction !== "chat" && preferredAction !== "clarification") {
+  if (canMatch(input.criteria, readiness) && preferredAction !== "chat" && preferredAction !== "clarification") {
     return { ...basePlan, action: "match", assistantMessage: null };
   }
 
@@ -204,6 +204,13 @@ function buildAgentDecisionInput(input: PlanAgentTurnInput, readiness: CriteriaR
     previousCriteria: input.previousCriteria,
     criteria: input.criteria
   };
+}
+
+function canMatch(criteria: UserCriteria, readiness: CriteriaReadiness) {
+  return (
+    readiness.readyToMatch ||
+    Boolean(criteria.brandPreferences.length || criteria.preferredBrandOrigins.length || criteria.modelPreferences.length)
+  );
 }
 
 function parseAgentDecisionJson(content: string): AgentLlmDecision | null {
