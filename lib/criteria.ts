@@ -17,22 +17,55 @@ const germanSignals = [
   "suche",
   "brauche",
   "reichweite",
-  "budget",
   "monat",
   "gebraucht",
+  "gebrauchter",
+  "gebrauchte",
+  "gebrauchtes",
   "neu",
+  "neuer",
+  "neue",
+  "neues",
   "wohnung",
   "pendeln",
   "taeglich",
+  "täglich",
   "autobahn",
   "familie",
   "kofferraum",
   "hallo",
   "österreich",
-  "wien",
-  "graz",
-  "linz",
-  "salzburg"
+  "oesterreich",
+  "fuer",
+  "für",
+  "ohne",
+  "mit",
+  "bis"
+];
+
+const englishSignals = [
+  "i",
+  "need",
+  "looking",
+  "find",
+  "used",
+  "under",
+  "with",
+  "for",
+  "range",
+  "monthly",
+  "lease",
+  "commute",
+  "highway",
+  "family",
+  "trunk",
+  "hello",
+  "without",
+  "public",
+  "home",
+  "work",
+  "city",
+  "mileage"
 ];
 
 const bodyTypeKeywords: Array<[BodyType, RegExp]> = [
@@ -192,15 +225,28 @@ export function emptyCriteria(rawPrompt = "", language: Language = "en"): UserCr
   };
 }
 
-export function detectLanguage(prompt: string): Language {
+function countLanguageSignals(prompt: string, signals: string[]) {
+  return signals.filter((signal) => new RegExp(`\\b${escapeRegExp(signal)}\\b`, "i").test(prompt)).length;
+}
+
+function detectPromptLanguage(prompt: string): Language | null {
   const normalized = prompt.toLowerCase();
   const hasGermanCharacter = /[äöüß]/i.test(prompt);
-  const germanHits = germanSignals.filter((signal) => normalized.includes(signal)).length;
-  return hasGermanCharacter || germanHits >= 2 ? "de" : "en";
+  if (hasGermanCharacter) return "de";
+
+  const germanHits = countLanguageSignals(normalized, germanSignals);
+  const englishHits = countLanguageSignals(normalized, englishSignals);
+  if (germanHits > englishHits && germanHits >= 1) return "de";
+  if (englishHits > germanHits && englishHits >= 1) return "en";
+  return null;
+}
+
+export function detectLanguage(prompt: string, fallback: Language = "en"): Language {
+  return detectPromptLanguage(prompt) ?? fallback;
 }
 
 export function extractCriteria(prompt: string, previous?: UserCriteria): UserCriteria {
-  const language = detectLanguage(prompt || previous?.rawPrompt || "");
+  const language = detectLanguage(prompt, previous?.language ?? "en");
   const base = previous ? normalizeCriteriaShape({ ...previous, language }) : emptyCriteria(prompt, language);
   const normalizedPrompt = prompt.trim();
   const text = normalizedPrompt.toLowerCase();
@@ -758,6 +804,12 @@ function extractBrandPreferences(text: string) {
 function extractPreferredBrandOrigins(text: string): BrandOrigin[] {
   const origins: BrandOrigin[] = [];
   if (/(chinese|china|chinesisch|chinesisches|chinesische)/i.test(text)) origins.push("china");
+  if (/(korean|korea|koreanisch|koreanische|koreanisches|suedkorea|südkorea|south korea)/i.test(text)) {
+    origins.push("korea");
+  }
+  if (/(american|usa|u\.s\.|united states|us-made|amerikanisch|amerikanische|amerikanisches)/i.test(text)) {
+    origins.push("us");
+  }
   if (/(european|europe|europäisch|europaeisch|europa)/i.test(text)) origins.push("europe");
   return Array.from(new Set(origins));
 }

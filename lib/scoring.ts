@@ -8,7 +8,7 @@ import type {
 } from "./types.ts";
 import { getRagEvidenceForVehicle } from "./rag.ts";
 import { blendSemanticSignals, scoreVehicleTopicAffinity } from "./semantic-scoring.ts";
-import { calculateTco } from "./tco.ts";
+import { calculateTco, estimateMonthlyVehiclePayment } from "./tco.ts";
 import {
   vehicleMatchesBrandOriginPreferences,
   vehicleMatchesBrandPreferences,
@@ -93,11 +93,7 @@ export function getHardFilterReasons(vehicle: Vehicle, criteria: UserCriteria) {
   if (criteria.budgetMaxEUR && vehicle.priceEUR > criteria.budgetMaxEUR) {
     reasons.push(`above purchase budget of EUR ${criteria.budgetMaxEUR.toLocaleString("de-AT")}`);
   }
-  if (
-    criteria.monthlyBudgetEUR &&
-    vehicle.monthlyLeaseEUR &&
-    vehicle.monthlyLeaseEUR > criteria.monthlyBudgetEUR
-  ) {
+  if (criteria.monthlyBudgetEUR && estimateMonthlyVehiclePayment(vehicle) > criteria.monthlyBudgetEUR) {
     reasons.push(`above monthly budget of EUR ${criteria.monthlyBudgetEUR.toLocaleString("de-AT")}`);
   }
   if (criteria.preferredCondition !== "any" && vehicle.condition !== criteria.preferredCondition) {

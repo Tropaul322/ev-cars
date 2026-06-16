@@ -1,5 +1,6 @@
 import { generateClarificationMessage } from "./assistant-messages.ts";
 import {
+  detectLanguage,
   extractCriteria,
   getCriteriaConfidence,
   getMissingCriteria,
@@ -17,6 +18,20 @@ import type {
   UserCriteria,
   VehicleCondition
 } from "./types.ts";
+
+const allowedBodyTypes = [
+  "compact",
+  "hatchback",
+  "sedan",
+  "suv",
+  "crossover",
+  "wagon",
+  "van",
+  "other",
+  "minibus"
+] satisfies BodyType[];
+
+const allowedBrandOrigins = ["china", "europe", "korea", "us", "other"] satisfies BrandOrigin[];
 
 export type CriteriaPatch = Partial<
   Omit<UserCriteria, "language" | "rawPrompt"> & {
@@ -40,7 +55,7 @@ type NormalizeCriteriaInput = {
 };
 
 const normalizerPrompt =
-  "You extract EV shopping criteria from German or English chat. Return only JSON with optional criteriaPatch and confidence. Do not choose vehicles. Use null only when the user explicitly clears a criterion. Latest explicit user instruction wins.";
+  "You extract EV shopping criteria from German or English chat. Return only JSON with optional criteriaPatch and confidence. Do not choose vehicles. Use null only when the user explicitly clears a criterion. Latest explicit user instruction wins. Set language to the user's current message language only.";
 
 export async function normalizeCriteria({
   message,
@@ -70,6 +85,7 @@ export function applyCriteriaPatch(
   hasPreviousCriteria = true
 ): UserCriteria {
   const base = normalizeCriteriaShape(previousCriteria);
+  const messageLanguage = detectLanguage(message, base.language);
   const fallback = extractCriteria(message, base);
   const rawPrompt = hasPreviousCriteria
     ? [base.rawPrompt, message.trim()].filter(Boolean).join("\n")
@@ -77,6 +93,7 @@ export function applyCriteriaPatch(
   const criteria = normalizeCriteriaShape({
     ...fallback,
     ...cleanPatch(patch),
+    language: messageLanguage,
     rawPrompt
   });
   const deterministic = extractCriteria(message, base);
@@ -178,10 +195,10 @@ function buildNormalizerInput(message: string, previousCriteria: UserCriteria | 
     message,
     previousCriteria,
     allowedValues: {
-      bodyTypes: ["compact", "hatchback", "sedan", "suv", "crossover", "wagon", "van"],
+      bodyTypes: allowedBodyTypes,
       chargingAccess: ["home", "work", "public", "none", "unknown"],
       condition: ["new", "used", "any"],
-      preferredBrandOrigins: ["china", "europe", "other"],
+      preferredBrandOrigins: allowedBrandOrigins,
       modelPreferences: [
         "EV6",
         "EV3",
@@ -306,11 +323,11 @@ function isCondition(value: unknown): value is VehicleCondition | "any" {
 }
 
 function isBodyType(value: unknown): value is BodyType {
-  return value === "compact" || value === "hatchback" || value === "sedan" || value === "suv" || value === "crossover" || value === "wagon" || value === "van";
+  return typeof value === "string" && (allowedBodyTypes as string[]).includes(value);
 }
 
 function isBrandOrigin(value: unknown): value is BrandOrigin {
-  return value === "china" || value === "europe" || value === "other";
+  return typeof value === "string" && (allowedBrandOrigins as string[]).includes(value);
 }
 
 function isTripNeed(value: unknown): value is TripNeed {

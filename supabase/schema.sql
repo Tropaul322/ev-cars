@@ -8,6 +8,13 @@ create table if not exists public.vehicles (
   title text generated always as (payload ->> 'title') stored,
   condition text generated always as (payload ->> 'condition') stored,
   price_eur integer generated always as (((payload ->> 'priceEUR')::integer)) stored,
+  monthly_lease_eur integer generated always as (nullif(payload ->> 'monthlyLeaseEUR', '')::integer) stored,
+  available boolean generated always as (coalesce((payload ->> 'available')::boolean, false)) stored,
+  mileage_km integer generated always as (nullif(payload ->> 'mileageKm', '')::integer) stored,
+  range_km integer generated always as (nullif(payload ->> 'rangeKm', '')::integer) stored,
+  battery_soh numeric generated always as (nullif(payload ->> 'batterySoH', '')::numeric) stored,
+  body_type text generated always as (payload ->> 'bodyType') stored,
+  seats integer generated always as (nullif(payload ->> 'seats', '')::integer) stored,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -17,6 +24,33 @@ create index if not exists vehicles_payload_make_idx
 
 create index if not exists vehicles_brand_idx
   on public.vehicles (brand);
+
+create index if not exists vehicles_price_eur_idx
+  on public.vehicles (price_eur);
+
+create index if not exists vehicles_monthly_lease_eur_idx
+  on public.vehicles (monthly_lease_eur);
+
+create index if not exists vehicles_available_idx
+  on public.vehicles (available);
+
+create index if not exists vehicles_range_km_idx
+  on public.vehicles (range_km);
+
+create index if not exists vehicles_mileage_km_idx
+  on public.vehicles (mileage_km);
+
+create index if not exists vehicles_battery_soh_idx
+  on public.vehicles (battery_soh);
+
+create index if not exists vehicles_body_type_idx
+  on public.vehicles (body_type);
+
+create index if not exists vehicles_seats_idx
+  on public.vehicles (seats);
+
+create index if not exists vehicles_condition_idx
+  on public.vehicles (condition);
 
 create index if not exists vehicles_payload_condition_idx
   on public.vehicles ((payload ->> 'condition'));

@@ -1,5 +1,6 @@
 import { allVehicles } from "../data/all-vehicles.ts";
 import { matchDebug, matchDebugWarn } from "../match-debug.ts";
+import { estimateMonthlyVehiclePayment } from "../tco.ts";
 import type { UserCriteria, Vehicle } from "../types.ts";
 import { sanitizeVehicleImages } from "../vehicle-images.ts";
 import {
@@ -15,6 +16,7 @@ type SupabaseVehicleRow = {
 };
 
 const SUPABASE_VEHICLE_LIMIT = "500";
+const VEHICLE_SELECT = "id,payload";
 
 export async function listVehicles(): Promise<Vehicle[]> {
   const vehicles = await fetchSupabaseVehicles();
@@ -30,10 +32,7 @@ export async function searchVehicles(criteria: UserCriteria): Promise<Vehicle[]>
   const supabase = getSupabaseRestConfig();
   if (!supabase) return [];
 
-  const params = new URLSearchParams({
-    select: "id,payload",
-    limit: SUPABASE_VEHICLE_LIMIT
-  });
+  const params = buildVehicleSearchParams(criteria);
 
   try {
     const response = await fetch(`${supabase.url}/rest/v1/vehicles?${params}`, {
@@ -41,12 +40,13 @@ export async function searchVehicles(criteria: UserCriteria): Promise<Vehicle[]>
       next: { revalidate: 60 }
     });
     if (!response.ok) {
+      const message = await response.text();
       matchDebugWarn("vehicle-repository.fallback", {
         reason: "supabase-search-status",
         status: response.status,
+        message,
         localVehicles: allVehicles.length
       });
-      console.log(response);
       return filterVehiclesForSearch(allVehicles, criteria);
     }
 
@@ -57,6 +57,7 @@ export async function searchVehicles(criteria: UserCriteria): Promise<Vehicle[]>
       rows: rows.length,
       validVehicles: vehicles.length,
       filteredVehicles: filtered.length,
+      queryFilters: summarizeVehicleSearchFilters(criteria),
       brandPreferences: criteria.brandPreferences,
       modelPreferences: criteria.modelPreferences
     });
@@ -134,13 +135,17 @@ async function fetchSupabaseVehicles(): Promise<Vehicle[] | null> {
   if (!supabase) return allVehicles;
 
   try {
-    const response = await fetch(
-      `${supabase.url}/rest/v1/vehicles?select=id,payload&limit=${SUPABASE_VEHICLE_LIMIT}`,
-      {
-        headers: supabase.headers,
-        next: { revalidate: 60 }
-      }
-    );
+    const params = new URLSearchParams({
+      select: VEHICLE_SELECT,
+      market: "eq.AT",
+      available: "eq.true",
+      order: "updated_at.desc",
+      limit: SUPABASE_VEHICLE_LIMIT
+    });
+    const response = await fetch(`${supabase.url}/rest/v1/vehicles?${params}`, {
+      headers: supabase.headers,
+      next: { revalidate: 60 }
+    });
     if (!response.ok) return null;
 
     const rows = (await response.json()) as SupabaseVehicleRow[];
@@ -162,6 +167,55 @@ function normalizeSupabaseVehicles(vehicles: Vehicle[]) {
     vehicle.images.some((image) => /^https?:\/\//.test(image))
   );
   return withListingImages.length ? withListingImages : vehicles;
+}
+
+export function buildVehicleSearchParams(criteria: UserCriteria) {
+  const params = new URLSearchParams({
+    select: VEHICLE_SELECT,
+    market: "eq.AT",
+    available: "eq.true",
+    order: "price_eur.asc,range_km.desc",
+    limit: SUPABASE_VEHICLE_LIMIT
+  });
+
+  if (criteria.budgetMaxEUR) params.set("price_eur", `lte.${criteria.budgetMaxEUR}`);
+  if (criteria.monthlyBudgetEUR) {
+    params.set("or", `(monthly_lease_eur.is.null,monthly_lease_eur.lte.${criteria.monthlyBudgetEUR})`);
+  }
+  if (criteria.preferredCondition !== "any") params.set("condition", `eq.${criteria.preferredCondition}`);
+  if (criteria.rangeFloorKm) params.set("range_km", `gte.${criteria.rangeFloorKm}`);
+  if (criteria.bodyTypes.length) params.set("body_type", `in.(${criteria.bodyTypes.join(",")})`);
+  if (criteria.preferredBrandOrigins.length) {
+    params.set("brand_origin", `in.(${criteria.preferredBrandOrigins.join(",")})`);
+  }
+  if (criteria.passengers) params.set("seats", `gte.${criteria.passengers}`);
+  if (criteria.preferredCondition === "used" && criteria.mileageMaxKm) {
+    params.set("mileage_km", `lte.${criteria.mileageMaxKm}`);
+  }
+  if (criteria.preferredCondition === "used" && criteria.batteryHealthRequired && criteria.batterySoHMin) {
+    params.set("battery_soh", `gte.${criteria.batterySoHMin}`);
+  }
+
+  return params;
+}
+
+function summarizeVehicleSearchFilters(criteria: UserCriteria) {
+  return {
+    market: "AT",
+    available: true,
+    budgetMaxEUR: criteria.budgetMaxEUR,
+    monthlyBudgetEUR: criteria.monthlyBudgetEUR,
+    preferredCondition: criteria.preferredCondition,
+    rangeFloorKm: criteria.rangeFloorKm,
+    mileageMaxKm: criteria.mileageMaxKm,
+    batterySoHMin: criteria.batteryHealthRequired ? criteria.batterySoHMin : null,
+    bodyTypes: criteria.bodyTypes,
+    preferredBrandOrigins: criteria.preferredBrandOrigins,
+    passengers: criteria.passengers,
+    brandPreferences: criteria.brandPreferences,
+    modelPreferences: criteria.modelPreferences,
+    avoidedBrands: criteria.avoidedBrands
+  };
 }
 
 function mapVehicleRow(row: SupabaseVehicleRow): Vehicle | null {
@@ -189,11 +243,7 @@ function filterVehiclesForSearch(vehicles: Vehicle[], criteria: UserCriteria) {
     if (vehicle.market !== "AT") return false;
     if (!vehicle.available) return false;
     if (criteria.budgetMaxEUR && vehicle.priceEUR > criteria.budgetMaxEUR) return false;
-    if (
-      criteria.monthlyBudgetEUR &&
-      vehicle.monthlyLeaseEUR &&
-      vehicle.monthlyLeaseEUR > criteria.monthlyBudgetEUR
-    ) {
+    if (criteria.monthlyBudgetEUR && estimateMonthlyVehiclePayment(vehicle) > criteria.monthlyBudgetEUR) {
       return false;
     }
     if (criteria.preferredCondition !== "any" && vehicle.condition !== criteria.preferredCondition) return false;

@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { extractCriteria, needsClarification, removeCriteriaKey } from "../lib/criteria.ts";
+import { detectLanguage, extractCriteria, needsClarification, removeCriteriaKey } from "../lib/criteria.ts";
 import { applyCriteriaPatch, normalizeCriteria } from "../lib/criteria-normalizer.ts";
 import { seedVehicles } from "../lib/data/seed-vehicles.ts";
 import { parseLlmExplanationJson } from "../lib/explanations.ts";
 import { runMatchRequest } from "../lib/match-service.ts";
 import { buildRagContext } from "../lib/rag.ts";
 import { getSupabaseRestConfig } from "../lib/repositories/supabase-rest.ts";
-import { matchVehicles } from "../lib/scoring.ts";
+import { getHardFilterReasons, matchVehicles } from "../lib/scoring.ts";
 import { calculateTco } from "../lib/tco.ts";
 
 for (const [key, value] of Object.entries(loadEnv(path.join(process.cwd(), ".env.local")))) {
@@ -33,6 +33,25 @@ test("extracts German budget, charging access, range, and features", () => {
   assert.equal(criteria.chargingAccess, "public");
   assert.ok(criteria.mustHaveFeatures.includes("apple_carplay"));
   assert.ok(criteria.mustHaveFeatures.includes("heated_seats"));
+});
+
+test("detects current message language for short car-name searches", () => {
+  assert.equal(detectLanguage("Used Tesla Model 3"), "en");
+  assert.equal(detectLanguage("Gebrauchter Tesla Model 3"), "de");
+  assert.equal(detectLanguage("Budget 40000 EUR", "de"), "de");
+});
+
+test("LLM criteria patches cannot override deterministic message language", () => {
+  const criteria = applyCriteriaPatch(
+    extractCriteria("Used Tesla Model 3"),
+    { language: "de", brandPreferences: ["Tesla"], modelPreferences: ["Model 3"] },
+    "Used Tesla Model 3",
+    false
+  );
+
+  assert.equal(criteria.language, "en");
+  assert.deepEqual(criteria.brandPreferences, ["Tesla"]);
+  assert.deepEqual(criteria.modelPreferences, ["Model 3"]);
 });
 
 test("asks for clarification when no budget is available", () => {
@@ -114,6 +133,26 @@ test("extracts country origin intent without turning it into fixed brand picks",
   assert.deepEqual(criteria.bodyTypes, ["suv"]);
 });
 
+test("extracts newer brand-origin schema values", () => {
+  const korean = extractCriteria("Korean EV under 50000 EUR for family trips.");
+  const american = extractCriteria("American EV under 60000 EUR for road trips.");
+
+  assert.deepEqual(korean.preferredBrandOrigins, ["korea"]);
+  assert.deepEqual(american.preferredBrandOrigins, ["us"]);
+});
+
+test("LLM criteria patches keep newer enum values from the schema", () => {
+  const criteria = applyCriteriaPatch(
+    extractCriteria("EV under 50000 EUR"),
+    { preferredBrandOrigins: ["korea", "us"], bodyTypes: ["other", "minibus"] },
+    "Korean or US minibus EV under 50000 EUR",
+    false
+  );
+
+  assert.deepEqual(criteria.preferredBrandOrigins, ["korea", "us"]);
+  assert.deepEqual(criteria.bodyTypes, ["other", "minibus"]);
+});
+
 test("normalizer returns structured fallback output with missing criteria", async () => {
   const normalized = await normalizeCriteria({
     message: "I need a premium EV with good battery health."
@@ -143,6 +182,17 @@ test("hard filters keep explicit mileage caps", () => {
     assert.equal(recommendation.vehicle.condition, "used");
     assert.ok((recommendation.vehicle.mileageKm ?? 0) <= 20000);
   }
+});
+
+test("hard filters apply monthly budgets to purchase-only listings", () => {
+  const criteria = extractCriteria("Monthly budget 650 EUR for family road trips.");
+  const vehicle = seedVehicles.find((item) => item.id === "tesla-model-y-used-2024-blue");
+  assert.ok(vehicle);
+  assert.equal(vehicle.monthlyLeaseEUR, null);
+
+  const reasons = getHardFilterReasons(vehicle, criteria);
+
+  assert.ok(reasons.some((reason) => reason.includes("above monthly budget")));
 });
 
 test("hard filters enforce required battery state-of-health", () => {
