@@ -34,7 +34,9 @@ const fallbackImages: Record<BodyType, string> = {
   suv: "/vehicles/skoda-enyaq-85-2024.png",
   crossover: "/vehicles/hyundai-ioniq5-2023.png",
   wagon: "/vehicles/nio-et5-touring-2024.png",
-  van: "/vehicles/byd-atto3-design-2024.png"
+  van: "/vehicles/byd-atto3-design-2024.png",
+  other: "/vehicles/hyundai-ioniq5-2023.png",
+  minibus: "/vehicles/byd-atto3-design-2024.png"
 };
 
 const europeanMakes = new Set([
@@ -220,7 +222,9 @@ function inferCargoLiters(row: RawInventoryRow, bodyType: BodyType) {
     suv: 520,
     crossover: 470,
     wagon: 540,
-    van: 650
+    van: 650,
+    other: 450,
+    minibus: 650
   };
 
   return cargoByBody[bodyType];
@@ -332,7 +336,9 @@ function defaultBattery(bodyType: BodyType) {
     suv: 77,
     crossover: 72,
     wagon: 77,
-    van: 75
+    van: 75,
+    other: 60,
+    minibus: 75
   };
   return values[bodyType];
 }
@@ -345,7 +351,9 @@ function defaultEfficiency(bodyType: BodyType) {
     suv: 17.6,
     crossover: 17.1,
     wagon: 17.4,
-    van: 20.1
+    van: 20.1,
+    other: 18.5,
+    minibus: 21
   };
   return values[bodyType];
 }

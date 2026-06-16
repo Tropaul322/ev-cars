@@ -1,4 +1,10 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import {
+  DEMO_REGISTRATION_COOKIE,
+  getDemoRegistration,
+  isActiveDemoRegistration
+} from "@/lib/demo-registration";
 import { runMatchRequest } from "@/lib/match-service";
 import type { UserCriteria } from "@/lib/types";
 
@@ -12,6 +18,13 @@ type MatchRequest = {
 };
 
 export async function POST(request: Request) {
+  const cookieStore = await cookies();
+  const registration = await getDemoRegistration(cookieStore.get(DEMO_REGISTRATION_COOKIE)?.value);
+
+  if (!isActiveDemoRegistration(registration)) {
+    return NextResponse.json({ error: "Demo registration is required." }, { status: 401 });
+  }
+
   const body = (await request.json()) as MatchRequest;
   const message = body.message?.trim();
 
@@ -22,7 +35,8 @@ export async function POST(request: Request) {
     message,
     sessionId: body.sessionId,
     previousCriteria: body.previousCriteria,
-    criteriaOverride: body.criteriaOverride
+    criteriaOverride: body.criteriaOverride,
+    testerLocation: registration!.location
   });
   return NextResponse.json(response);
 }

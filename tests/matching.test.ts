@@ -1,16 +1,26 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import { extractCriteria, needsClarification, removeCriteriaKey } from "../lib/criteria.ts";
-import { normalizeCriteria } from "../lib/criteria-normalizer.ts";
+import { applyCriteriaPatch, normalizeCriteria } from "../lib/criteria-normalizer.ts";
 import { seedVehicles } from "../lib/data/seed-vehicles.ts";
 import { parseLlmExplanationJson } from "../lib/explanations.ts";
 import { runMatchRequest } from "../lib/match-service.ts";
 import { buildRagContext } from "../lib/rag.ts";
+import { getSupabaseRestConfig } from "../lib/repositories/supabase-rest.ts";
 import { matchVehicles } from "../lib/scoring.ts";
 import { calculateTco } from "../lib/tco.ts";
 
+for (const [key, value] of Object.entries(loadEnv(path.join(process.cwd(), ".env.local")))) {
+  if (typeof value === "string") process.env[key] = value;
+}
+
 process.env.FLOWRYD_DISABLE_LLM = "1";
 process.env.FLOWRYD_DISABLE_EMBEDDINGS = "1";
+
+const hasSupabaseInventory = Boolean(getSupabaseRestConfig());
+const matchRoute = hasSupabaseInventory ? test : test.skip;
 
 test("extracts German budget, charging access, range, and features", () => {
   const criteria = extractCriteria(
@@ -77,6 +87,25 @@ test("extracts model intent from car-name searches", () => {
   assert.ok(criteria.tripNeeds.includes("road_trip"));
 });
 
+test("extracts Tesla Model Y as a specific model intent", () => {
+  const criteria = extractCriteria("Tesla Model Y under 60000 EUR for family road trips.");
+
+  assert.deepEqual(criteria.brandPreferences, ["Tesla"]);
+  assert.deepEqual(criteria.modelPreferences, ["Model Y"]);
+});
+
+test("LLM criteria patches cannot erase explicit car-name model mentions", () => {
+  const criteria = applyCriteriaPatch(
+    extractCriteria("I need a Tesla car."),
+    { brandPreferences: ["Tesla"], modelPreferences: [] },
+    "Actually Tesla Model Y under 60000 EUR for family road trips.",
+    true
+  );
+
+  assert.deepEqual(criteria.brandPreferences, ["Tesla"]);
+  assert.deepEqual(criteria.modelPreferences, ["Model Y"]);
+});
+
 test("extracts country origin intent without turning it into fixed brand picks", () => {
   const criteria = extractCriteria("Chinese SUV under 50000 EUR for family road trips and public charging.");
 
@@ -138,6 +167,27 @@ test("hard filters enforce explicit model searches", () => {
     assert.equal(recommendation.vehicle.model, "EV6");
   }
   assert.ok(result.rejected.some((item) => item.reasons.some((reason) => reason.includes("not EV6"))));
+});
+
+test("hard filters never substitute Tesla Model 3 for Tesla Model Y", () => {
+  const criteria = extractCriteria(
+    "Tesla Model Y under 60000 EUR for family road trips, 450 km range, public charging and winter."
+  );
+  const result = matchVehicles(seedVehicles, criteria, 12);
+
+  assert.ok(result.recommendations.length > 0);
+  for (const recommendation of result.recommendations) {
+    assert.equal(recommendation.vehicle.make, "Tesla");
+    assert.equal(recommendation.vehicle.model, "Model Y");
+  }
+  assert.ok(
+    result.rejected.some(
+      (item) =>
+        item.vehicle.make === "Tesla" &&
+        item.vehicle.model === "Model 3" &&
+        item.reasons.some((reason) => reason.includes("not Model Y"))
+    )
+  );
 });
 
 test("hard filters enforce requested brand origin", () => {
@@ -269,7 +319,22 @@ test("match route asks for more information when only budget is known", async ()
   assert.equal(data.recommendations.length, 0);
 });
 
-test("match route collects criteria across turns before matching", async () => {
+test("match route returns Tesla Model Y and not Tesla Model 3 for explicit Model Y searches", async () => {
+  const data = await runMatchRequest({
+    message: "Tesla Model Y under 60000 EUR for family road trips, 450 km range, public charging and winter."
+  });
+
+  assert.equal(data.type, "matches");
+  assert.deepEqual(data.criteria.brandPreferences, ["Tesla"]);
+  assert.deepEqual(data.criteria.modelPreferences, ["Model Y"]);
+  assert.ok(data.recommendations.length > 0);
+  for (const recommendation of data.recommendations) {
+    assert.equal(recommendation.vehicle.make, "Tesla");
+    assert.equal(recommendation.vehicle.model, "Model Y");
+  }
+});
+
+matchRoute("match route collects criteria across turns before matching", async () => {
   const first = await runMatchRequest({ message: "My budget is 50000 EUR." });
   assert.equal(first.type, "clarification");
 
@@ -282,7 +347,7 @@ test("match route collects criteria across turns before matching", async () => {
   assert.ok(second.recommendations.length > 0);
 });
 
-test("match route fallback explanations use conversational paragraphs", async () => {
+matchRoute("match route fallback explanations use conversational paragraphs", async () => {
   const data = await runMatchRequest({
     message: "Used EV under 35k for city commuting, CarPlay, heated seats, and low running costs."
   });
@@ -295,7 +360,7 @@ test("match route fallback explanations use conversational paragraphs", async ()
   assert.match(explanation, /fits your brief well|pas/i);
 });
 
-test("match route does not substitute a different Kia model for EV6 searches", async () => {
+matchRoute("match route does not substitute a different Kia model for EV6 searches", async () => {
   const data = await runMatchRequest({
     message: "Kia EV6 under 70k for road trips, 450 km range, fast charging and CarPlay."
   });
@@ -307,7 +372,7 @@ test("match route does not substitute a different Kia model for EV6 searches", a
   }
 });
 
-test("match route keeps Chinese car requests to Chinese-origin brands", async () => {
+matchRoute("match route keeps Chinese car requests to Chinese-origin brands", async () => {
   const data = await runMatchRequest({
     message: "Chinese SUV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay."
   });
@@ -320,7 +385,7 @@ test("match route keeps Chinese car requests to Chinese-origin brands", async ()
   }
 });
 
-test("match route returns Chinese cars without requiring budget", async () => {
+matchRoute("match route returns Chinese cars without requiring budget", async () => {
   const data = await runMatchRequest({
     message: "I need a Chinese car."
   });
@@ -333,7 +398,7 @@ test("match route returns Chinese cars without requiring budget", async () => {
   }
 });
 
-test("match route returns Ford cars without requiring budget", async () => {
+matchRoute("match route returns Ford cars without requiring budget", async () => {
   const data = await runMatchRequest({
     message: "I need a Ford car."
   });
@@ -346,7 +411,7 @@ test("match route returns Ford cars without requiring budget", async () => {
   }
 });
 
-test("match route next batch excludes vehicles already shown in the session", async () => {
+matchRoute("match route next batch excludes vehicles already shown in the session", async () => {
   const first = await runMatchRequest({
     message: "EV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay."
   });
@@ -366,7 +431,7 @@ test("match route next batch excludes vehicles already shown in the session", as
   }
 });
 
-test("match route next batch still uses session exclusions when previousCriteria is supplied", async () => {
+matchRoute("match route next batch still uses session exclusions when previousCriteria is supplied", async () => {
   const first = await runMatchRequest({
     message: "EV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay."
   });
@@ -386,9 +451,9 @@ test("match route next batch still uses session exclusions when previousCriteria
   }
 });
 
-test("match route explains the blocker for explicit model searches", async () => {
+matchRoute("match route explains the blocker for explicit model searches", async () => {
   const data = await runMatchRequest({
-    message: "Kia EV6 under 45k for road trips, 450 km range, fast charging and CarPlay."
+    message: "Kia EV6 under 30k for road trips, 450 km range, fast charging and CarPlay."
   });
 
   assert.equal(data.type, "no_matches");
@@ -397,13 +462,26 @@ test("match route explains the blocker for explicit model searches", async () =>
   assert.doesNotMatch(data.assistantMessage, /range below requested/i);
 });
 
-test("match route returns no_matches when hard filters eliminate the inventory", async () => {
+matchRoute("match route returns no_matches when hard filters eliminate the inventory", async () => {
   const data = await runMatchRequest({ message: "New SUV under 15000 EUR with 600 km range." });
 
   assert.equal(data.type, "no_matches");
   assert.equal(data.recommendations.length, 0);
   assert.ok(Array.isArray(data.rejectedSummary));
 });
+
+function loadEnv(filePath: string) {
+  if (!fs.existsSync(filePath)) return process.env;
+  const values: Record<string, string> = { ...process.env } as Record<string, string>;
+  for (const line of fs.readFileSync(filePath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separator = trimmed.indexOf("=");
+    if (separator === -1) continue;
+    values[trimmed.slice(0, separator)] = trimmed.slice(separator + 1);
+  }
+  return values;
+}
 
 function assertNoDuplicateListingUrls(recommendations: Array<{ vehicle: { listingUrl?: string } }>) {
   const listingUrls = recommendations

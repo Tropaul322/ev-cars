@@ -327,9 +327,8 @@ function scoreBatteryHealth(vehicle: Vehicle, criteria: UserCriteria) {
 
 function scoreSemantic(vehicle: Vehicle, criteria: UserCriteria, ragContext?: RagContext) {
   const keywordScore = ragContext?.vehicleScores[vehicle.id] ?? 0;
-  const embeddingScore = ragContext?.vehicleEmbeddingScores[vehicle.id] ?? 0;
   const topicScore = scoreVehicleTopicAffinity(vehicle, criteria, ragContext?.topicAffinity ?? {});
-  const blended = blendSemanticSignals({ keywordScore, embeddingScore, topicScore });
+  const blended = blendSemanticSignals({ keywordScore, topicScore });
   return clamp(65 + blended * 35, 45, 100);
 }
 
@@ -406,9 +405,7 @@ function tagToTripNeed(tag: string): UserCriteria["tripNeeds"][number] {
 
 function getRagScore(vehicle: Vehicle, ragContext?: RagContext) {
   const keywordScore = ragContext?.vehicleScores[vehicle.id] ?? 0;
-  const embeddingScore = ragContext?.vehicleEmbeddingScores[vehicle.id] ?? 0;
-  const retrievedScore = Math.max(keywordScore, embeddingScore);
-  return clamp(Math.round(retrievedScore * 7), 0, 7);
+  return clamp(Math.round(keywordScore * 7), 0, 7);
 }
 
 function clamp(value: number, min: number, max: number) {

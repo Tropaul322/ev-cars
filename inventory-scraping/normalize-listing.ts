@@ -13,7 +13,9 @@ const fallbackImages: Record<BodyType, string> = {
   suv: "/vehicles/skoda-enyaq-85-2024.png",
   crossover: "/vehicles/hyundai-ioniq5-2023.png",
   wagon: "/vehicles/nio-et5-touring-2024.png",
-  van: "/vehicles/byd-atto3-design-2024.png"
+  van: "/vehicles/byd-atto3-design-2024.png",
+  other: "/vehicles/hyundai-ioniq5-2023.png",
+  minibus: "/vehicles/byd-atto3-design-2024.png"
 };
 
 const manufacturerCountries: Record<string, { country: string; code: string }> = {
@@ -223,7 +225,9 @@ function inferBatteryKwh(raw: RawListing, bodyType: BodyType) {
     suv: 77,
     crossover: 70,
     wagon: 82,
-    van: 80
+    van: 80,
+    other: 64,
+    minibus: 75
   };
   return defaults[bodyType];
 }
@@ -237,7 +241,9 @@ function inferEfficiency(raw: RawListing, bodyType: BodyType, batteryKwh: number
     suv: 18.8,
     crossover: 17.6,
     wagon: 17.8,
-    van: 21.5
+    van: 21.5,
+    other: 18.5,
+    minibus: 21
   };
   return defaults[bodyType];
 }
@@ -258,7 +264,9 @@ function inferCargoLiters(text: string, bodyType: BodyType) {
     suv: 520,
     crossover: 470,
     wagon: 540,
-    van: 650
+    van: 650,
+    other: 450,
+    minibus: 650
   };
   return defaults[bodyType];
 }

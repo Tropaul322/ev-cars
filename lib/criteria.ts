@@ -282,21 +282,38 @@ export function needsClarification(criteria: UserCriteria) {
   return !getCriteriaReadiness(criteria).readyToMatch;
 }
 
+const missingCriteriaPriority: MissingCriteria[] = [
+  "budget",
+  "use_case",
+  "charging_or_range",
+  "vehicle_preferences"
+];
+
 export function clarificationQuestion(criteria: UserCriteria) {
   const missing = getMissingCriteria(criteria);
-  if (missing.includes("budget")) {
-    if (criteria.language === "de") {
-      return "Welches Budget soll ich einhalten: maximaler Kaufpreis oder monatliche Leasingrate?";
-    }
+  const target = missingCriteriaPriority.find((key) => missing.includes(key)) ?? "use_case";
 
-    return "What budget should I respect: maximum purchase price or monthly lease target?";
+  if (target === "budget") {
+    return criteria.language === "de"
+      ? "Welches Budget soll ich einhalten: maximaler Kaufpreis oder monatliche Leasingrate?"
+      : "What budget should I respect: maximum purchase price or monthly lease target?";
   }
 
-  if (criteria.language === "de") {
-    return "Wofür soll das Auto vor allem passen: Stadt, Pendeln, Familie, Langstrecke oder Winter?";
+  if (target === "charging_or_range") {
+    return criteria.language === "de"
+      ? "Wie sieht dein Laden aus: zu Hause, am Arbeitsplatz, oeffentlich oder gar nicht? Und wie viele km faehrst du pro Tag oder welche Mindestreichweite brauchst du?"
+      : "What does charging look like for you: home, work, public, or none? And how many km do you drive per day or what minimum range do you need?";
   }
 
-  return "What should the car mainly fit: city driving, commuting, family use, road trips, or winter driving?";
+  if (target === "vehicle_preferences") {
+    return criteria.language === "de"
+      ? "Gibt es Karosserieform, Marke, Zustand oder Ausstattung, die dir wichtig sind?"
+      : "Are there body type, brand, condition, or feature preferences that matter to you?";
+  }
+
+  return criteria.language === "de"
+    ? "Wofuer soll das Auto vor allem passen: Stadt, Pendeln, Familie, Langstrecke oder Winter?"
+    : "What should the car mainly fit: city driving, commuting, family use, road trips, or winter driving?";
 }
 
 export function getMissingCriteria(criteria: UserCriteria): MissingCriteria[] {

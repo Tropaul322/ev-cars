@@ -1,9 +1,17 @@
-import { ArrowLeft, Bookmark } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import { FlowRydShell } from "@/components/flowryd-demo-shell";
-import { demoCars, demoQuickStats, demoScoreBreakdown } from "@/lib/flowryd-demo-data";
+import { ProtectedCarActions } from "@/components/protected-car-actions";
+import {
+  DEMO_REGISTRATION_COOKIE,
+  getDemoRegistration,
+  isActiveDemoRegistration
+} from "@/lib/demo-registration";
+import { demoCars, demoQuickStats, demoScoreBreakdown, type DemoCar } from "@/lib/flowryd-demo-data";
+import { isCarSaved, type SavedCarSnapshot } from "@/lib/repositories/saved-car-repository";
 
 export function generateStaticParams() {
   return Object.keys(demoCars).map((id) => ({ id }));
@@ -24,6 +32,8 @@ export default async function CarDetailPage({ params }: { params: Promise<{ id: 
   if (!car) notFound();
   const stats = demoQuickStats[car.id];
   const scores = demoScoreBreakdown[car.id] ?? [];
+  const snapshot = snapshotFromDemoCar(car);
+  const initialSaved = await getInitialSavedState(car.id);
 
   return (
     <FlowRydShell>
@@ -88,15 +98,7 @@ export default async function CarDetailPage({ params }: { params: Promise<{ id: 
               <strong>{car.price}</strong>
               <span>{car.condition}</span>
             </div>
-            <div className="flow-buy-actions">
-              <button type="button">Buy now</button>
-              <button type="button" aria-label="Save">
-                <Bookmark size={20} aria-hidden="true" />
-              </button>
-            </div>
-            <button className="flow-secondary-action" type="button">
-              Schedule test drive
-            </button>
+            <ProtectedCarActions initialSaved={initialSaved} snapshot={snapshot} />
             <div className="flow-stat-grid flow-stat-grid-compact">
               <Stat label="Year" value={String(car.year)} />
               <Stat label="Fuel" value={car.fuel} />
@@ -108,6 +110,30 @@ export default async function CarDetailPage({ params }: { params: Promise<{ id: 
       </div>
     </FlowRydShell>
   );
+}
+
+async function getInitialSavedState(vehicleId: string) {
+  const cookieStore = await cookies();
+  const registration = await getDemoRegistration(cookieStore.get(DEMO_REGISTRATION_COOKIE)?.value);
+  if (!isActiveDemoRegistration(registration)) return false;
+  return isCarSaved(registration!.id, vehicleId);
+}
+
+function snapshotFromDemoCar(car: DemoCar): SavedCarSnapshot {
+  return {
+    id: car.id,
+    name: car.name,
+    make: car.brand,
+    model: car.name.replace(car.brand, "").trim() || car.name,
+    year: car.year,
+    price: car.price,
+    condition: car.condition,
+    location: car.location,
+    image: car.image,
+    match: car.match,
+    range: car.range,
+    mileage: car.mileage ?? null
+  };
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

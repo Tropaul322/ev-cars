@@ -3,7 +3,6 @@
 import {
   ArrowUp,
   Bookmark,
-  Mic,
   SearchCheck,
   ShieldCheck,
   Sparkles,
@@ -14,7 +13,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as React from "react";
-import { Button } from "@/components/ui/button";
+import { DemoAuthButton } from "@/components/demo-auth-button";
+import { SaveCarButton } from "@/components/save-car-button";
+import { requireDemoAccess } from "@/lib/demo-access-client";
+import type { SavedCarSnapshot } from "@/lib/repositories/saved-car-repository";
 
 const starterPrompts = [
   "Family SUV under $60k",
@@ -69,6 +71,20 @@ const trendingMatches = [
 export function FlowRydAlphaApp() {
   const router = useRouter();
   const [heroInput, setHeroInput] = React.useState("");
+  const [checkingAccess, setCheckingAccess] = React.useState(false);
+
+  async function startChat(query: string) {
+    const trimmed = query.trim();
+    if (!trimmed || checkingAccess) return;
+
+    setCheckingAccess(true);
+    const allowed = await requireDemoAccess();
+    setCheckingAccess(false);
+
+    if (allowed) {
+      router.push(`/chat?q=${encodeURIComponent(trimmed)}`);
+    }
+  }
 
   return (
     <main className="app-shell">
@@ -91,12 +107,7 @@ export function FlowRydAlphaApp() {
           </Link>
         </nav>
         <div className="auth-actions" aria-label="Account">
-          <Button type="button" variant="ghost" size="sm">
-            Sign in
-          </Button>
-          <Button type="button" size="sm">
-            Sign up
-          </Button>
+          <DemoAuthButton />
         </div>
       </header>
 
@@ -110,8 +121,7 @@ export function FlowRydAlphaApp() {
             className="hero-search"
             onSubmit={(event) => {
               event.preventDefault();
-              const query = heroInput.trim();
-              if (query) router.push(`/chat?q=${encodeURIComponent(query)}`);
+              void startChat(heroInput);
             }}
           >
             <input
@@ -122,14 +132,11 @@ export function FlowRydAlphaApp() {
               aria-label="Ask FlowRyd for EV matches"
             />
             <div className="hero-search-actions">
-              <button className="hero-icon-button" type="button" aria-label="Voice" disabled>
-                <Mic size={16} aria-hidden="true" />
-              </button>
               <button
                 className="hero-submit-button"
                 type="submit"
                 aria-label="Send"
-                disabled={!heroInput.trim()}
+                disabled={!heroInput.trim() || checkingAccess}
               >
                 <ArrowUp size={16} aria-hidden="true" />
               </button>
@@ -141,7 +148,7 @@ export function FlowRydAlphaApp() {
                 key={prompt}
                 className="hero-prompt"
                 type="button"
-                onClick={() => router.push(`/chat?q=${encodeURIComponent(prompt)}`)}
+                onClick={() => void startChat(prompt)}
               >
                 {prompt}
               </button>
@@ -181,21 +188,26 @@ export function FlowRydAlphaApp() {
         </div>
         <div className="trending-grid">
           {trendingMatches.map((vehicle) => (
-            <Link className="trending-card" href={`/car/${vehicle.id}`} key={vehicle.id}>
+            <article className="trending-card" key={vehicle.id}>
               <div className="trending-media">
-                <Image
-                  src={vehicle.image}
-                  alt={`${vehicle.make} ${vehicle.model}`}
-                  width={720}
-                  height={540}
-                  sizes="(max-width: 720px) calc(100vw - 32px), 290px"
-                />
+                <Link href={`/car/${vehicle.id}`} aria-label={`Open ${vehicle.make} ${vehicle.model}`}>
+                  <Image
+                    src={vehicle.image}
+                    alt={`${vehicle.make} ${vehicle.model}`}
+                    width={720}
+                    height={540}
+                    sizes="(max-width: 720px) calc(100vw - 32px), 290px"
+                  />
+                </Link>
                 <span className="trending-match">{vehicle.match}% match</span>
-                <span className="trending-save" aria-label={`Save ${vehicle.make} ${vehicle.model}`}>
-                  <Bookmark size={18} aria-hidden="true" />
-                </span>
+                <SaveCarButton
+                  vehicleId={vehicle.id}
+                  snapshot={snapshotFromTrendingMatch(vehicle)}
+                  className="trending-save"
+                  activeClassName="trending-save-active"
+                />
               </div>
-              <div className="trending-body">
+              <Link className="trending-body trending-card-link" href={`/car/${vehicle.id}`}>
                 <h3>
                   {vehicle.make} {vehicle.model}
                 </h3>
@@ -204,8 +216,8 @@ export function FlowRydAlphaApp() {
                   <span>{vehicle.price}</span>
                   <span>{vehicle.condition}</span>
                 </div>
-              </div>
-            </Link>
+              </Link>
+            </article>
           ))}
         </div>
       </section>
@@ -241,4 +253,18 @@ export function FlowRydAlphaApp() {
       </footer>
     </main>
   );
+}
+
+function snapshotFromTrendingMatch(vehicle: (typeof trendingMatches)[number]): SavedCarSnapshot {
+  return {
+    id: vehicle.id,
+    name: `${vehicle.make} ${vehicle.model}`,
+    make: vehicle.make,
+    model: vehicle.model,
+    price: vehicle.price,
+    condition: vehicle.condition,
+    location: vehicle.location,
+    image: vehicle.image,
+    match: vehicle.match
+  };
 }

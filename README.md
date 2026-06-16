@@ -8,7 +8,7 @@ explainable recommendations, and side-by-side comparison.
 - Next.js App Router + TypeScript frontend.
 - shadcn-style UI components in `components/ui`.
 - Deterministic EV criteria extraction, filtering, scoring, and TCO calculation.
-- Optional OpenAI-compatible explanation generation with deterministic fallback.
+- Optional OpenAI explanation generation with deterministic fallback.
 - Supabase EU-ready REST repository, with seed-data fallback for local demos.
 - API routes for matching, vehicle lookup, comparison, and seed ingestion.
 - Node test runner coverage for parser, matching, TCO, and eval scenarios.
@@ -37,13 +37,11 @@ The app works with local seed data without environment variables.
 Optional:
 
 ```bash
-GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-3.1-flash-lite
-GEMINI_EMBEDDING_MODEL=gemini-embedding-2
-GEMINI_EMBEDDING_DIMENSIONS=1536
 OPENAI_API_KEY=...
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o-mini
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_EMBEDDING_DIMENSIONS=1536
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
 INGEST_ADMIN_TOKEN=...
@@ -51,15 +49,36 @@ AUSTRIA_BEV_INCENTIVE_EUR=0
 FIRECRAWL_API_KEY=...
 ```
 
-Gemini is preferred for generated explanations when `GEMINI_API_KEY` is set.
-Gemini Embedding 2 is preferred for RAG embeddings when `GEMINI_API_KEY` is set;
-vectors are stored in Supabase `knowledge_chunks.embedding` (pgvector, 1536 dims).
-OpenAI-compatible explanations remain available when only `OPENAI_API_KEY` is
-configured. Both paths fall back to deterministic local explanations if the
-model call is unavailable.
+OpenAI is used for generated explanations, chat planning, criteria normalization,
+and RAG embeddings when `OPENAI_API_KEY` is set; vectors are stored in Supabase
+`knowledge_chunks.embedding` (pgvector, 1536 dims by default).
+Vehicle matching uses structured filters plus keyword/topic scoring and does
+not depend on embeddings in the `vehicles` table.
+LLM paths fall back to deterministic local behavior if the model call is
+unavailable.
 
 `AUSTRIA_BEV_INCENTIVE_EUR` defaults to `0` until the incentive source is
 verified before a staging demo.
+
+## Demo Registration Gate
+
+The alpha uses a lightweight capture gate before matching. Testers provide only
+name, email, and an Austrian PLZ or Bundesland, plus explicit consent. The app
+does not create passwords, SSO accounts, or saved-vehicle persistence from this
+flow.
+
+- `POST /api/demo-registration` validates and stores the tester record, then
+  sets an HTTP-only `flowryd_demo_registration` cookie.
+- `GET /api/demo-registration` returns the active tester status for the UI.
+- `DELETE /api/demo-registration` records `deletion_requested_at` and clears the
+  cookie, giving testers a documented deletion path from the demo access panel.
+- `POST /api/match` requires an active demo registration and uses the captured
+  location as the default matching location unless the chat turn supplies a
+  different location.
+
+For production demos, use a Supabase project in an EU region and a server-side
+`SUPABASE_SERVICE_ROLE_KEY` so writes to `tester_registrations` stay in the
+configured EU data store. Local demos fall back to in-memory storage.
 
 ## Scrape FlowRyd Dashboard
 
@@ -135,7 +154,7 @@ Outputs are also written locally for audit/review:
 
 Set `FLOWRYD_SKIP_EMBEDDINGS=1` or pass `--skip-embeddings` to upload text
 without vector embeddings. For usable semantic retrieval, keep embeddings
-enabled and configure `GEMINI_API_KEY` or `OPENAI_API_KEY`.
+enabled and configure `OPENAI_API_KEY`.
 
 ## Austrian Inventory Scraping
 
@@ -155,13 +174,13 @@ npm run inventory:list-sources
 Dry-run without DB writes:
 
 ```bash
-npm run inventory:crawl -- --dry-run --skip-embeddings --max-listings-per-source=10
+npm run inventory:crawl -- --dry-run --max-listings-per-source=10
 ```
 
 Run a subset:
 
 ```bash
-npm run inventory:crawl -- --source=willhaben_at_ev,autoscout24_at_ev_all --skip-embeddings
+npm run inventory:crawl -- --source=willhaben_at_ev,autoscout24_at_ev_all
 ```
 
 Re-parse cached HTML without network access:
@@ -199,4 +218,5 @@ Apply `supabase/migrations/202606090001_add_inventory_scraping_metadata.sql`
 before DB uploads. Scraped vehicles include listing URL, seller type, VIN when
 visible, high-resolution image URLs, manufacturer country, and deterministic
 dedupe keys. The `vehicles_dedupe_key_unique` index prevents duplicate scraped
-cars from being inserted when the same listing is rediscovered.
+cars from being inserted when the same listing is rediscovered. Vehicle uploads
+write payload rows only; vector embeddings are kept for trusted knowledge chunks.

@@ -1,3 +1,5 @@
+import { generateMatchIntroMessage } from "./assistant-messages.ts";
+import { createOpenAiClient, openAiConfigured, openAiModel } from "./openai-provider.ts";
 import type { MatchResult, RejectedSummary, UserCriteria } from "./types.ts";
 
 type LlmExplanation = {
@@ -16,29 +18,20 @@ export type FinalRecommendationSelection = {
   recommendations: MatchResult[];
 };
 
-type GeminiGenerateContentResponse = {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{
-        text?: string;
-      }>;
-    };
-  }>;
-};
-
 const explanationSystemPrompt =
-  "You are FlowRyd, an Austrian EV matching agent. Choose 1 to 3 vehicles only from the provided candidate vehicleIds, never invent cars, and never override hard filters. " +
+  "You are FlowRyd, an Austrian EV matching agent. The candidate vehicles are already ranked by match score. " +
+  "Write explanations only for the provided vehicleIds, never invent cars, and never override hard filters. " +
   "Write all text in the user's language from the language field. " +
   "Use only provided vehicle facts and retrievedEvidence excerpts, but do not include evidence IDs, citation markers, or context annotations like [E1] or [E2] in assistantMessage or vehicle explanations. " +
   "Do not mention sources that are not provided. " +
   "Write each vehicle explanation like a helpful car salesperson texting a customer: natural, warm, specific, and easy to read. Use 2 to 3 short paragraphs separated by blank lines, no bullets, no headings, and no score-first phrasing. " +
   "Start with the practical fit and include concrete facts such as range, price or lease, body style, seats, cargo, drivetrain, charging/public-charging fit, tech, family or commute suitability, and availability only when those facts are provided. " +
   "Mention limitations or tradeoffs plainly, but keep the overall tone conversational rather than analytical. " +
-  "Return JSON: {\"assistantMessage\":\"...\",\"selectedVehicleIds\":[\"...\"],\"explanations\":[{\"vehicleId\":\"...\",\"explanation\":\"...\"}]}. " +
-  "assistantMessage must briefly introduce the shortlist and, when rejectedSummary is provided, mention the main reasons other vehicles were ruled out. Every selected vehicleId must have a matching explanation entry.";
+  "Return JSON: {\"assistantMessage\":\"...\",\"explanations\":[{\"vehicleId\":\"...\",\"explanation\":\"...\"}]}. " +
+  "assistantMessage must briefly introduce the ranked listings and, when rejectedSummary is provided, mention the main reasons other vehicles were ruled out. Every provided vehicleId must have a matching explanation entry.";
 
 function llmEnabled() {
-  return process.env.FLOWRYD_DISABLE_LLM !== "1" && Boolean(process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY);
+  return process.env.FLOWRYD_DISABLE_LLM !== "1" && openAiConfigured();
 }
 
 export async function attachExplanations(
@@ -46,7 +39,11 @@ export async function attachExplanations(
   criteria: UserCriteria
 ): Promise<MatchResult[]> {
   const generated = await generateWithLlm(matches, criteria);
-  const byVehicle = new Map(generated.explanations.map((item) => [item.vehicleId, item.explanation]));
+  const byVehicle = await fillMissingExplanations(
+    matches,
+    criteria,
+    new Map(generated.explanations.map((item) => [item.vehicleId, item.explanation]))
+  );
 
   return matches.map((match) => ({
     ...match,
@@ -63,26 +60,28 @@ export async function selectAndExplainMatches(
     rejectedSummary?: RejectedSummary[];
   } = {}
 ): Promise<FinalRecommendationSelection> {
-  const maxRecommendations = options.maxRecommendations ?? 3;
-  const generated = await generateWithLlm(matches.slice(0, 8), criteria, options.rejectedSummary ?? []);
-  const allowedIds = new Set(matches.map((match) => match.vehicle.id));
-  const selectedIds = (generated.selectedVehicleIds ?? [])
-    .filter((id) => allowedIds.has(id))
-    .slice(0, maxRecommendations);
-  const fallbackSelection = matches.slice(0, maxRecommendations);
-  const selected = selectedIds.length
-    ? selectedIds
-        .map((id) => matches.find((match) => match.vehicle.id === id))
-        .filter((match): match is MatchResult => Boolean(match))
-    : fallbackSelection;
-  const byVehicle = new Map(generated.explanations.map((item) => [item.vehicleId, item.explanation]));
+  const maxRecommendations = options.maxRecommendations ?? 8;
+  const selected = matches.slice(0, maxRecommendations);
+  const generated = await generateWithLlm(selected.slice(0, 8), criteria, options.rejectedSummary ?? []);
+  const byVehicle = await fillMissingExplanations(
+    selected,
+    criteria,
+    new Map(generated.explanations.map((item) => [item.vehicleId, item.explanation])),
+    options.rejectedSummary ?? []
+  );
   const recommendations = selected.map((match) => ({
     ...match,
     explanation: byVehicle.get(match.vehicle.id) ?? fallbackExplanation(match, criteria)
   }));
 
   const assistantMessage =
-    generated.assistantMessage ?? fallbackAssistantMessage(recommendations, criteria, options.lowConfidenceQuestion);
+    generated.assistantMessage ??
+    (await generateMatchIntroMessage({
+      criteria,
+      recommendationCount: recommendations.length,
+      lowConfidenceQuestion: options.lowConfidenceQuestion,
+      rejectedSummary: options.rejectedSummary
+    }));
 
   return {
     assistantMessage,
@@ -192,7 +191,9 @@ function translateBodyType(bodyType: MatchResult["vehicle"]["bodyType"]) {
     suv: "SUV",
     crossover: "Crossover",
     wagon: "Kombi",
-    van: "Van"
+    van: "Van",
+    other: "Sonstige",
+    minibus: "Minibus"
   };
   return labels[bodyType];
 }
@@ -215,91 +216,29 @@ function hasUsableLlmSelection(selection: LlmSelection) {
   return selection.explanations.length > 0 || Boolean(selection.assistantMessage);
 }
 
+async function fillMissingExplanations(
+  matches: MatchResult[],
+  criteria: UserCriteria,
+  byVehicle: Map<string, string>,
+  rejectedSummary: RejectedSummary[] = []
+) {
+  const missing = matches.filter((match) => !byVehicle.has(match.vehicle.id));
+  if (!missing.length || !llmEnabled()) return byVehicle;
+
+  const retry = await generateWithLlm(missing.slice(0, 5), criteria, rejectedSummary);
+  for (const item of retry.explanations) {
+    byVehicle.set(item.vehicleId, item.explanation);
+  }
+
+  return byVehicle;
+}
+
 async function generateWithLlmOnce(
   matches: MatchResult[],
   criteria: UserCriteria,
   rejectedSummary: RejectedSummary[] = []
 ): Promise<LlmSelection> {
-  if (process.env.GEMINI_API_KEY) {
-    return generateWithGemini(matches, criteria, rejectedSummary);
-  }
-
   return generateWithOpenAi(matches, criteria, rejectedSummary);
-}
-
-async function generateWithGemini(
-  matches: MatchResult[],
-  criteria: UserCriteria,
-  rejectedSummary: RejectedSummary[] = []
-): Promise<LlmSelection> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return { explanations: [] };
-
-  const baseUrl = process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta";
-  const model = process.env.GEMINI_MODEL ?? "gemini-3.1-flash-lite";
-  const modelPath = model.startsWith("models/") ? model : `models/${model}`;
-  const searchParams = new URLSearchParams({ key: apiKey });
-  const payload = {
-    systemInstruction: {
-      parts: [{ text: explanationSystemPrompt }]
-    },
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: JSON.stringify(buildExplanationInput(matches, criteria, rejectedSummary)) }]
-      }
-    ],
-    generationConfig: {
-      temperature: 0.2,
-      response_mime_type: "application/json",
-      response_schema: {
-        type: "OBJECT",
-        properties: {
-          assistantMessage: { type: "STRING" },
-          selectedVehicleIds: {
-            type: "ARRAY",
-            items: { type: "STRING" }
-          },
-          explanations: {
-            type: "ARRAY",
-            items: {
-              type: "OBJECT",
-              properties: {
-                vehicleId: { type: "STRING" },
-                explanation: { type: "STRING" }
-              },
-              required: ["vehicleId", "explanation"]
-            }
-          }
-        },
-        required: ["explanations"]
-      }
-    }
-  };
-
-  try {
-    const response = await fetch(
-      `${baseUrl.replace(/\/$/, "")}/${modelPath}:generateContent?${searchParams}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(5000)
-      }
-    );
-
-    if (!response.ok) return { explanations: [] };
-    const data = (await response.json()) as GeminiGenerateContentResponse;
-    const content = data.candidates?.[0]?.content?.parts
-      ?.map((part) => part.text ?? "")
-      .join("")
-      .trim();
-    return content ? parseLlmSelectionJson(content) : { explanations: [] };
-  } catch {
-    return { explanations: [] };
-  }
 }
 
 async function generateWithOpenAi(
@@ -307,43 +246,28 @@ async function generateWithOpenAi(
   criteria: UserCriteria,
   rejectedSummary: RejectedSummary[] = []
 ): Promise<LlmSelection> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return { explanations: [] };
-
-  const baseUrl = process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-  const payload = {
-    model,
-    temperature: 0.2,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content: explanationSystemPrompt
-      },
-      {
-        role: "user",
-        content: JSON.stringify(buildExplanationInput(matches, criteria, rejectedSummary))
-      }
-    ]
-  };
+  if (!openAiConfigured()) return { explanations: [] };
 
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
+    const response = await createOpenAiClient().chat.completions.create(
+      {
+        model: openAiModel(),
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: explanationSystemPrompt
+          },
+          {
+            role: "user",
+            content: JSON.stringify(buildExplanationInput(matches, criteria, rejectedSummary))
+          }
+        ]
       },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(4000)
-    });
-
-    if (!response.ok) return { explanations: [] };
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const content = data.choices?.[0]?.message?.content;
+      { timeout: 4000 }
+    );
+    const content = response.choices[0]?.message?.content;
     if (!content) return { explanations: [] };
     return parseLlmSelectionJson(content);
   } catch {
@@ -439,15 +363,3 @@ function isLlmExplanation(value: unknown): value is LlmExplanation {
   return typeof explanation.vehicleId === "string" && typeof explanation.explanation === "string";
 }
 
-function fallbackAssistantMessage(
-  recommendations: MatchResult[],
-  criteria: UserCriteria,
-  lowConfidenceQuestion?: string | null
-) {
-  const count = recommendations.length;
-  const base =
-    criteria.language === "de"
-      ? `${count} passende E-Auto${count === 1 ? "" : "s"} gefunden. Ich habe harte Grenzen wie Budget, Verfügbarkeit und explizite Reichweite zuerst eingehalten.`
-      : `Found ${count} matching EV${count === 1 ? "" : "s"}. I kept hard limits like budget, availability, and explicit range first.`;
-  return lowConfidenceQuestion ? `${base} ${lowConfidenceQuestion}` : base;
-}

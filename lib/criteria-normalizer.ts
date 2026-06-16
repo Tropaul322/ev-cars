@@ -1,10 +1,11 @@
+import { generateClarificationMessage } from "./assistant-messages.ts";
 import {
-  clarificationQuestion,
   extractCriteria,
   getCriteriaConfidence,
   getMissingCriteria,
   normalizeCriteriaShape
 } from "./criteria.ts";
+import { createOpenAiClient, openAiConfigured, openAiModel } from "./openai-provider.ts";
 import type {
   BrandOrigin,
   BodyType,
@@ -38,16 +39,6 @@ type NormalizeCriteriaInput = {
   criteriaOverride?: UserCriteria | null;
 };
 
-type GeminiGenerateContentResponse = {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{
-        text?: string;
-      }>;
-    };
-  }>;
-};
-
 const normalizerPrompt =
   "You extract EV shopping criteria from German or English chat. Return only JSON with optional criteriaPatch and confidence. Do not choose vehicles. Use null only when the user explicitly clears a criterion. Latest explicit user instruction wins.";
 
@@ -57,7 +48,7 @@ export async function normalizeCriteria({
   criteriaOverride
 }: NormalizeCriteriaInput): Promise<CriteriaNormalization> {
   if (criteriaOverride) {
-    return buildNormalization(normalizeCriteriaShape(criteriaOverride), {});
+    return await buildNormalization(message, normalizeCriteriaShape(criteriaOverride), {});
   }
 
   const fallbackCriteria = extractCriteria(message, previousCriteria ?? undefined);
@@ -65,11 +56,11 @@ export async function normalizeCriteria({
 
   const llmPatch = await generateCriteriaPatch(message, previousCriteria ?? null);
   if (!llmPatch) {
-    return buildNormalization(fallbackCriteria, fallbackPatch);
+    return await buildNormalization(message, fallbackCriteria, fallbackPatch);
   }
 
   const criteria = applyCriteriaPatch(previousCriteria ?? fallbackCriteria, llmPatch, message, Boolean(previousCriteria));
-  return buildNormalization(criteria, llmPatch);
+  return await buildNormalization(message, criteria, llmPatch);
 }
 
 export function applyCriteriaPatch(
@@ -88,6 +79,13 @@ export function applyCriteriaPatch(
     ...cleanPatch(patch),
     rawPrompt
   });
+  const deterministic = extractCriteria(message, base);
+  if (deterministic.modelPreferences.length) {
+    criteria.modelPreferences = mergeUnique(criteria.modelPreferences, deterministic.modelPreferences);
+  }
+  if (deterministic.brandPreferences.length) {
+    criteria.brandPreferences = mergeUnique(criteria.brandPreferences, deterministic.brandPreferences);
+  }
 
   for (const removal of patch.remove ?? []) {
     if (removal === "budget") {
@@ -119,14 +117,25 @@ export function applyCriteriaPatch(
   return criteria;
 }
 
-function buildNormalization(criteria: UserCriteria, criteriaPatch: CriteriaPatch): CriteriaNormalization {
+function mergeUnique<T>(left: T[], right: T[]) {
+  return Array.from(new Set([...left, ...right]));
+}
+
+async function buildNormalization(
+  message: string,
+  criteria: UserCriteria,
+  criteriaPatch: CriteriaPatch
+): Promise<CriteriaNormalization> {
   const missingCriteria = getMissingCriteria(criteria);
+  const clarificationQuestion = missingCriteria.length
+    ? await generateClarificationMessage({ message, criteria, missingCriteria })
+    : null;
   return {
     criteria,
     criteriaPatch,
     confidence: getCriteriaConfidence(criteria),
     missingCriteria,
-    clarificationQuestion: missingCriteria.includes("budget") ? clarificationQuestion(criteria) : null
+    clarificationQuestion
   };
 }
 
@@ -135,8 +144,7 @@ async function generateCriteriaPatch(
   previousCriteria: UserCriteria | null
 ): Promise<CriteriaPatch | null> {
   if (process.env.FLOWRYD_DISABLE_LLM === "1") return null;
-  if (process.env.GEMINI_API_KEY) return generateGeminiCriteriaPatch(message, previousCriteria);
-  if (process.env.OPENAI_API_KEY) return generateOpenAiCriteriaPatch(message, previousCriteria);
+  if (openAiConfigured()) return generateOpenAiCriteriaPatch(message, previousCriteria);
   return null;
 }
 
@@ -144,73 +152,22 @@ async function generateOpenAiCriteriaPatch(
   message: string,
   previousCriteria: UserCriteria | null
 ): Promise<CriteriaPatch | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  const baseUrl = process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+  if (!openAiConfigured()) return null;
 
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model,
+    const response = await createOpenAiClient().chat.completions.create(
+      {
+        model: openAiModel(),
         temperature: 0,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: normalizerPrompt },
           { role: "user", content: JSON.stringify(buildNormalizerInput(message, previousCriteria)) }
         ]
-      }),
-      signal: AbortSignal.timeout(1600)
-    });
-    if (!response.ok) return null;
-    const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    return parseCriteriaPatch(data.choices?.[0]?.message?.content ?? "");
-  } catch {
-    return null;
-  }
-}
-
-async function generateGeminiCriteriaPatch(
-  message: string,
-  previousCriteria: UserCriteria | null
-): Promise<CriteriaPatch | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-  const baseUrl = process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta";
-  const model = process.env.GEMINI_MODEL ?? "gemini-3.1-flash-lite";
-  const modelPath = model.startsWith("models/") ? model : `models/${model}`;
-
-  try {
-    const response = await fetch(
-      `${baseUrl.replace(/\/$/, "")}/${modelPath}:generateContent?${new URLSearchParams({ key: apiKey })}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: normalizerPrompt }] },
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: JSON.stringify(buildNormalizerInput(message, previousCriteria)) }]
-            }
-          ],
-          generationConfig: {
-            temperature: 0,
-            response_mime_type: "application/json"
-          }
-        }),
-        signal: AbortSignal.timeout(1800)
-      }
+      },
+      { timeout: 1600 }
     );
-    if (!response.ok) return null;
-    const data = (await response.json()) as GeminiGenerateContentResponse;
-    const content = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
-    return parseCriteriaPatch(content ?? "");
+    return parseCriteriaPatch(response.choices[0]?.message?.content ?? "");
   } catch {
     return null;
   }

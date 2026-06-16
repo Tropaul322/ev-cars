@@ -4,6 +4,7 @@ import { Bookmark, SearchCheck, Users, Zap } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { DemoAuthButton } from "@/components/demo-auth-button";
 
 const navItems = [
   { href: "/", label: "Search", icon: SearchCheck },
@@ -48,12 +49,7 @@ export function FlowRydShell({
             })}
           </nav>
           <div className="flow-auth">
-            <button className="flow-auth-link" type="button">
-              Sign in
-            </button>
-            <button className="flow-auth-primary" type="button">
-              Sign up
-            </button>
+            <DemoAuthButton shell />
           </div>
         </div>
       </header>

@@ -4,7 +4,7 @@ import path from "node:path";
 import { normalizeFlowrydVehicle, type RawInventoryRow } from "../lib/data/flowryd-normalization.ts";
 import { seedVehicles } from "../lib/data/seed-vehicles.ts";
 import { createDocumentEmbedding, embeddingDimensions } from "../lib/embeddings.ts";
-import { buildVehicleEmbeddingText, vehicleTitle } from "../lib/vehicle-embedding-text.ts";
+import { openAiEmbeddingModel } from "../lib/openai-provider.ts";
 
 type RawRagRow = {
   source: string;
@@ -125,19 +125,10 @@ function makeKnowledgeId(row: RawRagRow, index: number) {
 }
 
 async function buildVehicleRows(vehicles: Awaited<ReturnType<typeof normalizeFlowrydVehicle>>[]) {
-  const rows = [];
-  for (const vehicle of vehicles) {
-    let embedding = await createDocumentEmbedding(buildVehicleEmbeddingText(vehicle), vehicleTitle(vehicle));
-    if (!embedding) {
-      embedding = await createDocumentEmbedding(buildVehicleEmbeddingText(vehicle), vehicleTitle(vehicle));
-    }
-    rows.push({
-      id: vehicle.id,
-      payload: vehicle,
-      embedding: embedding ? `[${embedding.join(",")}]` : null
-    });
-  }
-  return rows;
+  return vehicles.map((vehicle) => ({
+    id: vehicle.id,
+    payload: vehicle
+  }));
 }
 
 async function buildKnowledgeChunks(
@@ -161,7 +152,7 @@ async function buildKnowledgeChunks(
         metadata: {
           sourceRow: document.payload,
           chunkIndex: index,
-          embeddingModel: env.GEMINI_EMBEDDING_MODEL ?? "gemini-embedding-2",
+          embeddingModel: openAiEmbeddingModel(),
           embeddingDimensions: embeddingDimensions()
         }
       });

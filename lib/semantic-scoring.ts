@@ -84,12 +84,8 @@ export function scoreVehicleTopicAffinity(
 
 export function blendSemanticSignals(input: {
   keywordScore: number;
-  embeddingScore: number;
   topicScore: number;
 }) {
-  if (input.embeddingScore > 0) {
-    return input.keywordScore * 0.3 + input.embeddingScore * 0.45 + input.topicScore * 0.25;
-  }
   return input.keywordScore * 0.65 + input.topicScore * 0.35;
 }
 

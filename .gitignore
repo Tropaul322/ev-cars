@@ -7,7 +7,7 @@ node_modules/
 coverage/
 *.tsbuildinfo
 dist/
-# inventory-scraping/
-inventory-scraping/cache/
-inventory-scraping/output/
-inventory-scraping/crawl4ai/.venv/
+inventory-scraping/
+# inventory-scraping/cache/
+# inventory-scraping/output/
+# inventory-scraping/crawl4ai/.venv/

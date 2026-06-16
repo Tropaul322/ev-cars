@@ -7,7 +7,6 @@ import {
   listKnowledgeDocuments,
   matchKnowledgeChunksByEmbedding
 } from "./repositories/knowledge-repository.ts";
-import { matchVehiclesByEmbedding } from "./repositories/vehicle-repository.ts";
 import type { Feature, RagContext, RagEvidence, UserCriteria, Vehicle } from "./types.ts";
 import { vehicleTitle, buildVehicleEmbeddingText } from "./vehicle-embedding-text.ts";
 import {
@@ -23,7 +22,6 @@ type BuildRagContextInput = {
   documents: KnowledgeDocument[];
   documentLimit?: number;
   vehicleLimit?: number;
-  embeddedVehicleMatches?: Array<{ vehicle: Vehicle; similarity: number }>;
 };
 
 const stopWords = new Set([
@@ -111,23 +109,19 @@ export async function retrieveRagContext(
 ): Promise<RagContext> {
   const query = buildQuery(message, criteria);
   const queryEmbedding = await createQueryEmbedding(query);
-  const [documents, chunks, embeddedChunks, embeddedVehicles] = await Promise.all([
+  const [documents, chunks, embeddedChunks] = await Promise.all([
     listKnowledgeDocuments(),
     listKnowledgeChunks(),
-    queryEmbedding ? matchKnowledgeChunksByEmbedding(queryEmbedding, 8) : Promise.resolve([]),
-    queryEmbedding ? matchVehiclesByEmbedding(queryEmbedding, 30) : Promise.resolve([])
+    queryEmbedding ? matchKnowledgeChunksByEmbedding(queryEmbedding, 8) : Promise.resolve([])
   ]);
   const chunkDocuments = mergeKnowledgeDocuments([...embeddedChunks, ...chunks]);
   const mergedDocuments = chunkDocuments.length ? chunkDocuments : mergeKnowledgeDocuments(documents);
-  const candidateIds = new Set(vehicles.map((vehicle) => vehicle.id));
-  const filteredEmbeddedVehicles = embeddedVehicles.filter((match) => candidateIds.has(match.vehicle.id));
 
   return buildRagContext({
     message,
     criteria,
     vehicles,
-    documents: mergedDocuments,
-    embeddedVehicleMatches: filteredEmbeddedVehicles
+    documents: mergedDocuments
   });
 }
 
@@ -137,8 +131,7 @@ export function buildRagContext({
   vehicles,
   documents,
   documentLimit = 6,
-  vehicleLimit = 30,
-  embeddedVehicleMatches = []
+  vehicleLimit = 30
 }: BuildRagContextInput): RagContext {
   const query = buildQuery(message, criteria);
   const queryTokens = tokenizeSearchText(query);
@@ -154,8 +147,6 @@ export function buildRagContext({
   const maxVehicleScore = vehicleRanks[0]?.rawScore ?? 1;
   const vehicleEvidence: Record<string, RagEvidence[]> = {};
   const vehicleScores: Record<string, number> = {};
-  const vehicleEmbeddingScores: Record<string, number> = {};
-  const maxEmbeddingSimilarity = embeddedVehicleMatches[0]?.similarity ?? 1;
 
   for (const rank of vehicleRanks) {
     const keywordScore = normalizeScore(rank.rawScore, maxVehicleScore);
@@ -171,35 +162,11 @@ export function buildRagContext({
     ];
   }
 
-  for (const match of embeddedVehicleMatches) {
-    const embeddingScore =
-      maxEmbeddingSimilarity > 0 ? Math.round((match.similarity / maxEmbeddingSimilarity) * 100) / 100 : 0;
-    vehicleEmbeddingScores[match.vehicle.id] = embeddingScore;
-
-    const existing = vehicleEvidence[match.vehicle.id]?.[0];
-    if (existing) {
-      existing.score = Math.round(((existing.score * 0.4 + embeddingScore * 0.6) || embeddingScore) * 100) / 100;
-      continue;
-    }
-
-    vehicleScores[match.vehicle.id] = embeddingScore;
-    vehicleEvidence[match.vehicle.id] = [
-      {
-        sourceType: "vehicle_payload",
-        sourceId: match.vehicle.id,
-        title: vehicleTitle(match.vehicle),
-        excerpt: vehicleExcerpt(match.vehicle),
-        score: embeddingScore
-      }
-    ];
-  }
-
   return {
     query,
     documents: documentEvidence,
     vehicleEvidence,
     vehicleScores,
-    vehicleEmbeddingScores,
     topicAffinity
   };
 }
@@ -455,7 +422,10 @@ function vehicleExcerpt(vehicle: Vehicle) {
     `${vehicle.efficiencyKwhPer100Km} kWh/100 km`,
     `${vehicle.cargoLiters} l cargo`,
     vehicle.location ? `location ${vehicle.location}` : null,
-    `features ${vehicle.features.slice(0, 6).map((feature) => featureLabels[feature].split(" ").slice(0, 3).join(" ")).join(", ")}`,
+    `features ${vehicle.features
+      .slice(0, 6)
+      .map((feature) => featureLabels[feature]?.split(" ").slice(0, 3).join(" ") ?? feature.replace(/_/g, " "))
+      .join(", ")}`,
     vehicle.notes
   ].filter(Boolean);
 

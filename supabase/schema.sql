@@ -46,6 +46,29 @@ create index if not exists vehicles_seller_type_idx on public.vehicles (seller_t
 create index if not exists vehicles_inventory_fingerprint_idx on public.vehicles (inventory_fingerprint);
 create index if not exists vehicles_crawled_at_idx on public.vehicles (crawled_at);
 
+alter table public.vehicles
+  add column if not exists market text generated always as (payload ->> 'market') stored,
+  add column if not exists year integer generated always as (nullif(payload ->> 'year', '')::integer) stored,
+  add column if not exists location text generated always as (payload ->> 'location') stored,
+  add column if not exists transmission text generated always as (payload ->> 'transmission') stored,
+  add column if not exists exterior_color text generated always as (payload ->> 'exteriorColor') stored,
+  add column if not exists doors integer generated always as (nullif(payload ->> 'doors', '')::integer) stored,
+  add column if not exists leasing_eligible boolean generated always as ((payload ->> 'leasingEligible')::boolean) stored,
+  add column if not exists lease_duration_months integer generated always as (nullif(payload ->> 'leaseDurationMonths', '')::integer) stored,
+  add column if not exists source_updated_at timestamptz generated always as (nullif(payload ->> 'sourceUpdatedAt', '')::timestamptz) stored,
+  add column if not exists vat_deductible boolean generated always as ((payload ->> 'vatDeductible')::boolean) stored,
+  add column if not exists brand_origin text generated always as (payload ->> 'brandOrigin') stored,
+  add column if not exists power_kw numeric generated always as (nullif(payload ->> 'powerKw', '')::numeric) stored;
+
+create index if not exists vehicles_market_idx on public.vehicles (market);
+create index if not exists vehicles_year_idx on public.vehicles (year);
+create index if not exists vehicles_location_idx on public.vehicles (location);
+create index if not exists vehicles_transmission_idx on public.vehicles (transmission);
+create index if not exists vehicles_exterior_color_idx on public.vehicles (exterior_color);
+create index if not exists vehicles_leasing_eligible_idx on public.vehicles (leasing_eligible);
+create index if not exists vehicles_brand_origin_idx on public.vehicles (brand_origin);
+create index if not exists vehicles_source_updated_at_idx on public.vehicles (source_updated_at);
+
 create table if not exists public.knowledge_documents (
   id text primary key,
   source text not null,
@@ -100,3 +123,28 @@ create table if not exists public.tester_registrations (
   deletion_requested_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+create table if not exists public.saved_cars (
+  id uuid primary key default gen_random_uuid(),
+  tester_registration_id uuid not null references public.tester_registrations(id) on delete cascade,
+  vehicle_id text not null,
+  snapshot jsonb,
+  deleted_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (tester_registration_id, vehicle_id)
+);
+
+create index if not exists saved_cars_tester_active_idx
+  on public.saved_cars (tester_registration_id, updated_at desc)
+  where deleted_at is null;
+
+create index if not exists saved_cars_vehicle_idx
+  on public.saved_cars (vehicle_id);
+
+drop trigger if exists saved_cars_touch_updated_at on public.saved_cars;
+
+create trigger saved_cars_touch_updated_at
+before update on public.saved_cars
+for each row
+execute function public.touch_updated_at();

@@ -2,6 +2,8 @@ import type { BrandOrigin, Vehicle } from "./types.ts";
 
 const originCountryCodes: Record<BrandOrigin, string[]> = {
   china: ["CN"],
+  korea: ["KR"],
+  us: ["US"],
   europe: [
     "AT",
     "BE",

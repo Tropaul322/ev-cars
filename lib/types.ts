@@ -47,7 +47,9 @@ export type BodyType =
   | "suv"
   | "crossover"
   | "wagon"
-  | "van";
+  | "van"
+  | "other"
+  | "minibus";
 
 export type InventorySource =
   | "seed"
@@ -88,6 +90,11 @@ export type Vehicle = {
   priceEUR: number;
   priceLabel?: string;
   monthlyLeaseEUR: number | null;
+  leasingEligible?: boolean | null;
+  leaseDurationMonths?: number | null;
+  leaseAdvancePaymentEUR?: number | null;
+  leaseResidualValueEUR?: number | null;
+  leaseDetails?: string | null;
   condition: VehicleCondition;
   mileageKm: number | null;
   rangeKm: number;
@@ -120,7 +127,7 @@ export type Vehicle = {
   manufacturerCountry?: string;
   manufacturerCountryCode?: string;
   notes: string;
-  brandOrigin: "europe" | "china" | "other";
+  brandOrigin: "europe" | "china" | "korea" | "us" | "other";
   reviewTags: string[];
   raw?: unknown;
 };
@@ -196,7 +203,6 @@ export type RagContext = {
   documents: RagEvidence[];
   vehicleEvidence: Record<string, RagEvidence[]>;
   vehicleScores: Record<string, number>;
-  vehicleEmbeddingScores: Record<string, number>;
   topicAffinity: Partial<Record<KnowledgeTopic, number>>;
 };
 

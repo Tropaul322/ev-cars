@@ -1,6 +1,14 @@
+import {
+  fallbackChatGreeting,
+  generateLowConfidenceQuestion,
+  generateNoMatchesMessage,
+  generateNoMoreMatchesMessage
+} from "./assistant-messages.ts";
 import { planAgentTurn } from "./chat-agent.ts";
+import { clarificationQuestion } from "./criteria.ts";
 import { normalizeCriteria } from "./criteria-normalizer.ts";
 import { selectAndExplainMatches } from "./explanations.ts";
+import { matchDebug } from "./match-debug.ts";
 import { retrieveRagContext } from "./rag.ts";
 import {
   getMatchSession,
@@ -11,11 +19,17 @@ import { matchVehicles } from "./scoring.ts";
 import type { MatchResponse, RejectedSummary, RejectedVehicle, UserCriteria, Vehicle } from "./types.ts";
 import { vehicleMatchesModelPreferences } from "./vehicle-matching.ts";
 
+const MATCH_CANDIDATE_LIMIT = 24;
+const MATCH_MODEL_CANDIDATE_LIMIT = 3;
+const DEFAULT_RECOMMENDATION_LIMIT = 8;
+const FOCUSED_RECOMMENDATION_LIMIT = 12;
+
 export type MatchServiceRequest = {
   message: string;
   sessionId?: string;
   previousCriteria?: UserCriteria;
   criteriaOverride?: UserCriteria;
+  testerLocation?: string | null;
 };
 
 export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchResponse> {
@@ -28,7 +42,22 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     previousCriteria,
     criteriaOverride: body.criteriaOverride ?? null
   });
-  const criteria = normalized.criteria;
+  let criteria = normalized.criteria;
+  if (!criteria.location && body.testerLocation) {
+    criteria = { ...criteria, location: body.testerLocation };
+  }
+  matchDebug("criteria", {
+    sessionId,
+    message: body.message,
+    budgetMaxEUR: criteria.budgetMaxEUR,
+    rangeFloorKm: criteria.rangeFloorKm,
+    bodyTypes: criteria.bodyTypes,
+    brandPreferences: criteria.brandPreferences,
+    modelPreferences: criteria.modelPreferences,
+    preferredBrandOrigins: criteria.preferredBrandOrigins,
+    missingCriteria: normalized.missingCriteria,
+    confidence: normalized.confidence
+  });
   let agentPlan = await planAgentTurn({
     message: body.message,
     criteria,
@@ -50,9 +79,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       criteria,
       selectedVehicleIds: [...nextSelectedVehicleIds]
     });
-    const assistantMessage =
-      agentPlan.assistantMessage ??
-      "Hey, how can I help you today? Tell me your EV budget, use case, charging or range needs, and one preference.";
+    const assistantMessage = agentPlan.assistantMessage ?? fallbackChatGreeting(criteria);
     return {
       type: "chat",
       sessionId,
@@ -73,9 +100,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       selectedVehicleIds: [...nextSelectedVehicleIds]
     });
     const assistantMessage =
-      agentPlan.assistantMessage ??
-      normalized.clarificationQuestion ??
-      "What budget should I respect: maximum purchase price or monthly lease target?";
+      agentPlan.assistantMessage ?? normalized.clarificationQuestion ?? clarificationQuestion(criteria);
     return {
       type: "clarification",
       sessionId,
@@ -91,12 +116,45 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
 
   const candidateVehicles = await searchVehicles(criteria);
   const scoringVehicles = dedupeVehiclesForMatching(candidateVehicles.length ? candidateVehicles : await listVehicles());
+  matchDebug("candidate-pool", {
+    sessionId,
+    searchedVehicles: candidateVehicles.length,
+    scoringVehicles: scoringVehicles.length,
+    usedFallbackList: candidateVehicles.length === 0
+  });
   const nextBatchVehicles = isNextBatch
     ? scoringVehicles.filter((vehicle) => !vehicleHasShownKey(vehicle, shownVehicleIds))
     : scoringVehicles;
-  const ragContext = await retrieveRagContext(body.message, criteria, nextBatchVehicles);
-  const result = matchVehicles(nextBatchVehicles, criteria, 8, { ragContext });
+  const matchingCandidates = limitVehiclesPerModel(nextBatchVehicles, criteria, MATCH_MODEL_CANDIDATE_LIMIT);
+  matchDebug("matching-candidates", {
+    sessionId,
+    nextBatchVehicles: nextBatchVehicles.length,
+    matchingCandidates: matchingCandidates.length,
+    modelBuckets: new Set(matchingCandidates.map(vehicleModelKey)).size
+  });
+  const ragContext = await retrieveRagContext(body.message, criteria, matchingCandidates);
+  const recommendationLimit = resolveRecommendationLimit(criteria);
+  const result = matchVehicles(matchingCandidates, criteria, MATCH_CANDIDATE_LIMIT, { ragContext });
   const rejectedSummary = summarizeRejected(result.rejected, criteria);
+  matchDebug("scored", {
+    sessionId,
+    passed: result.recommendations.length,
+    rejected: result.rejected.length,
+    rejectedSummary,
+    topRecommendations: result.recommendations.slice(0, 8).map((match) => ({
+      id: match.vehicle.id,
+      make: match.vehicle.make,
+      model: match.vehicle.model,
+      score: match.score,
+      ragScore: match.ragScore
+    })),
+    sampleRejected: result.rejected.slice(0, 8).map((item) => ({
+      id: item.vehicle.id,
+      make: item.vehicle.make,
+      model: item.vehicle.model,
+      reasons: item.reasons
+    }))
+  });
 
   if (!result.recommendations.length) {
     await saveMatchSession({
@@ -104,9 +162,10 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       criteria,
       selectedVehicleIds: [...nextSelectedVehicleIds]
     });
-    const assistantMessage = isNextBatch && shownVehicleIds.size
-      ? noMoreMatchesMessage(criteria)
-      : noMatchesMessage(criteria, rejectedSummary);
+    const assistantMessage =
+      isNextBatch && shownVehicleIds.size
+        ? await generateNoMoreMatchesMessage(criteria)
+        : await generateNoMatchesMessage({ criteria, rejectedSummary });
     return {
       type: "no_matches",
       sessionId,
@@ -121,11 +180,11 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
   }
 
   const finalSelection = await selectAndExplainMatches(result.recommendations, criteria, {
-    maxRecommendations: 3,
+    maxRecommendations: recommendationLimit,
     rejectedSummary,
     lowConfidenceQuestion:
       normalized.confidence < 0.72 && agentPlan.missingCriteria.includes("use_case")
-        ? lowConfidenceQuestion(criteria)
+        ? await generateLowConfidenceQuestion(criteria)
         : null
   });
   nextSelectedVehicleIds = new Set([
@@ -150,6 +209,13 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     ragCitations: ragContext.documents,
     rejectedSummary
   };
+}
+
+function resolveRecommendationLimit(criteria: UserCriteria) {
+  if (criteria.modelPreferences.length || criteria.brandPreferences.length) {
+    return FOCUSED_RECOMMENDATION_LIMIT;
+  }
+  return DEFAULT_RECOMMENDATION_LIMIT;
 }
 
 function isNextBatchRequest(message: string) {
@@ -188,6 +254,52 @@ function vehiclePrimaryMatchKey(vehicle: Vehicle) {
   );
 }
 
+function limitVehiclesPerModel(vehicles: Vehicle[], criteria: UserCriteria, limit: number) {
+  const groups = new Map<string, Vehicle[]>();
+  for (const vehicle of vehicles) {
+    const key = vehicleModelKey(vehicle);
+    const group = groups.get(key);
+    if (group) {
+      group.push(vehicle);
+    } else {
+      groups.set(key, [vehicle]);
+    }
+  }
+
+  return [...groups.values()].flatMap((group) => {
+    return group
+      .sort((left, right) => scoreCandidateForModel(right, criteria) - scoreCandidateForModel(left, criteria))
+      .slice(0, limit);
+  });
+}
+
+function scoreCandidateForModel(vehicle: Vehicle, criteria: UserCriteria) {
+  const priceScore = criteria.budgetMaxEUR
+    ? clampScore(100 - Math.max(0, vehicle.priceEUR - criteria.budgetMaxEUR) / 500)
+    : clampScore(100 - vehicle.priceEUR / 2500);
+  const rangeScore = criteria.rangeFloorKm
+    ? clampScore((vehicle.rangeKm / criteria.rangeFloorKm) * 70)
+    : clampScore(vehicle.rangeKm / 6);
+  const mileageScore =
+    vehicle.mileageKm === null
+      ? vehicle.condition === "new"
+        ? 100
+        : 62
+      : clampScore(100 - vehicle.mileageKm / 2500);
+  const batteryScore = vehicle.batterySoH === null ? 72 : vehicle.batterySoH;
+  const freshnessScore = vehicle.sourceUpdatedAt ? 8 : 0;
+
+  return priceScore * 0.34 + rangeScore * 0.26 + mileageScore * 0.18 + batteryScore * 0.14 + freshnessScore;
+}
+
+function vehicleModelKey(vehicle: Vehicle) {
+  return `${vehicle.make} ${vehicle.model}`.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function clampScore(value: number) {
+  return Math.max(0, Math.min(100, value));
+}
+
 function normalizeListingUrl(url: string) {
   return url.trim().replace(/[?#].*$/, "").replace(/\/$/, "").toLowerCase();
 }
@@ -209,28 +321,4 @@ function summarizeRejected(rejected: RejectedVehicle[], criteria: UserCriteria):
     .map(([reason, count]) => ({ reason, count }))
     .sort((left, right) => right.count - left.count)
     .slice(0, 5);
-}
-
-function noMatchesMessage(criteria: UserCriteria, rejectedSummary: RejectedSummary[]) {
-  const mainReason = rejectedSummary[0]?.reason;
-  if (criteria.language === "de") {
-    return mainReason
-      ? `Ich finde mit diesen harten Grenzen kein passendes E-Auto. Der stärkste Blocker ist: ${mainReason}.`
-      : "Ich finde mit diesen harten Grenzen kein passendes E-Auto. Lockere bitte Budget, Reichweite, Kilometerstand oder Karosserieform.";
-  }
-  return mainReason
-    ? `I could not find a matching EV inside those hard limits. The biggest blocker is: ${mainReason}.`
-    : "I could not find a matching EV inside those hard limits. Try relaxing budget, range, mileage, or body type.";
-}
-
-function noMoreMatchesMessage(criteria: UserCriteria) {
-  return criteria.language === "de"
-    ? "Ich habe dir alle passenden Autos aus dieser Suche bereits gezeigt. Wenn du mehr Auswahl willst, lockere bitte Budget, Reichweite, Karosserieform oder andere harte Kriterien."
-    : "I have already shown all matching cars for this search. To get more options, try relaxing budget, range, body type, or another hard filter.";
-}
-
-function lowConfidenceQuestion(criteria: UserCriteria) {
-  return criteria.language === "de"
-    ? "Soll ich eher niedrigen Kilometerstand, längere Reichweite oder Premium-Komfort priorisieren?"
-    : "Should I prioritize lower mileage, longer range, or premium comfort?";
 }
