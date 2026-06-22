@@ -1,9 +1,11 @@
 import { allVehicles } from "../data/all-vehicles.ts";
+import { normalizeVehicleFeatures } from "../feature-normalization.ts";
 import { matchDebug, matchDebugWarn } from "../match-debug.ts";
 import { estimateMonthlyVehiclePayment } from "../tco.ts";
 import type { UserCriteria, Vehicle } from "../types.ts";
 import { sanitizeVehicleImages } from "../vehicle-images.ts";
 import {
+  countryCodesForBrandOrigins,
   vehicleMatchesBrandOriginPreferences,
   vehicleMatchesBrandPreferences,
   vehicleMatchesModelPreferences
@@ -110,7 +112,8 @@ export async function upsertSeedVehicles() {
 
 export async function getVehicleById(id: string): Promise<Vehicle | null> {
   const supabase = getSupabaseRestConfig();
-  if (!supabase) return null;
+  const localVehicle = findLocalVehicleById(id);
+  if (!supabase) return localVehicle;
 
   try {
     const response = await fetch(
@@ -120,14 +123,19 @@ export async function getVehicleById(id: string): Promise<Vehicle | null> {
         next: { revalidate: 60 }
       }
     );
-    if (!response.ok) return null;
+    if (!response.ok) return localVehicle;
 
     const rows = (await response.json()) as SupabaseVehicleRow[];
     const vehicle = rows.map(mapVehicleRow).find((item): item is Vehicle => Boolean(item));
-    return vehicle ?? null;
+    return vehicle ?? localVehicle;
   } catch {
-    return null;
+    return localVehicle;
   }
+}
+
+function findLocalVehicleById(id: string) {
+  const vehicle = allVehicles.find((item) => item.id === id);
+  return vehicle ? sanitizeVehicleImages(vehicle) : null;
 }
 
 async function fetchSupabaseVehicles(): Promise<Vehicle[] | null> {
@@ -178,25 +186,106 @@ export function buildVehicleSearchParams(criteria: UserCriteria) {
     limit: SUPABASE_VEHICLE_LIMIT
   });
 
+  const orGroups: string[][] = [];
+
   if (criteria.budgetMaxEUR) params.set("price_eur", `lte.${criteria.budgetMaxEUR}`);
-  if (criteria.monthlyBudgetEUR) {
-    params.set("or", `(monthly_lease_eur.is.null,monthly_lease_eur.lte.${criteria.monthlyBudgetEUR})`);
-  }
   if (criteria.preferredCondition !== "any") params.set("condition", `eq.${criteria.preferredCondition}`);
   if (criteria.rangeFloorKm) params.set("range_km", `gte.${criteria.rangeFloorKm}`);
   if (criteria.bodyTypes.length) params.set("body_type", `in.(${criteria.bodyTypes.join(",")})`);
-  if (criteria.preferredBrandOrigins.length) {
-    params.set("brand_origin", `in.(${criteria.preferredBrandOrigins.join(",")})`);
-  }
   if (criteria.passengers) params.set("seats", `gte.${criteria.passengers}`);
-  if (criteria.preferredCondition === "used" && criteria.mileageMaxKm) {
-    params.set("mileage_km", `lte.${criteria.mileageMaxKm}`);
-  }
-  if (criteria.preferredCondition === "used" && criteria.batteryHealthRequired && criteria.batterySoHMin) {
+  if (criteria.mileageMaxKm) params.set("mileage_km", `lte.${criteria.mileageMaxKm}`);
+  if (criteria.batteryHealthRequired && criteria.batterySoHMin) {
     params.set("battery_soh", `gte.${criteria.batterySoHMin}`);
   }
+  if (criteria.location) {
+    params.set("location", `ilike.${buildPostgrestIlikePattern(criteria.location)}`);
+  }
+
+  if (criteria.brandPreferences.length) {
+    params.set("brand", `in.(${formatPostgrestInList(expandBrandSearchValues(criteria.brandPreferences))})`);
+  }
+  if (criteria.avoidedBrands.length) {
+    params.set("brand", `not.in.(${formatPostgrestInList(expandBrandSearchValues(criteria.avoidedBrands))})`);
+  }
+
+  if (criteria.preferredBrandOrigins.length) {
+    const originFilters = [`brand_origin.in.(${criteria.preferredBrandOrigins.join(",")})`];
+    const countryCodes = countryCodesForBrandOrigins(criteria.preferredBrandOrigins);
+    if (countryCodes.length) {
+      originFilters.push(`manufacturer_country_code.in.(${countryCodes.join(",")})`);
+    }
+    if (originFilters.length === 1) {
+      params.set("brand_origin", `in.(${criteria.preferredBrandOrigins.join(",")})`);
+    } else {
+      orGroups.push(originFilters);
+    }
+  }
+
+  if (criteria.monthlyBudgetEUR) {
+    orGroups.push([
+      "monthly_lease_eur.is.null",
+      `monthly_lease_eur.lte.${criteria.monthlyBudgetEUR}`
+    ]);
+  }
+
+  if (criteria.modelPreferences.length) {
+    orGroups.push(
+      criteria.modelPreferences.flatMap((model) => [
+        `model.ilike.${buildPostgrestIlikePattern(model)}`,
+        `title.ilike.${buildPostgrestIlikePattern(model)}`
+      ])
+    );
+  }
+
+  applyPostgrestOrGroups(params, orGroups);
 
   return params;
+}
+
+function applyPostgrestOrGroups(params: URLSearchParams, orGroups: string[][]) {
+  if (!orGroups.length) return;
+  if (orGroups.length === 1) {
+    params.set("or", `(${orGroups[0].join(",")})`);
+    return;
+  }
+  params.set("and", `(${orGroups.map((group) => `or(${group.join(",")})`).join(",")})`);
+}
+
+function expandBrandSearchValues(brands: string[]) {
+  const values = new Set<string>();
+  for (const brand of brands) {
+    const trimmed = brand.trim();
+    if (!trimmed) continue;
+    values.add(trimmed);
+
+    const normalized = normalizeBrand(trimmed);
+    if (normalized === "vw") {
+      values.add("VW");
+      values.add("Volkswagen");
+    }
+    if (normalized === "mercedes") {
+      values.add("Mercedes");
+      values.add("Mercedes-Benz");
+    }
+  }
+  return Array.from(values);
+}
+
+function formatPostgrestInList(values: string[]) {
+  return values.map(escapePostgrestValue).join(",");
+}
+
+function escapePostgrestValue(value: string) {
+  if (/[,.()*"]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+function buildPostgrestIlikePattern(value: string) {
+  const trimmed = value.trim().replace(/\*/g, "");
+  if (!trimmed) return "*";
+  return `*${escapePostgrestValue(trimmed)}*`;
 }
 
 function summarizeVehicleSearchFilters(criteria: UserCriteria) {
@@ -214,13 +303,19 @@ function summarizeVehicleSearchFilters(criteria: UserCriteria) {
     passengers: criteria.passengers,
     brandPreferences: criteria.brandPreferences,
     modelPreferences: criteria.modelPreferences,
-    avoidedBrands: criteria.avoidedBrands
+    avoidedBrands: criteria.avoidedBrands,
+    location: criteria.location,
+    mustHaveFeatures: criteria.mustHaveFeatures
   };
 }
 
 function mapVehicleRow(row: SupabaseVehicleRow): Vehicle | null {
   if (!isVehicle(row.payload)) return null;
-  return sanitizeVehicleImages(row.payload);
+  const vehicle = sanitizeVehicleImages(row.payload);
+  return {
+    ...vehicle,
+    features: normalizeVehicleFeatures(vehicle.features, vehicle)
+  };
 }
 
 function isVehicle(value: unknown): value is Vehicle {

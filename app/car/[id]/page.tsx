@@ -1,17 +1,26 @@
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ExternalLink } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
-import { FlowRydShell } from "@/components/flowryd-demo-shell";
+import { WebShell } from "@/components/WebShell";
 import { ProtectedCarActions } from "@/components/protected-car-actions";
 import {
   DEMO_REGISTRATION_COOKIE,
   getDemoRegistration,
-  isActiveDemoRegistration
+  isActiveDemoRegistration,
 } from "@/lib/demo-registration";
 import { demoCars, demoQuickStats, demoScoreBreakdown, type DemoCar } from "@/lib/flowryd-demo-data";
 import { isCarSaved, type SavedCarSnapshot } from "@/lib/repositories/saved-car-repository";
+import { getVehicleById } from "@/lib/repositories/vehicle-repository";
+import type { Vehicle } from "@/lib/types";
+import { formatEUR, formatNumber } from "@/lib/utils";
+import {
+  formatBodyType,
+  formatCondition,
+  getVehicleDetailSections,
+  getVehicleDetailStats,
+} from "@/lib/vehicle-detail-fields";
 
 export function generateStaticParams() {
   return Object.keys(demoCars).map((id) => ({ id }));
@@ -19,15 +28,31 @@ export function generateStaticParams() {
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const vehicle = await getVehicleById(id);
+  if (vehicle) {
+    const name = vehicleDisplayName(vehicle);
+    return {
+      title: `${name} — FlowRyd`,
+      description: `${name} — ${formatNumber(vehicle.rangeKm)} km range, ${formatEUR(vehicle.priceEUR)}.`,
+    };
+  }
+
   const car = demoCars[id];
   return {
     title: car ? `${car.name} — FlowRyd` : "Car — FlowRyd",
-    description: car ? `${car.name} — ${car.range} range, ${car.price}.` : undefined
+    description: car ? `${car.name} — ${car.range} range, ${car.price}.` : undefined,
   };
 }
 
 export default async function CarDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const vehicle = await getVehicleById(id);
+  if (vehicle) {
+    const snapshot = snapshotFromVehicle(vehicle);
+    const initialSaved = await getInitialSavedState(vehicle.id);
+    return <RealVehicleDetail vehicle={vehicle} initialSaved={initialSaved} snapshot={snapshot} />;
+  }
+
   const car = demoCars[id];
   if (!car) notFound();
   const stats = demoQuickStats[car.id];
@@ -36,79 +61,217 @@ export default async function CarDetailPage({ params }: { params: Promise<{ id: 
   const initialSaved = await getInitialSavedState(car.id);
 
   return (
-    <FlowRydShell>
-      <div className="flow-detail-page">
-        <Link className="flow-back-link" href="/chat">
-          <ArrowLeft size={16} aria-hidden="true" /> Back to chat
+    <WebShell>
+      <div className="mx-auto max-w-7xl w-full px-6 lg:px-10 py-8">
+        <Link
+          href="/chat"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-6"
+        >
+          <ArrowLeft className="size-4" aria-hidden="true" /> Back to chat
         </Link>
 
-        <div className="flow-detail-grid">
-          <section>
-            <div className="flow-detail-gallery">
-              <Image src={car.image} alt={car.name} width={980} height={735} priority />
-              <div className="flow-gallery-dots" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-                <span />
+        <div className="grid lg:grid-cols-[1.4fr_1fr] gap-8">
+          <div>
+            <div className="relative rounded-3xl overflow-hidden bg-muted">
+              <Image
+                src={car.image}
+                alt={car.name}
+                width={980}
+                height={735}
+                priority
+                className="w-full aspect-[4/3] object-cover"
+              />
+              <div className="absolute bottom-4 inset-x-0 flex justify-center gap-1.5" aria-hidden="true">
+                <span className="h-1.5 w-8 rounded-full bg-white" />
+                <span className="h-1.5 w-2 rounded-full bg-white/50" />
+                <span className="h-1.5 w-2 rounded-full bg-white/50" />
+                <span className="h-1.5 w-2 rounded-full bg-white/50" />
               </div>
             </div>
 
-            <section className="flow-detail-block">
-              <h2>Details</h2>
-              <div className="flow-stat-grid">
-                <Stat label="Price" value={car.price} />
-                <Stat label="Range" value={car.range} />
-                <Stat label="Cargo" value={stats.cargo} />
-                <Stat label="Efficiency" value={stats.efficiency} />
-                <Stat label="Battery" value={stats.battery} />
-                <Stat label="SoH" value={car.condition === "New" ? "new" : stats.soh} />
+            <section className="mt-8 space-y-4">
+              <h2 className="font-display font-extrabold text-xl">Details</h2>
+              <div className="grid grid-cols-2 gap-2">
+                <StatTile label="Price" value={car.price} />
+                <StatTile label="Range" value={car.range} />
+                <StatTile label="Cargo" value={stats.cargo} />
+                <StatTile label="Efficiency" value={stats.efficiency} />
+                <StatTile label="Battery" value={stats.battery} />
+                <StatTile label="SoH" value={car.condition === "New" ? "new" : stats.soh} />
               </div>
             </section>
 
-            <section className="flow-detail-block">
-              <h2>Score breakdown</h2>
-              <div className="flow-score-list">
+            <section className="mt-10">
+              <h2 className="font-display font-extrabold text-xl mb-4">Score breakdown</h2>
+              <div className="rounded-2xl bg-muted/50 p-3 grid grid-cols-1 gap-1.5">
                 {scores.map(([label, value]) => (
-                  <div className="flow-score-row" key={label}>
-                    <span>{label}</span>
-                    <div>
-                      <span style={{ width: `${value}%` }} />
-                    </div>
-                    <strong>{value}%</strong>
-                  </div>
+                  <ScoreRow key={label} label={label} value={value} />
                 ))}
               </div>
             </section>
 
-            <section className="flow-detail-block">
-              <h2>Reviews</h2>
-              <div className="flow-review-grid">
-                <Review name="Jose" when="10h" text="After 6 months daily: smooth drive, great efficiency, software keeps improving." />
-                <Review name="Mia" when="2d" text="Range matches the advertised spec on the highway. Charging network is unbeatable for road trips." />
+            <section className="mt-10">
+              <h2 className="font-display font-extrabold text-xl mb-4">Reviews</h2>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <ReviewCard
+                  name="Jose"
+                  when="10h"
+                  location="San Francisco, CA"
+                  text="After 6 months daily — super smooth drive, great efficiency, software keeps improving."
+                />
+                <ReviewCard
+                  name="Mia"
+                  when="2d"
+                  location="Los Angeles, CA"
+                  text="Range matches the advertised spec on the highway. Charging network is unbeatable for road trips."
+                />
               </div>
             </section>
-          </section>
+          </div>
 
-          <aside className="flow-buy-panel">
-            <span className="trending-match">{car.match}% match</span>
-            <h1>{car.name}</h1>
-            <p>{car.location}</p>
-            <div className="flow-buy-price">
-              <strong>{car.price}</strong>
-              <span>{car.condition}</span>
-            </div>
-            <ProtectedCarActions initialSaved={initialSaved} snapshot={snapshot} />
-            <div className="flow-stat-grid flow-stat-grid-compact">
-              <Stat label="Year" value={String(car.year)} />
-              <Stat label="Fuel" value={car.fuel} />
-              <Stat label="Range" value={car.range} />
-              <Stat label="Mileage" value={car.mileage ?? "—"} />
+          <aside>
+            <div className="lg:sticky lg:top-24 space-y-4">
+              <div className="rounded-3xl bg-muted p-6">
+                <span className="inline-block bg-match text-match-foreground text-xs font-semibold px-3 py-1.5 rounded-full">
+                  {car.match}% match
+                </span>
+                <h1 className="font-display font-extrabold text-3xl mt-3">{car.name}</h1>
+                <p className="text-muted-foreground">{car.location}</p>
+
+                <div className="mt-5 flex items-end justify-between">
+                  <div className="font-display font-extrabold text-3xl">{car.price}</div>
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-accent text-accent-foreground">
+                    {car.condition}
+                  </span>
+                </div>
+
+                <ProtectedCarActions initialSaved={initialSaved} snapshot={snapshot} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Stat label="Year" value={String(car.year)} />
+                <Stat label="Fuel" value={car.fuel} />
+                <Stat label="Range" value={car.range} />
+                <Stat label="Mileage" value={car.mileage ?? "—"} />
+              </div>
             </div>
           </aside>
         </div>
       </div>
-    </FlowRydShell>
+    </WebShell>
+  );
+}
+
+function RealVehicleDetail({
+  vehicle,
+  initialSaved,
+  snapshot,
+}: {
+  vehicle: Vehicle;
+  initialSaved: boolean;
+  snapshot: SavedCarSnapshot;
+}) {
+  const name = vehicleDisplayName(vehicle);
+  const imageSrc = vehicle.images[0] ?? "/flowryd/car-tesla-y.jpg";
+  const isRemoteImage = imageSrc.startsWith("http://") || imageSrc.startsWith("https://");
+  const stats = getVehicleDetailStats(vehicle);
+  const sections = getVehicleDetailSections(vehicle);
+
+  return (
+    <WebShell>
+      <div className="mx-auto max-w-7xl w-full px-6 lg:px-10 py-8">
+        <Link
+          href="/chat"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-6"
+        >
+          <ArrowLeft className="size-4" aria-hidden="true" /> Back to chat
+        </Link>
+
+        <div className="grid lg:grid-cols-[1.4fr_1fr] gap-8">
+          <div>
+            <div className="relative rounded-3xl overflow-hidden bg-muted">
+              <Image
+                src={imageSrc}
+                alt={name}
+                width={980}
+                height={735}
+                priority
+                unoptimized={isRemoteImage}
+                className="w-full aspect-[4/3] object-cover"
+              />
+            </div>
+
+            <section className="mt-8 space-y-4">
+              <h2 className="font-display font-extrabold text-xl">Details</h2>
+              <div className="grid grid-cols-2 gap-2">
+                {stats.map((item) => (
+                  <StatTile key={item.label} label={item.label} value={item.value} />
+                ))}
+              </div>
+            </section>
+
+            <section className="mt-10 space-y-5">
+              <h2 className="font-display font-extrabold text-xl">Specifications</h2>
+              {sections.map((section) => (
+                <div key={section.heading}>
+                  <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {section.heading}
+                  </h3>
+                  <dl className="rounded-2xl bg-muted/50 p-3 text-sm divide-y divide-border">
+                    {section.items.map((item) => (
+                      <SpecRow key={item.label} k={item.label} v={item.value} />
+                    ))}
+                  </dl>
+                </div>
+              ))}
+            </section>
+          </div>
+
+          <aside>
+            <div className="lg:sticky lg:top-24 space-y-4">
+              <div className="rounded-3xl bg-muted p-6">
+                <span className="inline-block bg-match text-match-foreground text-xs font-semibold px-3 py-1.5 rounded-full">
+                  {vehicle.available ? "Available" : "Unavailable"}
+                </span>
+                <h1 className="font-display font-extrabold text-3xl mt-3">{name}</h1>
+                <p className="text-muted-foreground">{vehicle.location ?? "Austria"}</p>
+
+                <div className="mt-5 flex items-end justify-between gap-4">
+                  <div className="font-display font-extrabold text-3xl">{formatEUR(vehicle.priceEUR)}</div>
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-accent text-accent-foreground">
+                    {formatCondition(vehicle.condition)}
+                  </span>
+                </div>
+
+                <ProtectedCarActions initialSaved={initialSaved} snapshot={snapshot} />
+
+                {vehicle.listingUrl ? (
+                  <Link
+                    href={vehicle.listingUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-background py-3 font-semibold border border-border hover:bg-muted"
+                  >
+                    Open original listing
+                    <ExternalLink className="size-4" aria-hidden="true" />
+                  </Link>
+                ) : null}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Stat label="Year" value={String(vehicle.year)} />
+                <Stat label="Body" value={formatBodyType(vehicle.bodyType)} />
+                <Stat label="Range" value={`${formatNumber(vehicle.rangeKm)} km`} />
+                <Stat
+                  label="Mileage"
+                  value={vehicle.mileageKm === null ? "Not provided" : `${formatNumber(vehicle.mileageKm)} km`}
+                />
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </WebShell>
   );
 }
 
@@ -117,6 +280,27 @@ async function getInitialSavedState(vehicleId: string) {
   const registration = await getDemoRegistration(cookieStore.get(DEMO_REGISTRATION_COOKIE)?.value);
   if (!isActiveDemoRegistration(registration)) return false;
   return isCarSaved(registration!.id, vehicleId);
+}
+
+function snapshotFromVehicle(vehicle: Vehicle): SavedCarSnapshot {
+  return {
+    id: vehicle.id,
+    name: vehicleDisplayName(vehicle),
+    make: vehicle.make,
+    model: vehicle.model,
+    year: vehicle.year,
+    price: formatEUR(vehicle.priceEUR),
+    condition: formatCondition(vehicle.condition),
+    location: vehicle.location,
+    image: vehicle.images[0] ?? null,
+    match: null,
+    range: `${formatNumber(vehicle.rangeKm)} km`,
+    mileage: vehicle.mileageKm === null ? null : `${formatNumber(vehicle.mileageKm)} km`,
+  };
+}
+
+function vehicleDisplayName(vehicle: Vehicle) {
+  return [vehicle.make, vehicle.model, vehicle.trim].filter(Boolean).join(" ");
 }
 
 function snapshotFromDemoCar(car: DemoCar): SavedCarSnapshot {
@@ -132,32 +316,75 @@ function snapshotFromDemoCar(car: DemoCar): SavedCarSnapshot {
     image: car.image,
     match: car.match,
     range: car.range,
-    mileage: car.mileage ?? null
+    mileage: car.mileage ?? null,
   };
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function StatTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flow-stat">
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div className="rounded-2xl bg-muted/50 px-4 py-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="font-display font-bold text-[15px] mt-0.5">{value}</div>
     </div>
   );
 }
 
-function Review({ name, when, text }: { name: string; when: string; text: string }) {
+function ScoreRow({ label, value }: { label: string; value: number }) {
+  const tone = value >= 75 ? "text-foreground" : "text-muted-foreground";
   return (
-    <article className="flow-review">
-      <div>
-        <span>{name[0]}</span>
+    <div className="flex items-center gap-3 text-sm">
+      <span className="flex-1 text-muted-foreground">{label}</span>
+      <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden">
+        <div className="h-full bg-primary rounded-full" style={{ width: `${value}%` }} />
+      </div>
+      <span className={`w-10 text-right font-semibold tabular-nums ${tone}`}>{value}%</span>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-muted rounded-2xl p-4">
+      <div className="text-sm text-muted-foreground">{label}</div>
+      <div className="font-display font-bold text-lg mt-1">{value}</div>
+    </div>
+  );
+}
+
+function SpecRow({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="grid grid-cols-[42%_1fr] gap-3 py-2 first:pt-0 last:pb-0">
+      <dt className="text-muted-foreground">{k}</dt>
+      <dd className="font-medium text-right">{v}</dd>
+    </div>
+  );
+}
+
+function ReviewCard({
+  name,
+  when,
+  location,
+  text,
+}: {
+  name: string;
+  when: string;
+  location: string;
+  text: string;
+}) {
+  return (
+    <article className="rounded-2xl border border-border p-4">
+      <div className="flex items-center gap-3">
+        <div className="size-9 rounded-full bg-accent text-accent-foreground flex items-center justify-center font-bold">
+          {name[0]}
+        </div>
         <div>
-          <strong>
-            {name} <em>{when}</em>
-          </strong>
-          <small>San Francisco, CA</small>
+          <div className="font-semibold">
+            {name} <span className="text-muted-foreground font-normal">{when}</span>
+          </div>
+          <div className="text-xs bg-muted rounded-md px-2 py-0.5 inline-block mt-0.5">{location}</div>
         </div>
       </div>
-      <p>{text}</p>
+      <p className="mt-3 text-sm leading-relaxed">{text}</p>
     </article>
   );
 }

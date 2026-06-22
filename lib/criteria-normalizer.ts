@@ -4,6 +4,7 @@ import {
   extractCriteria,
   getCriteriaConfidence,
   getMissingCriteria,
+  hasReplaceIntent,
   normalizeCriteriaShape
 } from "./criteria.ts";
 import { createOpenAiClient, openAiConfigured, openAiModel } from "./openai-provider.ts";
@@ -54,8 +55,40 @@ type NormalizeCriteriaInput = {
   criteriaOverride?: UserCriteria | null;
 };
 
-const normalizerPrompt =
-  "You extract EV shopping criteria from German or English chat. Return only JSON with optional criteriaPatch and confidence. Do not choose vehicles. Use null only when the user explicitly clears a criterion. Latest explicit user instruction wins. Set language to the user's current message language only.";
+const normalizerPrompt = `You extract and UPDATE EV shopping criteria from German or English chat.
+
+Input: the user's latest message plus optional previousCriteria from earlier turns.
+Output: ONLY valid JSON in this shape:
+{
+  "criteriaPatch": { ...fields changed in this turn... },
+  "confidence": 0.0-1.0
+}
+
+Core rules:
+1. Change ONLY what the latest message implies. Do not recommend vehicles.
+2. The latest explicit user instruction always wins over previousCriteria.
+3. Use null on a scalar field only when the user explicitly clears it.
+4. Set criteriaPatch.language to the current message language (de or en).
+5. Fix obvious brand/model typos to canonical names (Testla/Tesls -> Tesla).
+
+Modification modes:
+- ADD (default): append to list fields or update scalars without dropping unrelated prior values.
+  "also Kia" with previous brandPreferences ["Tesla"] -> ["Tesla", "Kia"]
+- REPLACE: when the user says only/just/nur/ausschließlich/leave only, return the FULL new list for that field.
+  "leave only Ford cars" with previous brandPreferences ["Tesla"] -> brandPreferences ["Ford"]
+  "nur SUV" with previous bodyTypes ["sedan"] -> bodyTypes ["suv"]
+  When replacing brandPreferences without naming a model, clear modelPreferences too.
+- REMOVE: when the user says remove/clear/forget/ignore/egal/entferne/lösche/vergiss for a field, use criteriaPatch.remove.
+  Allowed remove keys: budget, range, mileage, battery, condition, body, use_case, charging, features, brand, origin, model
+  "forget the budget" -> { "remove": ["budget"] }
+
+List fields where replace vs merge matters:
+brandPreferences, modelPreferences, bodyTypes, tripNeeds, mustHaveFeatures, qualitativeSignals, preferredBrandOrigins, avoidedBrands
+
+Scalar fields:
+budgetMaxEUR, monthlyBudgetEUR, dailyKm, rangeFloorKm, mileageMaxKm, mileageTargetKm, batterySoHMin, batteryHealthRequired, chargingAccess, preferredCondition, passengers, cargoNeeds, location, brandFit, reliabilityImportance
+
+Confidence guide: 0.9+ for specific constraints, 0.5-0.7 when budget/use case/charging is still missing.`;
 
 export async function normalizeCriteria({
   message,
@@ -97,10 +130,11 @@ export function applyCriteriaPatch(
     rawPrompt
   });
   const deterministic = extractCriteria(message, base);
-  if (deterministic.modelPreferences.length) {
+  const replaceIntent = hasReplaceIntent(message);
+  if (deterministic.modelPreferences.length && !replaceIntent) {
     criteria.modelPreferences = mergeUnique(criteria.modelPreferences, deterministic.modelPreferences);
   }
-  if (deterministic.brandPreferences.length) {
+  if (deterministic.brandPreferences.length && !replaceIntent) {
     criteria.brandPreferences = mergeUnique(criteria.brandPreferences, deterministic.brandPreferences);
   }
 
@@ -191,9 +225,29 @@ async function generateOpenAiCriteriaPatch(
 }
 
 function buildNormalizerInput(message: string, previousCriteria: UserCriteria | null) {
+  const detectedLanguage = detectLanguage(message, previousCriteria?.language ?? "en");
   return {
     message,
+    detectedLanguage,
+    responseLanguageInstruction: `Set criteriaPatch.language to "${detectedLanguage}" when the user's current message is clearly ${detectedLanguage === "de" ? "German" : "English"}.`,
     previousCriteria,
+    modificationExamples: [
+      {
+        previous: { brandPreferences: ["Tesla"] },
+        message: "Leave only Ford cars",
+        criteriaPatch: { brandPreferences: ["Ford"], modelPreferences: [] }
+      },
+      {
+        previous: { budgetMaxEUR: 35000, tripNeeds: ["city"] },
+        message: "make it under 18k and only SUVs",
+        criteriaPatch: { budgetMaxEUR: 18000, bodyTypes: ["suv"] }
+      },
+      {
+        previous: { budgetMaxEUR: 35000 },
+        message: "forget the budget, I just want a Tesla Model Y",
+        criteriaPatch: { remove: ["budget"], brandPreferences: ["Tesla"], modelPreferences: ["Model Y"] }
+      }
+    ],
     allowedValues: {
       bodyTypes: allowedBodyTypes,
       chargingAccess: ["home", "work", "public", "none", "unknown"],

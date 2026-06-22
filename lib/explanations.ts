@@ -1,4 +1,5 @@
 import { generateMatchIntroMessage } from "./assistant-messages.ts";
+import { languageLabel, languageReplyInstruction } from "./criteria.ts";
 import { createOpenAiClient, openAiConfigured, openAiModel } from "./openai-provider.ts";
 import type { MatchResult, RejectedSummary, UserCriteria } from "./types.ts";
 
@@ -21,7 +22,7 @@ export type FinalRecommendationSelection = {
 const explanationSystemPrompt =
   "You are FlowRyd, an Austrian EV matching agent. The candidate vehicles are already ranked by match score. " +
   "Write explanations only for the provided vehicleIds, never invent cars, and never override hard filters. " +
-  "Write all text in the user's language from the language field. " +
+  "Follow requiredResponseLanguage and responseLanguageInstruction for every user-facing string. " +
   "Use only provided vehicle facts and retrievedEvidence excerpts, but do not include evidence IDs, citation markers, or context annotations like [E1] or [E2] in assistantMessage or vehicle explanations. " +
   "Do not mention sources that are not provided. " +
   "Write each vehicle explanation like a helpful car salesperson texting a customer: natural, warm, specific, and easy to read. Use 2 to 3 short paragraphs separated by blank lines, no bullets, no headings, and no score-first phrasing. " +
@@ -282,6 +283,8 @@ export function buildExplanationInput(
 ) {
   return {
     language: criteria.language,
+    requiredResponseLanguage: languageLabel(criteria.language),
+    responseLanguageInstruction: languageReplyInstruction(criteria.language),
     criteria,
     rejectedSummary,
     matches: matches.slice(0, 5).map((match) => ({

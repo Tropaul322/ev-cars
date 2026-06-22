@@ -34,6 +34,10 @@ const germanSignals = [
   "familie",
   "kofferraum",
   "hallo",
+  "danke",
+  "bitte",
+  "ja",
+  "nein",
   "österreich",
   "oesterreich",
   "fuer",
@@ -60,6 +64,12 @@ const englishSignals = [
   "family",
   "trunk",
   "hello",
+  "hi",
+  "thanks",
+  "thank",
+  "please",
+  "yes",
+  "no",
   "without",
   "public",
   "home",
@@ -245,6 +255,16 @@ export function detectLanguage(prompt: string, fallback: Language = "en"): Langu
   return detectPromptLanguage(prompt) ?? fallback;
 }
 
+export function languageLabel(language: Language): "English" | "German" {
+  return language === "de" ? "German" : "English";
+}
+
+export function languageReplyInstruction(language: Language): string {
+  const label = languageLabel(language);
+  const other = language === "de" ? "English" : "German";
+  return `The user's current message is in ${label}. You MUST write all user-facing text in ${label} only. Never respond in ${other}.`;
+}
+
 export function extractCriteria(prompt: string, previous?: UserCriteria): UserCriteria {
   const language = detectLanguage(prompt, previous?.language ?? "en");
   const base = previous ? normalizeCriteriaShape({ ...previous, language }) : emptyCriteria(prompt, language);
@@ -272,21 +292,31 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
   const passengers = removals.has("passengers") ? null : extractPassengers(text) ?? base.passengers;
   const cargoNeeds = removals.has("cargo") ? null : extractCargoNeeds(text) ?? base.cargoNeeds;
   const extractedBodyTypes = extractBodyTypes(text);
-  const shouldReplaceBodyTypes = /\b(only|just|nur|ausschliesslich|ausschließlich)\b/i.test(text);
+  const shouldReplaceLists = hasReplaceIntent(text);
   const bodyTypes = removals.has("body")
     ? []
-    : shouldReplaceBodyTypes && extractedBodyTypes.length
+    : shouldReplaceLists && extractedBodyTypes.length
       ? extractedBodyTypes
       : mergeUnique(base.bodyTypes, extractedBodyTypes);
   const tripNeeds = removals.has("use_case") ? [] : mergeUnique(base.tripNeeds, extractTripNeeds(text));
   const mustHaveFeatures = removals.has("features") ? [] : mergeUnique(base.mustHaveFeatures, extractFeatures(text));
-  const brandPreferences = removals.has("brand") ? [] : mergeUnique(base.brandPreferences, extractBrandPreferences(text));
+  const extractedBrands = extractBrandPreferences(text);
+  const brandPreferences = removals.has("brand")
+    ? []
+    : shouldReplaceLists && extractedBrands.length
+      ? extractedBrands
+      : mergeUnique(base.brandPreferences, extractedBrands);
   const preferredBrandOrigins = removals.has("origin")
     ? []
     : mergeUnique(base.preferredBrandOrigins, extractPreferredBrandOrigins(text));
+  const extractedModels = extractModelPreferences(normalizedPrompt);
   const modelPreferences = removals.has("model")
     ? []
-    : mergeUnique(base.modelPreferences, extractModelPreferences(normalizedPrompt));
+    : shouldReplaceLists && extractedModels.length
+      ? extractedModels
+      : shouldReplaceLists && extractedBrands.length
+        ? []
+        : mergeUnique(base.modelPreferences, extractedModels);
   const avoidedBrands = mergeUnique(base.avoidedBrands, extractAvoidedBrands(text));
   const location = removals.has("location") ? null : extractLocation(normalizedPrompt) ?? base.location;
   const qualitativeSignals = removals.has("qualitative")
@@ -579,9 +609,13 @@ function hasVehiclePreferenceSignal(criteria: UserCriteria) {
   );
 }
 
+export function hasReplaceIntent(text: string) {
+  return /\b(only|just|nur|ausschliesslich|ausschließlich)\b/i.test(text);
+}
+
 function extractRemovals(text: string) {
   const removals = new Set<CriteriaChipKey>();
-  const hasRemoveIntent = /\b(remove|clear|delete|reset|ignore|egal|entferne|loesche|lösche)\b/i.test(text);
+  const hasRemoveIntent = /\b(remove|clear|delete|reset|ignore|forget|egal|entferne|loesche|lösche|vergiss)\b/i.test(text);
   if (!hasRemoveIntent) return removals;
 
   if (/\b(budget|preis|price|monthly|monat|leasing)\b/i.test(text)) removals.add("budget");

@@ -24,12 +24,46 @@ test("vehicle search pushes generated-column criteria into the Supabase request"
   assert.equal(params.get("condition"), "eq.used");
   assert.equal(params.get("range_km"), "gte.450");
   assert.equal(params.get("body_type"), "in.(suv,crossover)");
-  assert.equal(params.get("brand_origin"), "in.(korea)");
+  assert.equal(params.get("brand"), "in.(Kia)");
   assert.equal(params.get("seats"), "gte.5");
   assert.equal(params.get("mileage_km"), "lte.30000");
-  assert.equal(params.get("or"), "(monthly_lease_eur.is.null,monthly_lease_eur.lte.650)");
+  assert.equal(
+    params.get("and"),
+    "(or(brand_origin.in.(korea),manufacturer_country_code.in.(KR)),or(monthly_lease_eur.is.null,monthly_lease_eur.lte.650),or(model.ilike.*EV6*,title.ilike.*EV6*))"
+  );
   assert.equal(params.get("order"), "price_eur.asc,range_km.desc");
-  assert.equal(params.has("and"), false);
-  assert.equal(params.has("brand"), false);
-  assert.equal(params.has("model"), false);
+  assert.equal(params.has("or"), false);
+  assert.equal(params.has("brand_origin"), false);
+});
+
+test("vehicle search expands brand aliases for preferred brands", () => {
+  const params = buildVehicleSearchParams({
+    ...emptyCriteria("VW or Mercedes"),
+    brandPreferences: ["VW", "Mercedes-Benz"]
+  });
+
+  assert.equal(params.get("brand"), "in.(VW,Volkswagen,Mercedes-Benz,Mercedes)");
+});
+
+test("vehicle search applies avoided brands", () => {
+  const params = buildVehicleSearchParams({
+    ...emptyCriteria("No Tesla"),
+    avoidedBrands: ["Tesla"]
+  });
+
+  assert.equal(params.get("brand"), "not.in.(Tesla)");
+});
+
+test("vehicle search applies location and origin fallbacks", () => {
+  const params = buildVehicleSearchParams({
+    ...emptyCriteria("Korean EV in Wien"),
+    preferredBrandOrigins: ["korea"],
+    location: "Wien"
+  });
+
+  assert.equal(params.get("location"), "ilike.*Wien*");
+  assert.equal(
+    params.get("or"),
+    "(brand_origin.in.(korea),manufacturer_country_code.in.(KR))"
+  );
 });

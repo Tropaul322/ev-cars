@@ -1,3 +1,4 @@
+import { normalizeVehicleFeatures } from "../feature-normalization.ts";
 import type { BodyType, Vehicle, VehicleCondition } from "../types.ts";
 
 /** Willhaben API fields stripped from `raw` before Supabase upload (noise / PII / ads). */
@@ -112,7 +113,11 @@ export function prepareWillhabenVehicleForUpload(row: WillhabenInventoryRow): Ve
     drivetrain,
     powerKw: row.powerKw ?? 170,
     available: row.available ?? true,
-    features: Array.isArray(row.features) ? row.features : [],
+    features: normalizeVehicleFeatures(Array.isArray(row.features) ? row.features : [], {
+      drivetrain,
+      cargoLiters: row.cargoLiters ?? defaults.cargoLiters,
+      bodyType
+    }),
     images: Array.isArray(row.images) ? row.images : [],
     notes: row.notes ?? "",
     brandOrigin: normalizeBrandOrigin(row.brandOrigin),

@@ -1,457 +1,109 @@
 {
-  "inspectedAt": "2026-06-09T12:15:52.846Z",
-  "message": "Familien-SUV bis 50.000 EUR, großer Kofferraum, Autobahn und Winterfahrten in Österreich. Ich wohne in Wien ohne Wallbox und brauche öffentliche Schnellladung sowie mindestens 450 km Reichweite.",
+  "inspectedAt": "2026-06-18T20:37:54.803Z",
+  "message": "Budget 45000 EUR, keine Tesla, Pendeln und Wochenendfahrten, gute Effizienz.",
   "normalization": {
-    "confidence": 0.95,
-    "missingCriteria": [],
+    "confidence": 0.75,
+    "missingCriteria": [
+      "charging_or_range"
+    ],
     "criteriaPatch": {
-      "chargingAccess": "public",
+      "language": "de",
+      "budgetMaxEUR": 45000,
+      "monthlyBudgetEUR": null,
+      "dailyKm": null,
+      "rangeFloorKm": null,
+      "mileageMaxKm": null,
+      "mileageTargetKm": null,
+      "batterySoHMin": null,
+      "batteryHealthRequired": false,
+      "chargingAccess": "unknown",
+      "passengers": null,
+      "cargoNeeds": null,
+      "preferredCondition": "any",
+      "bodyTypes": [],
       "tripNeeds": [
-        "family",
-        "road_trip",
-        "winter"
+        "commute"
       ],
-      "qualitativeSignals": [
-        "fast_charging",
-        "public_charging_fit"
-      ]
+      "brandPreferences": [
+        "Tesla"
+      ],
+      "preferredBrandOrigins": [],
+      "modelPreferences": [],
+      "avoidedBrands": [
+        "Tesla"
+      ],
+      "brandFit": "medium",
+      "reliabilityImportance": "medium",
+      "mustHaveFeatures": [],
+      "qualitativeSignals": [],
+      "location": null
     }
   },
   "ragSummary": {
-    "query": "Familien-SUV bis 50.000 EUR, großer Kofferraum, Autobahn und Winterfahrten in Österreich. Ich wohne in Wien ohne Wallbox und brauche öffentliche Schnellladung sowie mindestens 450 km Reichweite. Familien-SUV bis 50.000 EUR, großer Kofferraum, Autobahn und Winterfahrten in Österreich. Ich wohne in Wien ohne Wallbox und brauche öffentliche Schnellladung sowie mindestens 450 km Reichweite. suv family road_trip winter large trunk cargo kofferraum fast_charging public_charging_fit public Wien high any 450 km range reichweite 50000 eur budget",
-    "topicAffinity": {
-      "review": 0.68,
-      "charging_network": 0.32
-    },
-    "documentCount": 6,
-    "vehicleEvidenceCount": 12
+    "query": "Budget 45000 EUR, keine Tesla, Pendeln und Wochenendfahrten, gute Effizienz. Budget 45000 EUR, keine Tesla, Pendeln und Wochenendfahrten, gute Effizienz.\nBudget 45000 EUR, keine Tesla, Pendeln und Wochenendfahrten, gute Effizienz. commute Tesla unknown any 45000 eur budget",
+    "topicAffinity": {},
+    "documentCount": 0,
+    "vehicleEvidenceCount": 30
   },
   "explanationInput": {
     "language": "de",
+    "requiredResponseLanguage": "German",
+    "responseLanguageInstruction": "The user's current message is in German. You MUST write all user-facing text in German only. Never respond in English.",
     "criteria": {
       "language": "de",
-      "budgetMaxEUR": 50000,
+      "budgetMaxEUR": 45000,
       "monthlyBudgetEUR": null,
       "dailyKm": null,
-      "rangeFloorKm": 450,
+      "rangeFloorKm": null,
       "mileageMaxKm": null,
       "mileageTargetKm": null,
       "batterySoHMin": null,
       "batteryHealthRequired": false,
       "tripNeeds": [
-        "family",
-        "road_trip",
-        "winter"
+        "commute"
       ],
-      "chargingAccess": "public",
-      "passengers": 4,
-      "cargoNeeds": "high",
+      "chargingAccess": "unknown",
+      "passengers": null,
+      "cargoNeeds": null,
       "preferredCondition": "any",
-      "bodyTypes": [
-        "suv"
+      "bodyTypes": [],
+      "brandPreferences": [
+        "Tesla"
       ],
-      "brandPreferences": [],
+      "preferredBrandOrigins": [],
       "modelPreferences": [],
-      "avoidedBrands": [],
+      "avoidedBrands": [
+        "Tesla"
+      ],
       "brandFit": "medium",
       "reliabilityImportance": "medium",
-      "mustHaveFeatures": [
-        "large_trunk"
-      ],
-      "qualitativeSignals": [
-        "fast_charging",
-        "public_charging_fit"
-      ],
-      "location": "Wien",
-      "rawPrompt": "Familien-SUV bis 50.000 EUR, großer Kofferraum, Autobahn und Winterfahrten in Österreich. Ich wohne in Wien ohne Wallbox und brauche öffentliche Schnellladung sowie mindestens 450 km Reichweite."
+      "mustHaveFeatures": [],
+      "qualitativeSignals": [],
+      "location": null,
+      "rawPrompt": "Budget 45000 EUR, keine Tesla, Pendeln und Wochenendfahrten, gute Effizienz.\nBudget 45000 EUR, keine Tesla, Pendeln und Wochenendfahrten, gute Effizienz."
     },
-    "rejectedSummary": [],
-    "matches": [
+    "rejectedSummary": [
       {
-        "vehicleId": "flowryd:autoscout24_at:https-www-autoscout24-at-angebote-kia-ev3-biz-81-4kwh-at-fwd-204-biz-my26-auto-stahl-w22-elektro-grau-cat_ma39mo76880-614fed5e-4a3d-44f4-ad7c-615a788eaecb",
-        "vehicle": {
-          "make": "Kia",
-          "model": "EV3",
-          "condition": "new",
-          "priceEUR": 35850,
-          "rangeKm": 605,
-          "efficiencyKwhPer100Km": 14.9,
-          "batterySoH": null,
-          "features": [
-            "apple_carplay",
-            "android_auto",
-            "adaptive_cruise_control",
-            "lane_keeping_assist",
-            "heated_seats",
-            "large_trunk"
-          ],
-          "notes": "FlowRyd real listing from autoscout24_at."
-        },
-        "score": 96,
-        "ragScore": 7,
-        "scoringBreakdown": {
-          "priceFit": 100,
-          "rangeFit": 100,
-          "efficiencyFit": 90,
-          "tcoFit": 78,
-          "brandFit": 76,
-          "cargoPassengerFit": 100,
-          "reliabilityFit": 100,
-          "featureFit": 100,
-          "personaFit": 100,
-          "batteryHealthFit": 100,
-          "semanticFit": 97
-        },
-        "tradeoffs": [],
-        "retrievedEvidence": [
-          {
-            "evidenceId": "E1",
-            "sourceType": "vehicle_payload",
-            "sourceId": "flowryd:autoscout24_at:https-www-autoscout24-at-angebote-kia-ev3-biz-81-4kwh-at-fwd-204-biz-my26-auto-stahl-w22-elektro-grau-cat_ma39mo76880-614fed5e-4a3d-44f4-ad7c-615a788eaecb",
-            "title": "Kia EV3",
-            "excerpt": "Kia EV3: 2026 new suv. EUR 35 850. 605 km range. 14.9 kWh/100 km. 520 l cargo. location 1220 Wien. features apple carplay, android auto, adaptive cruise control, lane keeping assist, heated seats sitzheizung, large trunk cargo. FlowRyd real listing from autoscout24_at.",
-            "score": 0.97
-          },
-          {
-            "evidenceId": "E2",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:14",
-            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (15/25) (adac_winter_range_2026)",
-            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
-            "topic": "review",
-            "excerpt": "Vor dem ADAC Testlabor Elektromobilität: Drei Testkandidaten von Smart, Audi und Tesla mit guten Noten© ADAC/ABGEDREHT Mercedes-Benz verlangt für den EQE SUV 350+ bei Kauf 86.811 Euro, der Porsche Macan ist mit 80.700 Euro ebenfalls markentypisch teuer. Das teuerste Auto in diesem Reigen aber ist der Volvo EX90 AWD für 91.700 Euro – bei einer Reichweite, die der VW ID.7 Tourer für 55.000 Euro mit kleinerem Akku...",
-            "score": 1
-          },
-          {
-            "evidenceId": "E3",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:eafo_data_quality_faq:chunk:14",
-            "title": "Frequently asked questions | European Alternative Fuels Observatory (15/28) (eafo_data_quality_faq)",
-            "sourceUrl": "https://alternative-fuels-observatory.ec.europa.eu/general-information/frequently-asked-questions",
-            "topic": "charging_network",
-            "excerpt": "_Pre-2020_ Pre-2020 we counted the number of recharging point connectors available for EV users and deduced from this the number of recharging points. In the course of 2019, we performed a large recounting exercise, including the data in the preceding years, to better reflect the actual availability of unique charging interfaces to EV users. In particular, this recounting exercise focused on eliminating double...",
-            "score": 0.89
-          },
-          {
-            "evidenceId": "E4",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:13",
-            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (14/25) (adac_winter_range_2026)",
-            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
-            "topic": "review",
-            "excerpt": "Kia, Tesla und Polestar setzen auf eine Art SUV-Coupé, gerne auch als \"Crossover\" bezeichnet. Audi, BMW und Volkswagen bieten mit dem A6, i5 und ID.7 hingegen klassische Kombis mit Elektroantrieb an. Die SUVs haben durch den hohen Aufbau einen eher höheren **Luftwiderstand**, der bei Autobahngeschwindigkeiten ins Gewicht fällt. So bezahlen der BYD Sealion 7, der Mercedes-Benz EQE SUV sowie der Volvo EX90 die...",
-            "score": 0.96
-          }
-        ]
+        "reason": "above purchase budget of EUR 45 000",
+        "count": 94
       },
       {
-        "vehicleId": "flowryd:gebrauchtwagen_at:https-www-gebrauchtwagen-at-fahrzeuge-kia-ev3-biz-81-4kwh-at-fwd-204-biz-my26-auto-stahl-w22-elektro-grau-cat_ma39mo76880-614fed5e-4a3d-44f4-ad7c-615a788eaecb",
-        "vehicle": {
-          "make": "Kia",
-          "model": "EV3",
-          "condition": "new",
-          "priceEUR": 35850,
-          "rangeKm": 605,
-          "efficiencyKwhPer100Km": 14.9,
-          "batterySoH": null,
-          "features": [
-            "apple_carplay",
-            "android_auto",
-            "adaptive_cruise_control",
-            "lane_keeping_assist",
-            "heated_seats",
-            "large_trunk"
-          ],
-          "notes": "FlowRyd real listing from gebrauchtwagen_at."
-        },
-        "score": 96,
-        "ragScore": 7,
-        "scoringBreakdown": {
-          "priceFit": 100,
-          "rangeFit": 100,
-          "efficiencyFit": 90,
-          "tcoFit": 78,
-          "brandFit": 76,
-          "cargoPassengerFit": 100,
-          "reliabilityFit": 100,
-          "featureFit": 100,
-          "personaFit": 100,
-          "batteryHealthFit": 100,
-          "semanticFit": 97
-        },
-        "tradeoffs": [],
-        "retrievedEvidence": [
-          {
-            "evidenceId": "E1",
-            "sourceType": "vehicle_payload",
-            "sourceId": "flowryd:gebrauchtwagen_at:https-www-gebrauchtwagen-at-fahrzeuge-kia-ev3-biz-81-4kwh-at-fwd-204-biz-my26-auto-stahl-w22-elektro-grau-cat_ma39mo76880-614fed5e-4a3d-44f4-ad7c-615a788eaecb",
-            "title": "Kia EV3",
-            "excerpt": "Kia EV3: 2026 new suv. EUR 35 850. 605 km range. 14.9 kWh/100 km. 520 l cargo. location 1220 Wien. features apple carplay, android auto, adaptive cruise control, lane keeping assist, heated seats sitzheizung, large trunk cargo. FlowRyd real listing from gebrauchtwagen_at.",
-            "score": 0.97
-          },
-          {
-            "evidenceId": "E2",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:14",
-            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (15/25) (adac_winter_range_2026)",
-            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
-            "topic": "review",
-            "excerpt": "Vor dem ADAC Testlabor Elektromobilität: Drei Testkandidaten von Smart, Audi und Tesla mit guten Noten© ADAC/ABGEDREHT Mercedes-Benz verlangt für den EQE SUV 350+ bei Kauf 86.811 Euro, der Porsche Macan ist mit 80.700 Euro ebenfalls markentypisch teuer. Das teuerste Auto in diesem Reigen aber ist der Volvo EX90 AWD für 91.700 Euro – bei einer Reichweite, die der VW ID.7 Tourer für 55.000 Euro mit kleinerem Akku...",
-            "score": 1
-          },
-          {
-            "evidenceId": "E3",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:eafo_data_quality_faq:chunk:14",
-            "title": "Frequently asked questions | European Alternative Fuels Observatory (15/28) (eafo_data_quality_faq)",
-            "sourceUrl": "https://alternative-fuels-observatory.ec.europa.eu/general-information/frequently-asked-questions",
-            "topic": "charging_network",
-            "excerpt": "_Pre-2020_ Pre-2020 we counted the number of recharging point connectors available for EV users and deduced from this the number of recharging points. In the course of 2019, we performed a large recounting exercise, including the data in the preceding years, to better reflect the actual availability of unique charging interfaces to EV users. In particular, this recounting exercise focused on eliminating double...",
-            "score": 0.89
-          },
-          {
-            "evidenceId": "E4",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:13",
-            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (14/25) (adac_winter_range_2026)",
-            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
-            "topic": "review",
-            "excerpt": "Kia, Tesla und Polestar setzen auf eine Art SUV-Coupé, gerne auch als \"Crossover\" bezeichnet. Audi, BMW und Volkswagen bieten mit dem A6, i5 und ID.7 hingegen klassische Kombis mit Elektroantrieb an. Die SUVs haben durch den hohen Aufbau einen eher höheren **Luftwiderstand**, der bei Autobahngeschwindigkeiten ins Gewicht fällt. So bezahlen der BYD Sealion 7, der Mercedes-Benz EQE SUV sowie der Volvo EX90 die...",
-            "score": 0.96
-          }
-        ]
+        "reason": "brand is BMW, not Tesla",
+        "count": 60
       },
       {
-        "vehicleId": "flowryd:gebrauchtwagen_at:https-www-gebrauchtwagen-at-fahrzeuge-ford-explorer-elektro-58kwh-style-elektro-weiss-cat_ma29mo1769-3063a605-34ad-45f3-8a87-d4b9185a45fa",
-        "vehicle": {
-          "make": "Ford",
-          "model": "Explorer",
-          "condition": "new",
-          "priceEUR": 28790,
-          "rangeKm": 530,
-          "efficiencyKwhPer100Km": 16,
-          "batterySoH": null,
-          "features": [
-            "apple_carplay",
-            "android_auto",
-            "adaptive_cruise_control",
-            "lane_keeping_assist",
-            "heated_seats",
-            "large_trunk"
-          ],
-          "notes": "FlowRyd real listing from gebrauchtwagen_at."
-        },
-        "score": 96,
-        "ragScore": 6,
-        "scoringBreakdown": {
-          "priceFit": 100,
-          "rangeFit": 100,
-          "efficiencyFit": 90,
-          "tcoFit": 78,
-          "brandFit": 76,
-          "cargoPassengerFit": 100,
-          "reliabilityFit": 100,
-          "featureFit": 100,
-          "personaFit": 100,
-          "batteryHealthFit": 100,
-          "semanticFit": 95
-        },
-        "tradeoffs": [],
-        "retrievedEvidence": [
-          {
-            "evidenceId": "E1",
-            "sourceType": "vehicle_payload",
-            "sourceId": "flowryd:gebrauchtwagen_at:https-www-gebrauchtwagen-at-fahrzeuge-ford-explorer-elektro-58kwh-style-elektro-weiss-cat_ma29mo1769-3063a605-34ad-45f3-8a87-d4b9185a45fa",
-            "title": "Ford Explorer",
-            "excerpt": "Ford Explorer: 2026 new suv. EUR 28 790. 530 km range. 16 kWh/100 km. 520 l cargo. location 6850 Dornbirn. features apple carplay, android auto, adaptive cruise control, lane keeping assist, heated seats sitzheizung, large trunk cargo. FlowRyd real listing from gebrauchtwagen_at.",
-            "score": 0.89
-          },
-          {
-            "evidenceId": "E2",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:14",
-            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (15/25) (adac_winter_range_2026)",
-            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
-            "topic": "review",
-            "excerpt": "Vor dem ADAC Testlabor Elektromobilität: Drei Testkandidaten von Smart, Audi und Tesla mit guten Noten© ADAC/ABGEDREHT Mercedes-Benz verlangt für den EQE SUV 350+ bei Kauf 86.811 Euro, der Porsche Macan ist mit 80.700 Euro ebenfalls markentypisch teuer. Das teuerste Auto in diesem Reigen aber ist der Volvo EX90 AWD für 91.700 Euro – bei einer Reichweite, die der VW ID.7 Tourer für 55.000 Euro mit kleinerem Akku...",
-            "score": 1
-          },
-          {
-            "evidenceId": "E3",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:eafo_data_quality_faq:chunk:14",
-            "title": "Frequently asked questions | European Alternative Fuels Observatory (15/28) (eafo_data_quality_faq)",
-            "sourceUrl": "https://alternative-fuels-observatory.ec.europa.eu/general-information/frequently-asked-questions",
-            "topic": "charging_network",
-            "excerpt": "_Pre-2020_ Pre-2020 we counted the number of recharging point connectors available for EV users and deduced from this the number of recharging points. In the course of 2019, we performed a large recounting exercise, including the data in the preceding years, to better reflect the actual availability of unique charging interfaces to EV users. In particular, this recounting exercise focused on eliminating double...",
-            "score": 0.89
-          },
-          {
-            "evidenceId": "E4",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:13",
-            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (14/25) (adac_winter_range_2026)",
-            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
-            "topic": "review",
-            "excerpt": "Kia, Tesla und Polestar setzen auf eine Art SUV-Coupé, gerne auch als \"Crossover\" bezeichnet. Audi, BMW und Volkswagen bieten mit dem A6, i5 und ID.7 hingegen klassische Kombis mit Elektroantrieb an. Die SUVs haben durch den hohen Aufbau einen eher höheren **Luftwiderstand**, der bei Autobahngeschwindigkeiten ins Gewicht fällt. So bezahlen der BYD Sealion 7, der Mercedes-Benz EQE SUV sowie der Volvo EX90 die...",
-            "score": 0.96
-          }
-        ]
+        "reason": "brand is Audi, not Tesla",
+        "count": 24
       },
       {
-        "vehicleId": "flowryd:vw_austria_ev_leasing:https-www-volkswagen-at-id4-id4",
-        "vehicle": {
-          "make": "Volkswagen",
-          "model": "ID.4",
-          "condition": "new",
-          "priceEUR": 33290,
-          "rangeKm": 522,
-          "efficiencyKwhPer100Km": 16.3,
-          "batterySoH": null,
-          "features": [
-            "apple_carplay",
-            "android_auto",
-            "adaptive_cruise_control",
-            "lane_keeping_assist",
-            "heated_seats",
-            "large_trunk"
-          ],
-          "notes": "FlowRyd real listing from vw_austria_ev_leasing. Estimated model year from listing title/body data."
-        },
-        "score": 96,
-        "ragScore": 6,
-        "scoringBreakdown": {
-          "priceFit": 100,
-          "rangeFit": 100,
-          "efficiencyFit": 90,
-          "tcoFit": 78,
-          "brandFit": 76,
-          "cargoPassengerFit": 100,
-          "reliabilityFit": 100,
-          "featureFit": 100,
-          "personaFit": 100,
-          "batteryHealthFit": 100,
-          "semanticFit": 95
-        },
-        "tradeoffs": [],
-        "retrievedEvidence": [
-          {
-            "evidenceId": "E1",
-            "sourceType": "vehicle_payload",
-            "sourceId": "flowryd:vw_austria_ev_leasing:https-www-volkswagen-at-id4-id4",
-            "title": "ID.4",
-            "excerpt": "ID.4: 2026 new suv. EUR 33 290. 522 km range. 16.3 kWh/100 km. 520 l cargo. features apple carplay, android auto, adaptive cruise control, lane keeping assist, heated seats sitzheizung, large trunk cargo. FlowRyd real listing from vw_austria_ev_leasing. Estimated model year from listing title/body data.",
-            "score": 0.89
-          },
-          {
-            "evidenceId": "E2",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:14",
-            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (15/25) (adac_winter_range_2026)",
-            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
-            "topic": "review",
-            "excerpt": "Vor dem ADAC Testlabor Elektromobilität: Drei Testkandidaten von Smart, Audi und Tesla mit guten Noten© ADAC/ABGEDREHT Mercedes-Benz verlangt für den EQE SUV 350+ bei Kauf 86.811 Euro, der Porsche Macan ist mit 80.700 Euro ebenfalls markentypisch teuer. Das teuerste Auto in diesem Reigen aber ist der Volvo EX90 AWD für 91.700 Euro – bei einer Reichweite, die der VW ID.7 Tourer für 55.000 Euro mit kleinerem Akku...",
-            "score": 1
-          },
-          {
-            "evidenceId": "E3",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:eafo_data_quality_faq:chunk:14",
-            "title": "Frequently asked questions | European Alternative Fuels Observatory (15/28) (eafo_data_quality_faq)",
-            "sourceUrl": "https://alternative-fuels-observatory.ec.europa.eu/general-information/frequently-asked-questions",
-            "topic": "charging_network",
-            "excerpt": "_Pre-2020_ Pre-2020 we counted the number of recharging point connectors available for EV users and deduced from this the number of recharging points. In the course of 2019, we performed a large recounting exercise, including the data in the preceding years, to better reflect the actual availability of unique charging interfaces to EV users. In particular, this recounting exercise focused on eliminating double...",
-            "score": 0.89
-          },
-          {
-            "evidenceId": "E4",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:13",
-            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (14/25) (adac_winter_range_2026)",
-            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
-            "topic": "review",
-            "excerpt": "Kia, Tesla und Polestar setzen auf eine Art SUV-Coupé, gerne auch als \"Crossover\" bezeichnet. Audi, BMW und Volkswagen bieten mit dem A6, i5 und ID.7 hingegen klassische Kombis mit Elektroantrieb an. Die SUVs haben durch den hohen Aufbau einen eher höheren **Luftwiderstand**, der bei Autobahngeschwindigkeiten ins Gewicht fällt. So bezahlen der BYD Sealion 7, der Mercedes-Benz EQE SUV sowie der Volvo EX90 die...",
-            "score": 0.96
-          }
-        ]
+        "reason": "brand is Kia, not Tesla",
+        "count": 23
       },
       {
-        "vehicleId": "flowryd:autoscout24_at:https-www-autoscout24-at-angebote-kia-ev3-earth-81-4-kwh-wapu-led-sitz-lenkradheiz-elektro-schwarz-cat_ma39mo76880-2c2a7a7e-d3db-4d0e-9331-684e531e0a75",
-        "vehicle": {
-          "make": "Kia",
-          "model": "EV3",
-          "condition": "new",
-          "priceEUR": 42740,
-          "rangeKm": 603,
-          "efficiencyKwhPer100Km": 14.9,
-          "batterySoH": null,
-          "features": [
-            "apple_carplay",
-            "android_auto",
-            "adaptive_cruise_control",
-            "lane_keeping_assist",
-            "heated_seats",
-            "large_trunk"
-          ],
-          "notes": "FlowRyd real listing from autoscout24_at."
-        },
-        "score": 94,
-        "ragScore": 6,
-        "scoringBreakdown": {
-          "priceFit": 87,
-          "rangeFit": 100,
-          "efficiencyFit": 90,
-          "tcoFit": 78,
-          "brandFit": 76,
-          "cargoPassengerFit": 100,
-          "reliabilityFit": 100,
-          "featureFit": 100,
-          "personaFit": 100,
-          "batteryHealthFit": 100,
-          "semanticFit": 95
-        },
-        "tradeoffs": [],
-        "retrievedEvidence": [
-          {
-            "evidenceId": "E1",
-            "sourceType": "vehicle_payload",
-            "sourceId": "flowryd:autoscout24_at:https-www-autoscout24-at-angebote-kia-ev3-earth-81-4-kwh-wapu-led-sitz-lenkradheiz-elektro-schwarz-cat_ma39mo76880-2c2a7a7e-d3db-4d0e-9331-684e531e0a75",
-            "title": "Kia EV3",
-            "excerpt": "Kia EV3: 2026 new suv. EUR 42 740. 603 km range. 14.9 kWh/100 km. 520 l cargo. location 8051 Graz. features apple carplay, android auto, adaptive cruise control, lane keeping assist, heated seats sitzheizung, large trunk cargo. FlowRyd real listing from autoscout24_at.",
-            "score": 0.89
-          },
-          {
-            "evidenceId": "E2",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:14",
-            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (15/25) (adac_winter_range_2026)",
-            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
-            "topic": "review",
-            "excerpt": "Vor dem ADAC Testlabor Elektromobilität: Drei Testkandidaten von Smart, Audi und Tesla mit guten Noten© ADAC/ABGEDREHT Mercedes-Benz verlangt für den EQE SUV 350+ bei Kauf 86.811 Euro, der Porsche Macan ist mit 80.700 Euro ebenfalls markentypisch teuer. Das teuerste Auto in diesem Reigen aber ist der Volvo EX90 AWD für 91.700 Euro – bei einer Reichweite, die der VW ID.7 Tourer für 55.000 Euro mit kleinerem Akku...",
-            "score": 1
-          },
-          {
-            "evidenceId": "E3",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:eafo_data_quality_faq:chunk:14",
-            "title": "Frequently asked questions | European Alternative Fuels Observatory (15/28) (eafo_data_quality_faq)",
-            "sourceUrl": "https://alternative-fuels-observatory.ec.europa.eu/general-information/frequently-asked-questions",
-            "topic": "charging_network",
-            "excerpt": "_Pre-2020_ Pre-2020 we counted the number of recharging point connectors available for EV users and deduced from this the number of recharging points. In the course of 2019, we performed a large recounting exercise, including the data in the preceding years, to better reflect the actual availability of unique charging interfaces to EV users. In particular, this recounting exercise focused on eliminating double...",
-            "score": 0.89
-          },
-          {
-            "evidenceId": "E4",
-            "sourceType": "knowledge_chunk",
-            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:13",
-            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (14/25) (adac_winter_range_2026)",
-            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
-            "topic": "review",
-            "excerpt": "Kia, Tesla und Polestar setzen auf eine Art SUV-Coupé, gerne auch als \"Crossover\" bezeichnet. Audi, BMW und Volkswagen bieten mit dem A6, i5 und ID.7 hingegen klassische Kombis mit Elektroantrieb an. Die SUVs haben durch den hohen Aufbau einen eher höheren **Luftwiderstand**, der bei Autobahngeschwindigkeiten ins Gewicht fällt. So bezahlen der BYD Sealion 7, der Mercedes-Benz EQE SUV sowie der Volvo EX90 die...",
-            "score": 0.96
-          }
-        ]
+        "reason": "brand is Volkswagen, not Tesla",
+        "count": 12
       }
-    ]
+    ],
+    "matches": []
   }
 }

@@ -6,26 +6,34 @@ import { SaveCarButton } from "./save-car-button";
 
 export function ProtectedCarActions({
   initialSaved = false,
-  snapshot
+  snapshot,
 }: {
   initialSaved?: boolean;
   snapshot: SavedCarSnapshot;
 }) {
   return (
     <>
-      <div className="flow-buy-actions">
-        <button type="button" onClick={() => void requireDemoAccess()}>
+      <div className="mt-5 flex gap-3">
+        <button
+          type="button"
+          className="flex-1 rounded-full bg-primary text-primary-foreground py-3 font-semibold hover:opacity-90"
+          onClick={() => void requireDemoAccess()}
+        >
           Buy now
         </button>
         <SaveCarButton
           vehicleId={snapshot.id}
           snapshot={snapshot}
           initialSaved={initialSaved}
-          className="flow-save-action"
-          activeClassName="flow-save-action-active"
+          className="size-12 rounded-full bg-background flex items-center justify-center border border-border"
+          activeClassName="text-primary"
         />
       </div>
-      <button className="flow-secondary-action" type="button" onClick={() => void requireDemoAccess()}>
+      <button
+        className="mt-3 w-full rounded-full bg-background py-3 font-semibold border border-border hover:bg-muted"
+        type="button"
+        onClick={() => void requireDemoAccess()}
+      >
         Schedule test drive
       </button>
     </>

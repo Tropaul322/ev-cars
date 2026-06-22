@@ -1,4 +1,5 @@
-import { clarificationQuestion, criteriaSummary } from "./criteria.ts";
+import { clarificationQuestion, criteriaSummary, languageReplyInstruction } from "./criteria.ts";
+import type { Language } from "./types.ts";
 import { createOpenAiClient, openAiConfigured, openAiModel } from "./openai-provider.ts";
 import type { MissingCriteria, RejectedSummary, UserCriteria } from "./types.ts";
 
@@ -13,8 +14,8 @@ type NoMatchesInput = {
   rejectedSummary: RejectedSummary[];
 };
 
-const assistantMessageSystemPrompt =
-  "You are FlowRyd, a friendly Austrian EV shopping assistant. Write natural, concise user-facing text in the user's language. " +
+const assistantMessageSystemPromptBase =
+  "You are FlowRyd, a friendly Austrian EV shopping assistant. Write natural, concise user-facing text. " +
   "Return only JSON: {\"message\":\"...\"}. Keep replies under 280 characters unless explaining why no cars matched.";
 
 function llmEnabled() {
@@ -106,8 +107,14 @@ export async function generateLowConfidenceQuestion(criteria: UserCriteria): Pro
   return generated ?? fallback();
 }
 
+function resolveMessageLanguage(context: Record<string, unknown>): Language {
+  return context.language === "de" || context.language === "en" ? context.language : "en";
+}
+
 async function generateMessage(kind: string, context: Record<string, unknown>): Promise<string | null> {
   if (!llmEnabled()) return null;
+  const language = resolveMessageLanguage(context);
+  const systemPrompt = `${assistantMessageSystemPromptBase} ${languageReplyInstruction(language)}`;
 
   try {
     const response = await createOpenAiClient().chat.completions.create(
@@ -116,7 +123,7 @@ async function generateMessage(kind: string, context: Record<string, unknown>): 
         temperature: 0.35,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: assistantMessageSystemPrompt },
+          { role: "system", content: systemPrompt },
           { role: "user", content: JSON.stringify({ kind, ...context }) }
         ]
       },

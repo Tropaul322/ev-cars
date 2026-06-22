@@ -1,5 +1,11 @@
 import { generateChatGreeting, generateClarificationMessage } from "./assistant-messages.ts";
-import { criteriaSummary, getCriteriaReadiness, type CriteriaReadiness } from "./criteria.ts";
+import {
+  criteriaSummary,
+  getCriteriaReadiness,
+  languageLabel,
+  languageReplyInstruction,
+  type CriteriaReadiness
+} from "./criteria.ts";
 import { createOpenAiClient, openAiConfigured, openAiModel } from "./openai-provider.ts";
 import type { MissingCriteria, UserCriteria } from "./types.ts";
 
@@ -29,7 +35,7 @@ const agentSystemPrompt =
   "Use action chat for greetings, thanks, small talk, help requests, or other conversational messages that do not add search criteria — always write a warm assistantMessage in the user's language. " +
   "Use action clarification when the user is searching but readiness.readyToMatch is false — ask one concise question that targets the highest-priority missing criteria in readiness.missingCriteria, acknowledge knownCriteria when present, and always write assistantMessage. " +
   "Use action match only when readiness.readyToMatch is true and the user is providing or refining EV search criteria (not just greeting or thanking); set assistantMessage to null. " +
-  "Reply in the language field or match the user's message language.";
+  "Always follow responseLanguageInstruction and write assistantMessage in requiredResponseLanguage.";
 
 export async function planAgentTurn(input: PlanAgentTurnInput): Promise<AgentTurnPlan> {
   const readiness = getCriteriaReadiness(input.criteria);
@@ -137,6 +143,8 @@ function buildAgentDecisionInput(input: PlanAgentTurnInput, readiness: CriteriaR
   return {
     message: input.message,
     language: input.criteria.language,
+    requiredResponseLanguage: languageLabel(input.criteria.language),
+    responseLanguageInstruction: languageReplyInstruction(input.criteria.language),
     readiness,
     confidence: input.confidence,
     knownCriteria: criteriaSummary(input.criteria),

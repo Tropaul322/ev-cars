@@ -12,7 +12,8 @@ const nextConfig = {
       { protocol: "https", hostname: "cache.willhaben.at" },
       { protocol: "https", hostname: "groupcms-services-api.porsche-holding.com" },
       { protocol: "https", hostname: "prod.pictures.autoscout24.net" },
-      { protocol: "https", hostname: "www.bmw-boerse.at" }
+      { protocol: "https", hostname: "www.bmw-boerse.at" },
+      { protocol: "https", hostname: "i.pravatar.cc" }
     ]
   }
 };

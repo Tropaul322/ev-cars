@@ -27,6 +27,7 @@ const FOCUSED_RECOMMENDATION_LIMIT = 12;
 export type MatchServiceRequest = {
   message: string;
   sessionId?: string;
+  testerRegistrationId?: string | null;
   previousCriteria?: UserCriteria;
   criteriaOverride?: UserCriteria;
   testerLocation?: string | null;
@@ -34,7 +35,7 @@ export type MatchServiceRequest = {
 
 export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchResponse> {
   const sessionId = body.sessionId ?? crypto.randomUUID();
-  const storedSession = body.sessionId ? await getMatchSession(sessionId) : null;
+  const storedSession = body.sessionId ? await getMatchSession(sessionId, body.testerRegistrationId) : null;
   const previousCriteria = body.previousCriteria ?? storedSession?.criteria ?? null;
   const isNextBatch = isNextBatchRequest(body.message) && Boolean(previousCriteria);
   const normalized = await normalizeCriteria({
@@ -76,6 +77,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
   if (agentPlan.action === "chat") {
     await saveMatchSession({
       id: sessionId,
+      testerRegistrationId: body.testerRegistrationId,
       criteria,
       selectedVehicleIds: [...nextSelectedVehicleIds]
     });
@@ -96,6 +98,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
   if (agentPlan.action === "clarification") {
     await saveMatchSession({
       id: sessionId,
+      testerRegistrationId: body.testerRegistrationId,
       criteria,
       selectedVehicleIds: [...nextSelectedVehicleIds]
     });
@@ -159,6 +162,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
   if (!result.recommendations.length) {
     await saveMatchSession({
       id: sessionId,
+      testerRegistrationId: body.testerRegistrationId,
       criteria,
       selectedVehicleIds: [...nextSelectedVehicleIds]
     });
@@ -194,6 +198,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
 
   await saveMatchSession({
     id: sessionId,
+    testerRegistrationId: body.testerRegistrationId,
     criteria,
     selectedVehicleIds: [...nextSelectedVehicleIds]
   });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { detectLanguage, extractCriteria, needsClarification, removeCriteriaKey } from "../lib/criteria.ts";
+import { detectLanguage, extractCriteria, languageLabel, languageReplyInstruction, needsClarification, removeCriteriaKey } from "../lib/criteria.ts";
 import { applyCriteriaPatch, normalizeCriteria } from "../lib/criteria-normalizer.ts";
 import { seedVehicles } from "../lib/data/seed-vehicles.ts";
 import { parseLlmExplanationJson } from "../lib/explanations.ts";
@@ -39,6 +39,15 @@ test("detects current message language for short car-name searches", () => {
   assert.equal(detectLanguage("Used Tesla Model 3"), "en");
   assert.equal(detectLanguage("Gebrauchter Tesla Model 3"), "de");
   assert.equal(detectLanguage("Budget 40000 EUR", "de"), "de");
+  assert.equal(detectLanguage("Hello, I need an EV"), "en");
+  assert.equal(detectLanguage("Hallo, ich suche ein E-Auto"), "de");
+});
+
+test("builds explicit reply-language instructions for LLM prompts", () => {
+  assert.equal(languageLabel("en"), "English");
+  assert.equal(languageLabel("de"), "German");
+  assert.match(languageReplyInstruction("en"), /English only/);
+  assert.match(languageReplyInstruction("de"), /German only/);
 });
 
 test("LLM criteria patches cannot override deterministic message language", () => {
@@ -68,6 +77,26 @@ test("merges conversational refinements and lets latest explicit constraints win
   assert.deepEqual(refined.bodyTypes, ["suv"]);
   assert.ok(refined.tripNeeds.includes("city"));
   assert.equal(refined.preferredCondition, "used");
+});
+
+test("replaces brand preferences when the user says only a new brand", () => {
+  const first = extractCriteria("I want a Tesla car.");
+  const refined = extractCriteria("Leave only Ford cars", first);
+
+  assert.deepEqual(refined.brandPreferences, ["Ford"]);
+  assert.deepEqual(refined.modelPreferences, []);
+});
+
+test("LLM criteria patches respect only-brand replacements", () => {
+  const criteria = applyCriteriaPatch(
+    extractCriteria("I want a Tesla car."),
+    { brandPreferences: ["Ford"], modelPreferences: [] },
+    "Leave only Ford cars",
+    true
+  );
+
+  assert.deepEqual(criteria.brandPreferences, ["Ford"]);
+  assert.deepEqual(criteria.modelPreferences, []);
 });
 
 test("removes individual criteria without clearing the full flow", () => {

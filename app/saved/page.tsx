@@ -1,38 +1,40 @@
 import { cookies } from "next/headers";
 import { DemoAccessRequired } from "@/components/demo-access-required";
-import { FlowRydShell } from "@/components/flowryd-demo-shell";
+import { WebShell } from "@/components/WebShell";
 import { SavedCarGrid, type SavedCarCard } from "@/components/saved-car-grid";
 import {
   DEMO_REGISTRATION_COOKIE,
   getDemoRegistration,
-  isActiveDemoRegistration
+  isActiveDemoRegistration,
 } from "@/lib/demo-registration";
 import {
   listSavedCars,
   snapshotFromVehicle,
   type SavedCar,
-  type SavedCarSnapshot
+  type SavedCarSnapshot,
 } from "@/lib/repositories/saved-car-repository";
 
 export const metadata = {
-  title: "Saved — FlowRyd"
+  title: "Saved — FlowRyd",
 };
 
 export default async function SavedPage() {
   const savedCars = await getSavedCarsForCurrentTester();
 
   return (
-    <FlowRydShell>
+    <WebShell>
       <DemoAccessRequired />
-      <div className="flow-page">
-        <header className="flow-page-header">
-          <h1>Saved cars</h1>
-          <p>Your shortlisted matches, ready to compare.</p>
+      <div className="mx-auto max-w-7xl w-full px-6 lg:px-10 py-10">
+        <header className="mb-8">
+          <h1 className="font-display font-extrabold text-3xl">Saved cars</h1>
+          <p className="text-muted-foreground mt-1">
+            Your shortlisted matches, ready to compare.
+          </p>
         </header>
 
         <SavedCarGrid cars={savedCars} />
       </div>
-    </FlowRydShell>
+    </WebShell>
   );
 }
 
@@ -51,7 +53,7 @@ function savedCarToCard(savedCar: SavedCar): SavedCarCard {
     id: savedCar.vehicleId,
     href: savedCar.vehicle?.listingUrl ?? `/car/${savedCar.vehicleId}`,
     snapshot,
-    vehicle: savedCar.vehicle
+    vehicle: savedCar.vehicle,
   };
 }
 
@@ -60,7 +62,7 @@ function snapshotForSavedCar(savedCar: SavedCar): SavedCarSnapshot {
     return {
       ...snapshotFromVehicle(savedCar.vehicle, savedCar.snapshot?.match),
       ...savedCar.snapshot,
-      id: savedCar.vehicleId
+      id: savedCar.vehicleId,
     };
   }
 
@@ -69,7 +71,7 @@ function snapshotForSavedCar(savedCar: SavedCar): SavedCarSnapshot {
       id: savedCar.vehicleId,
       name: savedCar.vehicleId,
       price: "Price on request",
-      condition: "EV"
+      condition: "EV",
     }
   );
 }

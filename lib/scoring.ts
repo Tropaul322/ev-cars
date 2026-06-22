@@ -1,3 +1,4 @@
+import { normalizeVehicleFeatures } from "./feature-normalization.ts";
 import type {
   MatchResult,
   RagContext,
@@ -236,7 +237,8 @@ function scoreFeatures(vehicle: Vehicle, criteria: UserCriteria) {
   const desired = criteria.mustHaveFeatures.length
     ? criteria.mustHaveFeatures
     : (["apple_carplay", "adaptive_cruise_control", "lane_keeping_assist", "heated_seats"] as const);
-  const hits = desired.filter((feature) => vehicle.features.includes(feature)).length;
+  const normalizedFeatures = normalizeVehicleFeatures(vehicle.features, vehicle);
+  const hits = desired.filter((feature) => normalizedFeatures.includes(feature)).length;
   return Math.round((hits / desired.length) * 100);
 }
 
