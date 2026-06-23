@@ -1,4 +1,4 @@
-import type { BodyType, Feature, Vehicle } from "./types.ts";
+import type { Feature, Vehicle } from "./types.ts";
 
 const canonicalFeatures = new Set<Feature>([
   "apple_carplay",

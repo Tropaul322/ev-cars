@@ -137,7 +137,6 @@ export function mergeConversationTurnClassification(
   if (DEFINITE_PATTERN_KINDS.includes(pattern)) return pattern;
   if (!llm) return pattern;
   if (llm === "criteria") return "criteria";
-  if (pattern === "ev_question" && llm === "criteria") return "criteria";
   if (pattern === "criteria") return llm;
   return llm;
 }

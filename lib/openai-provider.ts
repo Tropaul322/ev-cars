@@ -1,7 +1,10 @@
 import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
-import type { RequestOptions } from "openai/core";
 import { llmDebug } from "./llm-debug.ts";
+
+type OpenAiChatCompletionOptions = NonNullable<
+  Parameters<OpenAI["chat"]["completions"]["create"]>[1]
+>;
 
 export const defaultOpenAiModel = "gpt-4o-mini";
 export const defaultOpenAiEmbeddingModel = "text-embedding-3-small";
@@ -35,7 +38,7 @@ export function createOpenAiClient() {
 export async function createOpenAiChatCompletion(
   stage: string,
   params: ChatCompletionCreateParamsNonStreaming,
-  options?: RequestOptions
+  options?: OpenAiChatCompletionOptions
 ) {
   try {
     const response = await createOpenAiClient().chat.completions.create(params, options);

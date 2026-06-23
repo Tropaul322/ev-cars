@@ -46,7 +46,6 @@ import type {
   ClarificationPrompt,
   ClarificationPromptKey,
   CriteriaPatch,
-  Language,
   MatchResult,
   MissingCriteria,
   RejectedSummary,
@@ -123,7 +122,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
   } else if (isMetaQuestion || isSmallTalk) {
     criteria =
       previousCriteria ??
-      emptyCriteria(body.message, detectLanguage(body.message, previousCriteria?.language ?? "en"));
+      emptyCriteria(body.message, detectLanguage(body.message, "en"));
     confidence = getCriteriaConfidence(criteria);
     criteriaChanged = false;
   } else {
@@ -212,7 +211,6 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
         (readiness.readyToMatch || hasInventoryLookup(criteria))));
 
   if (!wantsMatch) {
-    const language = criteria.language;
     let prompt: ClarificationPrompt | undefined;
     let assistantMessage: string;
     const offerPrompt = !isChatTurn && nextPrompt.key !== "ready";
