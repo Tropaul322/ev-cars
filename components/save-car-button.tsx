@@ -1,8 +1,8 @@
 "use client";
 
 import { Bookmark } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useState, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
+import { invalidateSavedCarsCache } from "@/lib/client-data-cache";
 import { requireDemoAccess } from "@/lib/demo-access-client";
 import type { SavedCarSnapshot } from "@/lib/repositories/saved-car-repository";
 
@@ -10,6 +10,7 @@ export function SaveCarButton({
   vehicleId,
   snapshot,
   initialSaved = false,
+  hydrateSavedState = false,
   className,
   activeClassName,
   label,
@@ -18,14 +19,37 @@ export function SaveCarButton({
   vehicleId: string;
   snapshot: SavedCarSnapshot;
   initialSaved?: boolean;
+  hydrateSavedState?: boolean;
   className: string;
   activeClassName?: string;
   label?: string;
   onUnsave?: (vehicleId: string) => void;
 }) {
-  const router = useRouter();
   const [saved, setSaved] = useState(initialSaved);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!hydrateSavedState) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/saved-cars");
+        if (!response.ok || cancelled) return;
+        const data = (await response.json()) as {
+          savedCars?: Array<{ vehicleId: string }>;
+        };
+        const isSaved = data.savedCars?.some((item) => item.vehicleId === vehicleId) ?? false;
+        if (!cancelled && isSaved) setSaved(true);
+      } catch {
+        // Keep the default saved state when hydration fails.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrateSavedState, vehicleId]);
 
   async function toggleSaved(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -51,7 +75,8 @@ export function SaveCarButton({
       }
 
       if (!nextSaved) onUnsave?.(vehicleId);
-      router.refresh();
+      invalidateSavedCarsCache();
+      window.dispatchEvent(new Event("flowryd:saved-cars-changed"));
     } catch {
       setSaved(saved);
     } finally {

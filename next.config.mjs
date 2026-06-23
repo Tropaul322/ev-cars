@@ -7,6 +7,12 @@ const appDir = dirname(fileURLToPath(import.meta.url));
 const nextConfig = {
   outputFileTracingRoot: appDir,
   reactStrictMode: true,
+  experimental: {
+    staleTimes: {
+      dynamic: 30,
+      static: 180,
+    },
+  },
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "cache.willhaben.at" },

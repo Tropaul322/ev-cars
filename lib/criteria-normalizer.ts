@@ -7,11 +7,13 @@ import {
   hasReplaceIntent,
   normalizeCriteriaShape
 } from "./criteria.ts";
-import { createOpenAiClient, openAiConfigured, openAiModel } from "./openai-provider.ts";
+import { buildLlmMessages, type LlmConversationTurn } from "./llm-conversation.ts";
+import { createOpenAiChatCompletion, openAiConfigured, openAiModel } from "./openai-provider.ts";
 import type {
   BrandOrigin,
   BodyType,
   ChargingAccess,
+  CriteriaPatch,
   Feature,
   Importance,
   QualitativeSignal,
@@ -19,6 +21,8 @@ import type {
   UserCriteria,
   VehicleCondition
 } from "./types.ts";
+
+export type { CriteriaPatch } from "./types.ts";
 
 const allowedBodyTypes = [
   "compact",
@@ -34,13 +38,6 @@ const allowedBodyTypes = [
 
 const allowedBrandOrigins = ["china", "europe", "korea", "us", "other"] satisfies BrandOrigin[];
 
-export type CriteriaPatch = Partial<
-  Omit<UserCriteria, "language" | "rawPrompt"> & {
-    language: UserCriteria["language"];
-    remove: string[];
-  }
->;
-
 export type CriteriaNormalization = {
   criteria: UserCriteria;
   criteriaPatch: CriteriaPatch;
@@ -53,11 +50,12 @@ type NormalizeCriteriaInput = {
   message: string;
   previousCriteria?: UserCriteria | null;
   criteriaOverride?: UserCriteria | null;
+  conversationHistory?: LlmConversationTurn[];
 };
 
 const normalizerPrompt = `You extract and UPDATE EV shopping criteria from German or English chat.
 
-Input: the user's latest message plus optional previousCriteria from earlier turns.
+Input: prior conversation turns (when provided), the user's latest message, and optional previousCriteria from earlier turns.
 Output: ONLY valid JSON in this shape:
 {
   "criteriaPatch": { ...fields changed in this turn... },
@@ -86,29 +84,30 @@ List fields where replace vs merge matters:
 brandPreferences, modelPreferences, bodyTypes, tripNeeds, mustHaveFeatures, qualitativeSignals, preferredBrandOrigins, avoidedBrands
 
 Scalar fields:
-budgetMaxEUR, monthlyBudgetEUR, dailyKm, rangeFloorKm, mileageMaxKm, mileageTargetKm, batterySoHMin, batteryHealthRequired, chargingAccess, preferredCondition, passengers, cargoNeeds, location, brandFit, reliabilityImportance
+budgetMinEUR, budgetMaxEUR, monthlyBudgetEUR, dailyKm, rangeFloorKm, mileageMaxKm, mileageTargetKm, batterySoHMin, batteryHealthRequired, chargingAccess, preferredCondition, passengers, cargoNeeds, location, brandFit, reliabilityImportance
 
 Confidence guide: 0.9+ for specific constraints, 0.5-0.7 when budget/use case/charging is still missing.`;
 
 export async function normalizeCriteria({
   message,
   previousCriteria,
-  criteriaOverride
+  criteriaOverride,
+  conversationHistory = []
 }: NormalizeCriteriaInput): Promise<CriteriaNormalization> {
   if (criteriaOverride) {
-    return await buildNormalization(message, normalizeCriteriaShape(criteriaOverride), {});
+    return await buildNormalization(message, normalizeCriteriaShape(criteriaOverride), {}, conversationHistory);
   }
 
   const fallbackCriteria = extractCriteria(message, previousCriteria ?? undefined);
   const fallbackPatch = diffCriteria(previousCriteria, fallbackCriteria);
 
-  const llmPatch = await generateCriteriaPatch(message, previousCriteria ?? null);
+  const llmPatch = await generateCriteriaPatch(message, previousCriteria ?? null, conversationHistory);
   if (!llmPatch) {
-    return await buildNormalization(message, fallbackCriteria, fallbackPatch);
+    return await buildNormalization(message, fallbackCriteria, fallbackPatch, conversationHistory);
   }
 
   const criteria = applyCriteriaPatch(previousCriteria ?? fallbackCriteria, llmPatch, message, Boolean(previousCriteria));
-  return await buildNormalization(message, criteria, llmPatch);
+  return await buildNormalization(message, criteria, llmPatch, conversationHistory);
 }
 
 export function applyCriteriaPatch(
@@ -139,33 +138,78 @@ export function applyCriteriaPatch(
   }
 
   for (const removal of patch.remove ?? []) {
-    if (removal === "budget") {
-      criteria.budgetMaxEUR = null;
-      criteria.monthlyBudgetEUR = null;
-    }
-    if (removal === "range") criteria.rangeFloorKm = null;
-    if (removal === "mileage") {
-      criteria.mileageMaxKm = null;
-      criteria.mileageTargetKm = null;
-    }
-    if (removal === "battery") {
-      criteria.batterySoHMin = null;
-      criteria.batteryHealthRequired = false;
-    }
-    if (removal === "condition") criteria.preferredCondition = "any";
-    if (removal === "body") criteria.bodyTypes = [];
-    if (removal === "use_case") criteria.tripNeeds = [];
-    if (removal === "charging") criteria.chargingAccess = "unknown";
-    if (removal === "features") criteria.mustHaveFeatures = [];
-    if (removal === "brand") {
-      criteria.brandPreferences = [];
-      criteria.avoidedBrands = [];
-    }
-    if (removal === "origin") criteria.preferredBrandOrigins = [];
-    if (removal === "model") criteria.modelPreferences = [];
+    applyRemoval(criteria, removal);
   }
 
   return criteria;
+}
+
+const patchListFields = [
+  "brandPreferences",
+  "modelPreferences",
+  "bodyTypes",
+  "tripNeeds",
+  "mustHaveFeatures",
+  "qualitativeSignals",
+  "preferredBrandOrigins",
+  "avoidedBrands"
+] as const;
+
+/**
+ * Applies a structured patch from a tapped clarification chip. Unlike
+ * applyCriteriaPatch, this never re-parses the message text, so chip labels
+ * (e.g. "€40,000–60,000") cannot accidentally extract stray criteria. List
+ * fields merge, scalar fields replace, and explicit removals are honored.
+ */
+export function applyChipPatch(base: UserCriteria, patch: CriteriaPatch): UserCriteria {
+  const start = normalizeCriteriaShape(base);
+  const clean = cleanPatch(patch);
+  const next = normalizeCriteriaShape({ ...start });
+
+  for (const [key, value] of Object.entries(clean) as Array<[keyof CriteriaPatch, unknown]>) {
+    if (key === "remove" || key === "language") continue;
+    if ((patchListFields as readonly string[]).includes(key as string) && Array.isArray(value)) {
+      const existing = (start as Record<string, unknown>)[key as string] as unknown[] | undefined;
+      (next as Record<string, unknown>)[key as string] = mergeUnique(existing ?? [], value);
+    } else {
+      (next as Record<string, unknown>)[key as string] = value;
+    }
+  }
+
+  if (clean.language) next.language = clean.language;
+  for (const removal of clean.remove ?? []) {
+    applyRemoval(next, removal);
+  }
+
+  return normalizeCriteriaShape(next);
+}
+
+function applyRemoval(criteria: UserCriteria, removal: string) {
+  if (removal === "budget") {
+    criteria.budgetMinEUR = null;
+    criteria.budgetMaxEUR = null;
+    criteria.monthlyBudgetEUR = null;
+  }
+  if (removal === "range") criteria.rangeFloorKm = null;
+  if (removal === "mileage") {
+    criteria.mileageMaxKm = null;
+    criteria.mileageTargetKm = null;
+  }
+  if (removal === "battery") {
+    criteria.batterySoHMin = null;
+    criteria.batteryHealthRequired = false;
+  }
+  if (removal === "condition") criteria.preferredCondition = "any";
+  if (removal === "body") criteria.bodyTypes = [];
+  if (removal === "use_case") criteria.tripNeeds = [];
+  if (removal === "charging") criteria.chargingAccess = "unknown";
+  if (removal === "features") criteria.mustHaveFeatures = [];
+  if (removal === "brand") {
+    criteria.brandPreferences = [];
+    criteria.avoidedBrands = [];
+  }
+  if (removal === "origin") criteria.preferredBrandOrigins = [];
+  if (removal === "model") criteria.modelPreferences = [];
 }
 
 function mergeUnique<T>(left: T[], right: T[]) {
@@ -175,11 +219,12 @@ function mergeUnique<T>(left: T[], right: T[]) {
 async function buildNormalization(
   message: string,
   criteria: UserCriteria,
-  criteriaPatch: CriteriaPatch
+  criteriaPatch: CriteriaPatch,
+  conversationHistory: LlmConversationTurn[] = []
 ): Promise<CriteriaNormalization> {
   const missingCriteria = getMissingCriteria(criteria);
   const clarificationQuestion = missingCriteria.length
-    ? await generateClarificationMessage({ message, criteria, missingCriteria })
+    ? await generateClarificationMessage({ message, criteria, missingCriteria, conversationHistory })
     : null;
   return {
     criteria,
@@ -192,29 +237,33 @@ async function buildNormalization(
 
 async function generateCriteriaPatch(
   message: string,
-  previousCriteria: UserCriteria | null
+  previousCriteria: UserCriteria | null,
+  conversationHistory: LlmConversationTurn[] = []
 ): Promise<CriteriaPatch | null> {
   if (process.env.FLOWRYD_DISABLE_LLM === "1") return null;
-  if (openAiConfigured()) return generateOpenAiCriteriaPatch(message, previousCriteria);
+  if (openAiConfigured()) return generateOpenAiCriteriaPatch(message, previousCriteria, conversationHistory);
   return null;
 }
 
 async function generateOpenAiCriteriaPatch(
   message: string,
-  previousCriteria: UserCriteria | null
+  previousCriteria: UserCriteria | null,
+  conversationHistory: LlmConversationTurn[] = []
 ): Promise<CriteriaPatch | null> {
   if (!openAiConfigured()) return null;
 
   try {
-    const response = await createOpenAiClient().chat.completions.create(
+    const response = await createOpenAiChatCompletion(
+      "criteria-normalizer",
       {
         model: openAiModel(),
         temperature: 0,
         response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: normalizerPrompt },
-          { role: "user", content: JSON.stringify(buildNormalizerInput(message, previousCriteria)) }
-        ]
+        messages: buildLlmMessages(
+          normalizerPrompt,
+          conversationHistory,
+          JSON.stringify(buildNormalizerInput(message, previousCriteria))
+        )
       },
       { timeout: 1600 }
     );
@@ -295,6 +344,7 @@ export function parseCriteriaPatch(content: string): CriteriaPatch | null {
 function cleanPatch(patch: CriteriaPatch): CriteriaPatch {
   const clean: CriteriaPatch = {};
   if (isLanguage(patch.language)) clean.language = patch.language;
+  if (numberOrNull(patch.budgetMinEUR)) clean.budgetMinEUR = patch.budgetMinEUR;
   if (numberOrNull(patch.budgetMaxEUR)) clean.budgetMaxEUR = patch.budgetMaxEUR;
   if (numberOrNull(patch.monthlyBudgetEUR)) clean.monthlyBudgetEUR = patch.monthlyBudgetEUR;
   if (numberOrNull(patch.dailyKm)) clean.dailyKm = patch.dailyKm;

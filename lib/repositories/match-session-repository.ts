@@ -1,3 +1,4 @@
+import { matchDebugWarn } from "../match-debug.ts";
 import { normalizeCriteriaShape } from "../criteria.ts";
 import type { UserCriteria } from "../types.ts";
 import { getSupabaseRestConfig } from "./supabase-rest.ts";
@@ -62,7 +63,7 @@ export async function saveMatchSession(session: MatchSession): Promise<void> {
   if (!supabase) return;
 
   try {
-    await fetch(`${supabase.url}/rest/v1/match_sessions?on_conflict=id`, {
+    const response = await fetch(`${supabase.url}/rest/v1/match_sessions?on_conflict=id`, {
       method: "POST",
       headers: {
         ...supabase.headers,
@@ -76,8 +77,18 @@ export async function saveMatchSession(session: MatchSession): Promise<void> {
         selected_vehicle_ids: session.selectedVehicleIds
       })
     });
-  } catch {
-    // Local session state is enough for the current request path.
+    if (!response.ok) {
+      matchDebugWarn("match-session.save-failed", {
+        sessionId: session.id,
+        status: response.status,
+        message: await response.text()
+      });
+    }
+  } catch (error) {
+    matchDebugWarn("match-session.save-error", {
+      sessionId: session.id,
+      reason: error instanceof Error ? error.message : "unknown"
+    });
   }
 }
 

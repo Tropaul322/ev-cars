@@ -27,3 +27,19 @@ test("vehiclesToSupabaseCsv produces id,payload headers", () => {
   assert.match(output, /^id,payload\n/);
   assert.match(output, /vw-id3-pro-2023/);
 });
+
+test("parseVehicleSheetCsv applies defaults for omitted technical fields", () => {
+  const csv = [
+    "id,make,model,trim,year,condition,price_eur,range_km,efficiency_kwh_per_100_km,battery_kwh,body_type,seats,cargo_liters,drivetrain,power_kw",
+    "mini-ev-2024,Mini,Cooper,SE,2024,new,28900,400,15,40,hatchback,4,200,FWD,120"
+  ].join("\n");
+
+  const [vehicle] = parseVehicleSheetCsv(csv);
+
+  assert.equal(vehicle?.source, "seed");
+  assert.equal(vehicle?.market, "AT");
+  assert.equal(vehicle?.available, true);
+  assert.equal(vehicle?.brandOrigin, "other");
+  assert.equal(vehicle?.dedupeKey, "mini-ev-2024");
+  assert.equal(vehicle?.title, "Mini Cooper SE");
+});

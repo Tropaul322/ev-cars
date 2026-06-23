@@ -8,7 +8,6 @@ import type {
   Vehicle
 } from "./types.ts";
 import { getRagEvidenceForVehicle } from "./rag.ts";
-import { blendSemanticSignals, scoreVehicleTopicAffinity } from "./semantic-scoring.ts";
 import { calculateTco, estimateMonthlyVehiclePayment } from "./tco.ts";
 import {
   vehicleMatchesBrandOriginPreferences,
@@ -26,17 +25,13 @@ export type MatchEngineResult = {
 type Weights = Record<keyof ScoringBreakdown, number>;
 
 const baseWeights: Weights = {
-  priceFit: 0.16,
-  rangeFit: 0.12,
-  efficiencyFit: 0.08,
-  tcoFit: 0.1,
-  brandFit: 0.07,
-  cargoPassengerFit: 0.08,
-  reliabilityFit: 0.08,
-  featureFit: 0.1,
-  personaFit: 0.12,
-  batteryHealthFit: 0.07,
-  semanticFit: 0.04
+  priceFit: 0.24,
+  rangeFit: 0.18,
+  efficiencyFit: 0.12,
+  brandFit: 0.1,
+  cargoPassengerFit: 0.12,
+  reliabilityFit: 0.12,
+  featureFit: 0.12
 };
 
 export function matchVehicles(
@@ -56,8 +51,8 @@ export function matchVehicles(
     }
 
     const tco = calculateTco(vehicle, criteria);
-    const scoringBreakdown = scoreVehicle(vehicle, criteria, tco.estimatedMonthlyTotal, options.ragContext);
-    const weights = deriveWeights(criteria);
+    const scoringBreakdown = scoreVehicle(vehicle, criteria);
+    const weights = deriveWeights(criteria, vehicles);
     const baseScore = Math.round(
       Object.entries(scoringBreakdown).reduce((sum, [key, value]) => {
         return sum + value * weights[key as keyof ScoringBreakdown];
@@ -81,7 +76,12 @@ export function matchVehicles(
 
   return {
     recommendations: passed
-      .sort((a, b) => b.score - a.score || b.ragScore - a.ragScore)
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          (b.vehicle.embeddingSimilarity ?? 0) - (a.vehicle.embeddingSimilarity ?? 0) ||
+          b.ragScore - a.ragScore
+      )
       .slice(0, limit),
     rejected
   };
@@ -91,6 +91,9 @@ export function getHardFilterReasons(vehicle: Vehicle, criteria: UserCriteria) {
   const reasons: string[] = [];
   if (vehicle.market !== "AT") reasons.push("outside Austrian market");
   if (!vehicle.available) reasons.push("not currently available");
+  if (criteria.budgetMinEUR && vehicle.priceEUR < criteria.budgetMinEUR) {
+    reasons.push(`below purchase budget floor of EUR ${criteria.budgetMinEUR.toLocaleString("de-AT")}`);
+  }
   if (criteria.budgetMaxEUR && vehicle.priceEUR > criteria.budgetMaxEUR) {
     reasons.push(`above purchase budget of EUR ${criteria.budgetMaxEUR.toLocaleString("de-AT")}`);
   }
@@ -146,49 +149,41 @@ export function getHardFilterReasons(vehicle: Vehicle, criteria: UserCriteria) {
   return reasons;
 }
 
-export function scoreVehicle(
-  vehicle: Vehicle,
-  criteria: UserCriteria,
-  estimatedMonthlyTotal = calculateTco(vehicle, criteria).estimatedMonthlyTotal,
-  ragContext?: RagContext
-): ScoringBreakdown {
+export function scoreVehicle(vehicle: Vehicle, criteria: UserCriteria): ScoringBreakdown {
   return {
     priceFit: scorePrice(vehicle, criteria),
     rangeFit: scoreRange(vehicle, criteria),
     efficiencyFit: scoreEfficiency(vehicle),
-    tcoFit: scoreTco(estimatedMonthlyTotal, criteria),
     brandFit: scoreBrand(vehicle, criteria),
     cargoPassengerFit: scoreCargoPassengers(vehicle, criteria),
     reliabilityFit: scoreReliability(vehicle, criteria),
-    featureFit: scoreFeatures(vehicle, criteria),
-    personaFit: scorePersona(vehicle, criteria),
-    batteryHealthFit: scoreBatteryHealth(vehicle, criteria),
-    semanticFit: scoreSemantic(vehicle, criteria, ragContext)
+    featureFit: scoreFeatures(vehicle, criteria)
   };
 }
 
-function deriveWeights(criteria: UserCriteria): Weights {
+function deriveWeights(criteria: UserCriteria, vehicles: Vehicle[]): Weights {
   const weights = { ...baseWeights };
-  if (criteria.monthlyBudgetEUR) weights.tcoFit += 0.04;
-  if (criteria.tripNeeds.includes("road_trip") || criteria.chargingAccess === "public") {
-    weights.rangeFit += 0.05;
-    weights.semanticFit += 0.02;
+  if (vehicles.some((vehicle) => (vehicle.embeddingSimilarity ?? 0) > 0)) {
+    weights.featureFit += 0.04;
+    weights.brandFit += 0.03;
+    weights.priceFit -= 0.04;
+    weights.rangeFit -= 0.03;
   }
-  if (criteria.mustHaveFeatures.length) weights.featureFit += 0.04;
+  if (criteria.tripNeeds.includes("road_trip") || criteria.chargingAccess === "public") {
+    weights.rangeFit += 0.06;
+  }
+  if (criteria.mustHaveFeatures.length) weights.featureFit += 0.05;
   if (criteria.preferredCondition === "used" || criteria.qualitativeSignals.includes("good_battery_health")) {
-    weights.batteryHealthFit += 0.06;
-    weights.reliabilityFit += 0.03;
+    weights.reliabilityFit += 0.07;
   }
   if (criteria.qualitativeSignals.includes("premium")) {
-    weights.personaFit += 0.04;
-    weights.semanticFit += 0.03;
+    weights.brandFit += 0.05;
   }
   if (criteria.qualitativeSignals.includes("low_mileage")) {
-    weights.reliabilityFit += 0.04;
-    weights.batteryHealthFit += 0.02;
+    weights.reliabilityFit += 0.05;
   }
-  if (criteria.reliabilityImportance === "high") weights.reliabilityFit += 0.04;
-  if (criteria.brandFit === "high") weights.brandFit += 0.04;
+  if (criteria.reliabilityImportance === "high") weights.reliabilityFit += 0.05;
+  if (criteria.brandFit === "high") weights.brandFit += 0.05;
 
   const total = Object.values(weights).reduce((sum, value) => sum + value, 0);
   for (const key of Object.keys(weights) as Array<keyof Weights>) {
@@ -197,12 +192,43 @@ function deriveWeights(criteria: UserCriteria): Weights {
   return weights;
 }
 
-function scorePrice(vehicle: Vehicle, criteria: UserCriteria) {
-  if (!criteria.budgetMaxEUR) return 76;
-  const ratio = vehicle.priceEUR / criteria.budgetMaxEUR;
-  if (ratio <= 0.72) return 100;
-  if (ratio <= 1) return clamp(100 - (ratio - 0.72) * 95, 68, 100);
-  return 0;
+export function scorePrice(vehicle: Vehicle, criteria: UserCriteria) {
+  const price = vehicle.priceEUR;
+  const min = criteria.budgetMinEUR;
+  const max = criteria.budgetMaxEUR;
+
+  if (min !== null && max !== null) {
+    if (price >= min && price <= max) {
+      const span = max - min;
+      if (span <= 0) return 100;
+      const mid = (min + max) / 2;
+      const distanceFromMid = Math.abs(price - mid) / (span / 2);
+      return clamp(100 - distanceFromMid * 6, 94, 100);
+    }
+    if (price < min) {
+      const underBy = min - price;
+      const span = Math.max(max - min, min * 0.1);
+      return clamp(92 - (underBy / span) * 50, 35, 92);
+    }
+    return 0;
+  }
+
+  if (max !== null) {
+    if (price > max) return 0;
+    const ratio = price / max;
+    if (ratio <= 0.9) return 100;
+    return clamp(100 - ((ratio - 0.9) / 0.1) * 12, 88, 100);
+  }
+
+  if (min !== null) {
+    if (price < min) {
+      const underBy = min - price;
+      return clamp(92 - (underBy / min) * 40, 40, 92);
+    }
+    return 100;
+  }
+
+  return 76;
 }
 
 function scoreRange(vehicle: Vehicle, criteria: UserCriteria) {
@@ -223,14 +249,6 @@ function scoreEfficiency(vehicle: Vehicle) {
   if (vehicle.efficiencyKwhPer100Km <= 17) return 90;
   if (vehicle.efficiencyKwhPer100Km <= 20) return 74;
   return 58;
-}
-
-function scoreTco(estimatedMonthlyTotal: number, criteria: UserCriteria) {
-  if (!criteria.monthlyBudgetEUR) return 78;
-  const ratio = estimatedMonthlyTotal / criteria.monthlyBudgetEUR;
-  if (ratio <= 0.88) return 100;
-  if (ratio <= 1.1) return clamp(100 - (ratio - 0.88) * 170, 58, 100);
-  return 35;
 }
 
 function scoreFeatures(vehicle: Vehicle, criteria: UserCriteria) {
@@ -282,52 +300,19 @@ function scoreReliability(vehicle: Vehicle, criteria: UserCriteria) {
   }
   if (criteria.qualitativeSignals.includes("reliable") && vehicle.batterySoH && vehicle.batterySoH >= 90) score += 8;
   if (vehicle.condition === "used" && vehicle.batterySoH === null) score -= 10;
+  if (criteria.qualitativeSignals.includes("good_battery_health")) {
+    if (vehicle.condition === "new") score += 8;
+    else if (vehicle.batterySoH !== null && vehicle.batterySoH >= 92) score += 10;
+    else if (vehicle.batterySoH !== null && vehicle.batterySoH >= 88) score += 4;
+    else score -= 8;
+  }
+  if (criteria.qualitativeSignals.includes("low_mileage")) {
+    if (vehicle.condition === "new") score += 8;
+    else if (vehicle.mileageKm !== null && vehicle.mileageKm <= 15000) score += 10;
+    else if (vehicle.mileageKm !== null && vehicle.mileageKm <= 35000) score += 4;
+    else if (vehicle.mileageKm !== null) score -= 8;
+  }
   return clamp(score, 25, 100);
-}
-
-function scorePersona(vehicle: Vehicle, criteria: UserCriteria) {
-  let score = 70;
-  if (criteria.tripNeeds.includes("city") && ["compact", "hatchback", "sedan"].includes(vehicle.bodyType)) {
-    score += 12;
-  }
-  if (criteria.tripNeeds.includes("family") && vehicle.seats >= 5 && vehicle.cargoLiters >= 440) {
-    score += 16;
-  }
-  if (criteria.tripNeeds.includes("road_trip") && vehicle.rangeKm >= 500) score += 12;
-  if (criteria.tripNeeds.includes("winter") && vehicle.features.includes("awd")) score += 12;
-  if (criteria.chargingAccess === "public" && vehicle.rangeKm >= 420) score += 8;
-  if (criteria.cargoNeeds === "high" && vehicle.cargoLiters >= 500) score += 10;
-  if (criteria.brandPreferences.some((brand) => sameBrand(brand, vehicle.make))) score += 10;
-  if (criteria.modelPreferences.length && vehicleMatchesModelPreferences(vehicle, criteria.modelPreferences)) {
-    score += 14;
-  }
-  if (vehicle.reviewTags.some((tag) => criteria.tripNeeds.includes(tagToTripNeed(tag)))) score += 5;
-  for (const signal of criteria.qualitativeSignals) {
-    score += scoreQualitativeSignal(vehicle, signal);
-  }
-  return clamp(score, 35, 100);
-}
-
-function scoreBatteryHealth(vehicle: Vehicle, criteria: UserCriteria) {
-  if (vehicle.condition === "new") return 100;
-  if (vehicle.batterySoH === null) return criteria.batterySoHMin ? 38 : 60;
-  if (criteria.batterySoHMin) {
-    const ratio = vehicle.batterySoH / criteria.batterySoHMin;
-    if (ratio >= 1.05) return 100;
-    if (ratio >= 1) return 92;
-    return clamp(72 - (criteria.batterySoHMin - vehicle.batterySoH) * 8, 25, 72);
-  }
-  if (vehicle.batterySoH >= 95) return 98;
-  if (vehicle.batterySoH >= 90) return 88;
-  if (vehicle.batterySoH >= 85) return 72;
-  return 45;
-}
-
-function scoreSemantic(vehicle: Vehicle, criteria: UserCriteria, ragContext?: RagContext) {
-  const keywordScore = ragContext?.vehicleScores[vehicle.id] ?? 0;
-  const topicScore = scoreVehicleTopicAffinity(vehicle, criteria, ragContext?.topicAffinity ?? {});
-  const blended = blendSemanticSignals({ keywordScore, topicScore });
-  return clamp(65 + blended * 35, 45, 100);
 }
 
 function summarizeTradeoffs(vehicle: Vehicle, criteria: UserCriteria, breakdown: ScoringBreakdown) {
@@ -345,40 +330,8 @@ function summarizeTradeoffs(vehicle: Vehicle, criteria: UserCriteria, breakdown:
     tradeoffs.push("range is acceptable but not a road-trip strength");
   }
   if (breakdown.featureFit < 80) tradeoffs.push("some requested comfort or safety features are missing");
-  if (breakdown.personaFit < 72) tradeoffs.push("persona fit is weaker than the technical fit");
-  if (breakdown.priceFit < 75) tradeoffs.push("price is close to the stated ceiling");
+  if (breakdown.priceFit < 88) tradeoffs.push("price is close to the stated ceiling");
   return tradeoffs;
-}
-
-function scoreQualitativeSignal(vehicle: Vehicle, signal: UserCriteria["qualitativeSignals"][number]) {
-  const tagText = vehicle.reviewTags.join(" ").toLowerCase();
-  const notes = vehicle.notes.toLowerCase();
-  if (signal === "premium") {
-    return premiumMakes.has(normalizeBrand(vehicle.make)) || tagText.includes("premium") || notes.includes("premium")
-      ? 14
-      : -3;
-  }
-  if (signal === "low_mileage") {
-    if (vehicle.condition === "new") return 14;
-    if (vehicle.mileageKm === null) return -8;
-    if (vehicle.mileageKm <= 15000) return 14;
-    if (vehicle.mileageKm <= 35000) return 8;
-    if (vehicle.mileageKm <= 60000) return 1;
-    return -14;
-  }
-  if (signal === "good_battery_health") {
-    if (vehicle.condition === "new") return 12;
-    if (vehicle.batterySoH === null) return -10;
-    return vehicle.batterySoH >= 92 ? 12 : vehicle.batterySoH >= 88 ? 5 : -10;
-  }
-  if (signal === "reliable") return vehicle.warranty.toLowerCase().includes("warranty") ? 8 : 2;
-  if (signal === "road_trip_comfort") return vehicle.rangeKm >= 500 ? 10 : -4;
-  if (signal === "fast_charging") return tagText.includes("fast charging") || vehicle.batteryKwh >= 75 ? 8 : 0;
-  if (signal === "good_value") return vehicle.priceEUR <= 35000 || tagText.includes("value") ? 8 : 0;
-  if (signal === "safety") return vehicle.features.includes("blind_spot_detection") ? 8 : 2;
-  if (signal === "technology") return vehicle.features.includes("wireless_charging") || tagText.includes("technology") ? 8 : 2;
-  if (signal === "public_charging_fit") return vehicle.rangeKm >= 420 ? 8 : -6;
-  return 0;
 }
 
 function sameBrand(input: string, make: string) {
@@ -392,14 +345,6 @@ function normalizeBrand(value: string) {
 }
 
 const premiumMakes = new Set(["audi", "bmw", "mercedes", "polestar", "volvo", "porsche", "nio"]);
-
-function tagToTripNeed(tag: string): UserCriteria["tripNeeds"][number] {
-  if (tag.includes("city")) return "city";
-  if (tag.includes("family")) return "family";
-  if (tag.includes("road")) return "road_trip";
-  if (tag.includes("winter")) return "winter";
-  return "commute";
-}
 
 function getRagScore(vehicle: Vehicle, ragContext?: RagContext) {
   const keywordScore = ragContext?.vehicleScores[vehicle.id] ?? 0;

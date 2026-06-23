@@ -1,4 +1,7 @@
 import OpenAI from "openai";
+import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
+import type { RequestOptions } from "openai/core";
+import { llmDebug } from "./llm-debug.ts";
 
 export const defaultOpenAiModel = "gpt-4o-mini";
 export const defaultOpenAiEmbeddingModel = "text-embedding-3-small";
@@ -27,4 +30,29 @@ export function createOpenAiClient() {
     baseURL: process.env.OPENAI_BASE_URL,
     maxRetries: 0
   });
+}
+
+export async function createOpenAiChatCompletion(
+  stage: string,
+  params: ChatCompletionCreateParamsNonStreaming,
+  options?: RequestOptions
+) {
+  try {
+    const response = await createOpenAiClient().chat.completions.create(params, options);
+    llmDebug(stage, {
+      ok: true,
+      model: params.model,
+      content: response.choices[0]?.message?.content ?? null,
+      finishReason: response.choices[0]?.finish_reason ?? null,
+      usage: response.usage ?? null
+    });
+    return response;
+  } catch (error) {
+    llmDebug(stage, {
+      ok: false,
+      model: params.model,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
+  }
 }

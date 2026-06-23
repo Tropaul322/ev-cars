@@ -6,9 +6,11 @@ import { SaveCarButton } from "./save-car-button";
 
 export function ProtectedCarActions({
   initialSaved = false,
+  hydrateSavedState = false,
   snapshot,
 }: {
   initialSaved?: boolean;
+  hydrateSavedState?: boolean;
   snapshot: SavedCarSnapshot;
 }) {
   return (
@@ -25,6 +27,7 @@ export function ProtectedCarActions({
           vehicleId={snapshot.id}
           snapshot={snapshot}
           initialSaved={initialSaved}
+          hydrateSavedState={hydrateSavedState}
           className="size-12 rounded-full bg-background flex items-center justify-center border border-border"
           activeClassName="text-primary"
         />

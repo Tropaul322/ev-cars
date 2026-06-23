@@ -1,18 +1,13 @@
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import Image from "next/image";
+import { VehicleImage } from "@/components/vehicle-image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { cookies } from "next/headers";
 import { WebShell } from "@/components/WebShell";
 import { ProtectedCarActions } from "@/components/protected-car-actions";
-import {
-  DEMO_REGISTRATION_COOKIE,
-  getDemoRegistration,
-  isActiveDemoRegistration,
-} from "@/lib/demo-registration";
 import { demoCars, demoQuickStats, demoScoreBreakdown, type DemoCar } from "@/lib/flowryd-demo-data";
-import { isCarSaved, type SavedCarSnapshot } from "@/lib/repositories/saved-car-repository";
-import { getVehicleById } from "@/lib/repositories/vehicle-repository";
+import type { SavedCarSnapshot } from "@/lib/repositories/saved-car-repository";
+import { getVehicleById, listVehicles } from "@/lib/repositories/vehicle-repository";
 import type { Vehicle } from "@/lib/types";
 import { formatEUR, formatNumber } from "@/lib/utils";
 import {
@@ -22,8 +17,28 @@ import {
   getVehicleDetailStats,
 } from "@/lib/vehicle-detail-fields";
 
-export function generateStaticParams() {
-  return Object.keys(demoCars).map((id) => ({ id }));
+export const revalidate = 60;
+
+export async function generateStaticParams() {
+  const demoIds = Object.keys(demoCars).map((id) => ({ id }));
+
+  try {
+    const vehicles = await listVehicles();
+    const seen = new Set(demoIds.map((item) => item.id));
+    const inventoryIds = vehicles
+      .slice(0, 200)
+      .map((vehicle) => vehicle.id)
+      .filter((id) => {
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      })
+      .map((id) => ({ id }));
+
+    return [...demoIds, ...inventoryIds];
+  } catch {
+    return demoIds;
+  }
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -49,8 +64,9 @@ export default async function CarDetailPage({ params }: { params: Promise<{ id: 
   const vehicle = await getVehicleById(id);
   if (vehicle) {
     const snapshot = snapshotFromVehicle(vehicle);
-    const initialSaved = await getInitialSavedState(vehicle.id);
-    return <RealVehicleDetail vehicle={vehicle} initialSaved={initialSaved} snapshot={snapshot} />;
+    return (
+      <RealVehicleDetail vehicle={vehicle} snapshot={snapshot} />
+    );
   }
 
   const car = demoCars[id];
@@ -58,7 +74,6 @@ export default async function CarDetailPage({ params }: { params: Promise<{ id: 
   const stats = demoQuickStats[car.id];
   const scores = demoScoreBreakdown[car.id] ?? [];
   const snapshot = snapshotFromDemoCar(car);
-  const initialSaved = await getInitialSavedState(car.id);
 
   return (
     <WebShell>
@@ -145,7 +160,7 @@ export default async function CarDetailPage({ params }: { params: Promise<{ id: 
                   </span>
                 </div>
 
-                <ProtectedCarActions initialSaved={initialSaved} snapshot={snapshot} />
+                <ProtectedCarActions hydrateSavedState snapshot={snapshot} />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -164,16 +179,12 @@ export default async function CarDetailPage({ params }: { params: Promise<{ id: 
 
 function RealVehicleDetail({
   vehicle,
-  initialSaved,
   snapshot,
 }: {
   vehicle: Vehicle;
-  initialSaved: boolean;
   snapshot: SavedCarSnapshot;
 }) {
   const name = vehicleDisplayName(vehicle);
-  const imageSrc = vehicle.images[0] ?? "/flowryd/car-tesla-y.jpg";
-  const isRemoteImage = imageSrc.startsWith("http://") || imageSrc.startsWith("https://");
   const stats = getVehicleDetailStats(vehicle);
   const sections = getVehicleDetailSections(vehicle);
 
@@ -190,13 +201,12 @@ function RealVehicleDetail({
         <div className="grid lg:grid-cols-[1.4fr_1fr] gap-8">
           <div>
             <div className="relative rounded-3xl overflow-hidden bg-muted">
-              <Image
-                src={imageSrc}
+              <VehicleImage
+                images={vehicle.images}
                 alt={name}
                 width={980}
                 height={735}
                 priority
-                unoptimized={isRemoteImage}
                 className="w-full aspect-[4/3] object-cover"
               />
             </div>
@@ -243,7 +253,7 @@ function RealVehicleDetail({
                   </span>
                 </div>
 
-                <ProtectedCarActions initialSaved={initialSaved} snapshot={snapshot} />
+                <ProtectedCarActions hydrateSavedState snapshot={snapshot} />
 
                 {vehicle.listingUrl ? (
                   <Link
@@ -273,13 +283,6 @@ function RealVehicleDetail({
       </div>
     </WebShell>
   );
-}
-
-async function getInitialSavedState(vehicleId: string) {
-  const cookieStore = await cookies();
-  const registration = await getDemoRegistration(cookieStore.get(DEMO_REGISTRATION_COOKIE)?.value);
-  if (!isActiveDemoRegistration(registration)) return false;
-  return isCarSaved(registration!.id, vehicleId);
 }
 
 function snapshotFromVehicle(vehicle: Vehicle): SavedCarSnapshot {

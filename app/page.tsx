@@ -1,5 +1,7 @@
 import { FlowRydAlphaApp } from "@/components/flowryd-alpha-app";
 
+export const revalidate = 3600;
+
 export default function Home() {
   return <FlowRydAlphaApp />;
 }

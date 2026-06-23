@@ -42,6 +42,10 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o-mini
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_EMBEDDING_DIMENSIONS=1536
+FLOWRYD_VEHICLE_STRUCTURED_SEARCH=1
+FLOWRYD_VEHICLE_EMBEDDING_SEARCH=0
+FLOWRYD_VEHICLE_EMBEDDING_SEARCH_LIMIT=200
+FLOWRYD_VEHICLE_EMBEDDING_MIN_SIMILARITY=0.1
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
 INGEST_ADMIN_TOKEN=...
@@ -50,10 +54,13 @@ FIRECRAWL_API_KEY=...
 ```
 
 OpenAI is used for generated explanations, chat planning, criteria normalization,
-and RAG embeddings when `OPENAI_API_KEY` is set; vectors are stored in Supabase
-`knowledge_chunks.embedding` (pgvector, 1536 dims by default).
-Vehicle matching uses structured filters plus keyword/topic scoring and does
-not depend on embeddings in the `vehicles` table.
+and embeddings when `OPENAI_API_KEY` is set; trusted knowledge vectors are
+stored in Supabase `knowledge_chunks.embedding` and optional vehicle vectors are
+stored in `vehicles.embedding` (pgvector, 1536 dims by default).
+Vehicle matching uses structured filters plus keyword/topic scoring by default.
+Set `FLOWRYD_VEHICLE_EMBEDDING_SEARCH=1` after populating vehicle embeddings to
+augment candidate retrieval with vector search, or set
+`FLOWRYD_VEHICLE_STRUCTURED_SEARCH=0` to disable structured Supabase filters.
 LLM paths fall back to deterministic local behavior if the model call is
 unavailable.
 
@@ -156,6 +163,21 @@ Set `FLOWRYD_SKIP_EMBEDDINGS=1` or pass `--skip-embeddings` to upload text
 without vector embeddings. For usable semantic retrieval, keep embeddings
 enabled and configure `OPENAI_API_KEY`.
 
+## Vehicle Embeddings
+
+Apply `supabase/migrations/202606230001_add_vehicle_embeddings.sql`, then run:
+
+```bash
+npm run supabase:embed-vehicles -- --dry-run
+npm run supabase:embed-vehicles
+```
+
+The script uses `text-embedding-3-small` with 1536 dimensions by default,
+batches 64 vehicles per API call, and stores an input hash so unchanged vehicles
+are skipped on later runs. Pass `--force` to refresh every row, `--limit=100` to
+test a subset, `--from-supabase` for a DB-backed dry-run, or override `--model=`
+/ `--dimensions=` if you also update the Supabase vector dimension.
+
 ## Austrian Inventory Scraping
 
 Inventory crawling lives in `inventory-scraping/` and uses source-specific
@@ -219,4 +241,5 @@ before DB uploads. Scraped vehicles include listing URL, seller type, VIN when
 visible, high-resolution image URLs, manufacturer country, and deterministic
 dedupe keys. The `vehicles_dedupe_key_unique` index prevents duplicate scraped
 cars from being inserted when the same listing is rediscovered. Vehicle uploads
-write payload rows only; vector embeddings are kept for trusted knowledge chunks.
+write payload rows only; run `npm run supabase:embed-vehicles` after inventory
+uploads when vehicle vector search is enabled.

@@ -1,6 +1,6 @@
 "use client";
 
-import { Bookmark, LayoutGrid, SearchCheck, Users, Zap } from "lucide-react";
+import { Bookmark, LayoutGrid, SearchCheck } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
@@ -10,11 +10,18 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutGrid },
-  { href: "/chat", label: "Search", icon: SearchCheck },
+  { href: "/chat", label: "Search", icon: SearchCheck, matchPrefix: "/chat" },
   { href: "/saved", label: "Saved", icon: Bookmark },
-  { href: "/social", label: "Social", icon: Users },
-  { href: "/perks", label: "Perks", icon: Zap },
 ] as const;
+
+function isNavActive(
+  pathname: string,
+  href: string,
+  matchPrefix?: string,
+) {
+  if (matchPrefix) return pathname === matchPrefix || pathname.startsWith(`${matchPrefix}/`);
+  return pathname === href;
+}
 
 export function WebShell({
   children,
@@ -36,10 +43,15 @@ export function WebShell({
       setScrolled(window.scrollY > 16);
     }
 
-    onScroll();
+    if (transparentHeader) {
+      setScrolled(false);
+    } else {
+      onScroll();
+    }
+
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [pathname, transparentHeader]);
 
   return (
     <div
@@ -66,8 +78,10 @@ export function WebShell({
           </Link>
 
           <nav className="hidden md:flex items-center gap-1" aria-label="Primary">
-            {navItems.map(({ href, label, icon: Icon }) => {
-              const active = pathname === href;
+            {navItems.map((item) => {
+              const { href, label, icon: Icon } = item;
+              const matchPrefix = "matchPrefix" in item ? item.matchPrefix : undefined;
+              const active = isNavActive(pathname, href, matchPrefix);
               return (
                 <Link
                   key={href}
@@ -102,8 +116,10 @@ export function WebShell({
           )}
           aria-label="Primary mobile"
         >
-          {navItems.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href;
+          {navItems.map((item) => {
+            const { href, label, icon: Icon } = item;
+            const matchPrefix = "matchPrefix" in item ? item.matchPrefix : undefined;
+            const active = isNavActive(pathname, href, matchPrefix);
             return (
               <Link
                 key={href}
@@ -126,39 +142,36 @@ export function WebShell({
 
       {!hideFooter ? (
         <footer className="border-t border-border mt-12">
-          <div className="mx-auto max-w-7xl px-6 lg:px-10 py-10 grid grid-cols-2 md:grid-cols-4 gap-8 text-sm">
+          <div className="mx-auto max-w-7xl px-6 lg:px-10 py-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between text-sm">
             <div>
-              <div className="font-display font-extrabold text-lg">FlowRyd</div>
-              <p className="text-muted-foreground mt-2">
+              <div className="font-display font-extrabold">FlowRyd</div>
+              <p className="text-muted-foreground mt-1 text-xs">
                 The first car-buying experience for your life.
               </p>
             </div>
-            <FooterCol title="Discover" links={["New EVs", "Used EVs", "Lease deals", "Compare"]} />
-            <FooterCol title="Company" links={["About", "Press", "Careers", "Contact"]} />
-            <FooterCol title="Legal" links={["Privacy", "Terms", "Cookies"]} />
-          </div>
-          <div className="border-t border-border py-5 text-center text-xs text-muted-foreground">
-            © {new Date().getFullYear()} FlowRyd. All rights reserved.
+            <nav
+              className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground"
+              aria-label="Footer"
+            >
+              <Link href="/chat" className="hover:text-foreground">
+                Search
+              </Link>
+              <Link href="/saved" className="hover:text-foreground">
+                Saved
+              </Link>
+              <Link href="/perks" className="hover:text-foreground">
+                Perks
+              </Link>
+              <Link href="/social" className="hover:text-foreground">
+                Social
+              </Link>
+            </nav>
+            <div className="text-xs text-muted-foreground">
+              © {new Date().getFullYear()} FlowRyd
+            </div>
           </div>
         </footer>
       ) : null}
-    </div>
-  );
-}
-
-function FooterCol({ title, links }: { title: string; links: string[] }) {
-  return (
-    <div>
-      <div className="font-semibold text-foreground">{title}</div>
-      <ul className="mt-2 space-y-1.5 text-muted-foreground">
-        {links.map((link) => (
-          <li key={link}>
-            <a href="#" className="hover:text-foreground">
-              {link}
-            </a>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

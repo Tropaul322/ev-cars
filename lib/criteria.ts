@@ -208,6 +208,7 @@ const modelAliases: Array<[string, RegExp]> = [
 export function emptyCriteria(rawPrompt = "", language: Language = "en"): UserCriteria {
   return {
     language,
+    budgetMinEUR: null,
     budgetMaxEUR: null,
     monthlyBudgetEUR: null,
     dailyKm: null,
@@ -272,7 +273,11 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
   const text = normalizedPrompt.toLowerCase();
   const removals = extractRemovals(text);
 
-  const budgetMaxEUR = removals.has("budget") ? null : extractBudget(text, false) ?? base.budgetMaxEUR;
+  const budgetRange = removals.has("budget") ? { min: null, max: null } : extractBudgetRange(text);
+  const budgetMinEUR = removals.has("budget") ? null : budgetRange.min ?? base.budgetMinEUR;
+  const budgetMaxEUR = removals.has("budget")
+    ? null
+    : budgetRange.max ?? extractBudget(text, false) ?? base.budgetMaxEUR;
   const monthlyBudgetEUR = removals.has("budget") ? null : extractBudget(text, true) ?? base.monthlyBudgetEUR;
   const dailyKm = removals.has("dailyKm") ? null : extractKm(text, "daily") ?? base.dailyKm;
   const mileageMaxKm = removals.has("mileage")
@@ -327,6 +332,7 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
 
   return {
     ...base,
+    budgetMinEUR,
     budgetMaxEUR,
     monthlyBudgetEUR,
     dailyKm,
@@ -405,7 +411,7 @@ export type CriteriaReadiness = {
 
 export function getCriteriaReadiness(criteria: UserCriteria): CriteriaReadiness {
   const groups: Record<MissingCriteria, boolean> = {
-    budget: Boolean(criteria.budgetMaxEUR || criteria.monthlyBudgetEUR),
+    budget: Boolean(criteria.budgetMinEUR || criteria.budgetMaxEUR || criteria.monthlyBudgetEUR),
     use_case: hasUseCaseSignal(criteria),
     charging_or_range: hasChargingOrRangeSignal(criteria),
     vehicle_preferences: hasVehiclePreferenceSignal(criteria)
@@ -430,7 +436,7 @@ export function getCriteriaReadiness(criteria: UserCriteria): CriteriaReadiness 
 
 export function getCriteriaConfidence(criteria: UserCriteria) {
   let score = 0.35;
-  if (criteria.budgetMaxEUR || criteria.monthlyBudgetEUR) score += 0.2;
+  if (criteria.budgetMinEUR || criteria.budgetMaxEUR || criteria.monthlyBudgetEUR) score += 0.2;
   if (hasUseCaseSignal(criteria)) score += 0.2;
   if (criteria.bodyTypes.length) score += 0.08;
   if (criteria.chargingAccess !== "unknown") score += 0.07;
@@ -442,7 +448,15 @@ export function getCriteriaConfidence(criteria: UserCriteria) {
 
 export function criteriaSummary(criteria: UserCriteria) {
   const parts: string[] = [];
-  if (criteria.budgetMaxEUR) parts.push(`max EUR ${criteria.budgetMaxEUR.toLocaleString("de-AT")}`);
+  if (criteria.budgetMinEUR && criteria.budgetMaxEUR) {
+    parts.push(
+      `EUR ${criteria.budgetMinEUR.toLocaleString("de-AT")}–${criteria.budgetMaxEUR.toLocaleString("de-AT")}`
+    );
+  } else if (criteria.budgetMaxEUR) {
+    parts.push(`max EUR ${criteria.budgetMaxEUR.toLocaleString("de-AT")}`);
+  } else if (criteria.budgetMinEUR) {
+    parts.push(`from EUR ${criteria.budgetMinEUR.toLocaleString("de-AT")}`);
+  }
   if (criteria.monthlyBudgetEUR) parts.push(`monthly EUR ${criteria.monthlyBudgetEUR.toLocaleString("de-AT")}`);
   if (criteria.dailyKm) parts.push(`${criteria.dailyKm} km/day`);
   if (criteria.rangeFloorKm) parts.push(`${criteria.rangeFloorKm} km range`);
@@ -484,8 +498,15 @@ export type CriteriaChip = {
 
 export function criteriaChips(criteria: UserCriteria): CriteriaChip[] {
   const chips: CriteriaChip[] = [];
-  if (criteria.budgetMaxEUR) {
+  if (criteria.budgetMinEUR && criteria.budgetMaxEUR) {
+    chips.push({
+      key: "budget",
+      label: `EUR ${criteria.budgetMinEUR.toLocaleString("de-AT")}–${criteria.budgetMaxEUR.toLocaleString("de-AT")}`
+    });
+  } else if (criteria.budgetMaxEUR) {
     chips.push({ key: "budget", label: `max EUR ${criteria.budgetMaxEUR.toLocaleString("de-AT")}` });
+  } else if (criteria.budgetMinEUR) {
+    chips.push({ key: "budget", label: `from EUR ${criteria.budgetMinEUR.toLocaleString("de-AT")}` });
   }
   if (criteria.monthlyBudgetEUR) {
     chips.push({ key: "budget", label: `monthly EUR ${criteria.monthlyBudgetEUR.toLocaleString("de-AT")}` });
@@ -525,6 +546,7 @@ export function criteriaChips(criteria: UserCriteria): CriteriaChip[] {
 export function removeCriteriaKey(criteria: UserCriteria, key: CriteriaChipKey): UserCriteria {
   const next = normalizeCriteriaShape({ ...criteria });
   if (key === "budget") {
+    next.budgetMinEUR = null;
     next.budgetMaxEUR = null;
     next.monthlyBudgetEUR = null;
   }
@@ -640,6 +662,34 @@ function extractRemovals(text: string) {
   if (/\b(premium|reliable|zuverlässig|qualitative|tech|technology)\b/i.test(text)) removals.add("qualitative");
   if (/\b(location|ort|wien|graz|linz|salzburg|plz)\b/i.test(text)) removals.add("location");
   return removals;
+}
+
+function extractBudgetRange(text: string) {
+  const rangePattern =
+    /(?:€|eur|euro)?\s*(\d{1,3}(?:[.,]\d{3})+|\d{1,3})\s*(k|tsd|000)?\s*(?:-|–|to|bis)\s*(\d{1,3}(?:[.,]\d{3})+|\d{1,3})\s*(k|tsd|000)?(?:\s*(?:€|eur|euro))?/gi;
+  const betweenPattern =
+    /between\s+(\d{1,3}(?:[.,]\d{3})+|\d{1,3})\s*(k|tsd|000)?\s+and\s+(\d{1,3}(?:[.,]\d{3})+|\d{1,3})\s*(k|tsd|000)?/gi;
+
+  for (const pattern of [rangePattern, betweenPattern]) {
+    const match = pattern.exec(text);
+    if (!match) continue;
+    const min = parseBudgetAmount(match[1], match[2]);
+    const max = parseBudgetAmount(match[3], match[4]);
+    if (min !== null && max !== null && min < max) {
+      return { min, max };
+    }
+  }
+
+  return { min: null, max: null };
+}
+
+function parseBudgetAmount(raw: string, suffix: string | undefined) {
+  const number = Number(raw.replace(/[.,]/g, ""));
+  if (!Number.isFinite(number)) return null;
+  const multiplier = suffix ? 1000 : number <= 120 ? 1000 : 1;
+  const value = number * multiplier;
+  if (value >= 10000 && value <= 150000) return value;
+  return null;
 }
 
 function extractBudget(text: string, monthly: boolean) {
@@ -816,10 +866,21 @@ function extractBodyTypes(text: string) {
 
 function extractTripNeeds(text: string): TripNeed[] {
   const tripNeeds: TripNeed[] = [];
-  if (/(city|urban|stadt|wien|graz|linz|salzburg)/i.test(text)) tripNeeds.push("city");
-  if (/(commute|pendel|arbeitsweg|daily|täglich|taeglich)/i.test(text)) tripNeeds.push("commute");
-  if (/(road trip|autobahn|long trip|langstrecke|urlaub|weekend)/i.test(text)) tripNeeds.push("road_trip");
-  if (/(family|familie|kinder|kids)/i.test(text)) tripNeeds.push("family");
+  if (/(city|urban|stadt|stadtfahr|inner city|short trips?|errands?|einkauf|wien|graz|linz|salzburg)/i.test(text)) {
+    tripNeeds.push("city");
+  }
+  if (/(commute|commuting|pendel|arbeitsweg|daily|täglich|taeglich|office|work(?:ing)?)/i.test(text)) {
+    tripNeeds.push("commute");
+  }
+  if (
+    /(road\s*trip|autobahn|long\s*(trip|drive|distance)|langstrecke|urlaub|weekend|wochenende|highway|motorway|vacation|holiday)/i.test(
+      text
+    ) ||
+    /(cruis|leisure|joy\s*rid|pleasure\s*driv|fun\s*driv|sightseeing|scenic|touring|spazier|ausflug)/i.test(text)
+  ) {
+    tripNeeds.push("road_trip");
+  }
+  if (/(family|familie|kinder|kids|children|school run)/i.test(text)) tripNeeds.push("family");
   if (/(winter|snow|schnee|berge|ski|alpen)/i.test(text)) tripNeeds.push("winter");
   return tripNeeds;
 }

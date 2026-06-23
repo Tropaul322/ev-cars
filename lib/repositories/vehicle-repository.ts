@@ -1,8 +1,16 @@
 import { allVehicles } from "../data/all-vehicles.ts";
+import { VEHICLE_REVALIDATE_SECONDS } from "../cache.ts";
+import { createEmbeddingWithProvider } from "../embeddings.ts";
 import { normalizeVehicleFeatures } from "../feature-normalization.ts";
 import { matchDebug, matchDebugWarn } from "../match-debug.ts";
 import { estimateMonthlyVehiclePayment } from "../tco.ts";
 import type { UserCriteria, Vehicle } from "../types.ts";
+import {
+  vehicleEmbeddingMinSimilarity,
+  vehicleEmbeddingSearchEnabled,
+  vehicleEmbeddingSearchLimit,
+  vehicleStructuredSearchEnabled
+} from "../vehicle-search-settings.ts";
 import { sanitizeVehicleImages } from "../vehicle-images.ts";
 import {
   countryCodesForBrandOrigins,
@@ -15,6 +23,7 @@ import { getSupabaseRestConfig } from "./supabase-rest.ts";
 type SupabaseVehicleRow = {
   id: string;
   payload: Vehicle;
+  similarity?: number;
 };
 
 const SUPABASE_VEHICLE_LIMIT = "500";
@@ -30,16 +39,63 @@ export async function listVehicles(): Promise<Vehicle[]> {
   return allVehicles;
 }
 
-export async function searchVehicles(criteria: UserCriteria): Promise<Vehicle[]> {
+export type VehicleSearchOptions = {
+  offset?: number;
+};
+
+export async function searchVehicles(
+  criteria: UserCriteria,
+  message = "",
+  options: VehicleSearchOptions = {}
+): Promise<Vehicle[]> {
+  const structuredEnabled = vehicleStructuredSearchEnabled();
+  const embeddingEnabled = vehicleEmbeddingSearchEnabled();
+
+  if (!structuredEnabled && !embeddingEnabled) {
+    matchDebug("vehicle-repository.search-disabled", {
+      structuredEnabled,
+      embeddingEnabled
+    });
+    return [];
+  }
+
+  const [structuredVehicles, embeddingResult] = await Promise.all([
+    structuredEnabled ? searchVehiclesByStructuredFilters(criteria, options.offset ?? 0) : Promise.resolve([]),
+    embeddingEnabled ? searchVehiclesByEmbedding(criteria, message) : Promise.resolve({ vehicles: [], status: "disabled" as const, provider: undefined })
+  ]);
+  const embeddingVehicles = embeddingResult.vehicles;
+
+  const merged = mergeVehiclesById([...embeddingVehicles, ...structuredVehicles]);
+  const filtered = filterVehiclesForSearch(normalizeSupabaseVehicles(merged), criteria);
+
+  matchDebug("vehicle-repository.search", {
+    structuredEnabled,
+    embeddingEnabled,
+    structuredVehicles: structuredVehicles.length,
+    embeddingVehicles: embeddingVehicles.length,
+    embeddingQueryStatus: embeddingResult.status,
+    embeddingProvider: "provider" in embeddingResult ? embeddingResult.provider : undefined,
+    searchOffset: options.offset ?? 0,
+    mergedVehicles: merged.length,
+    filteredVehicles: filtered.length,
+    queryFilters: summarizeVehicleSearchFilters(criteria),
+    brandPreferences: criteria.brandPreferences,
+    modelPreferences: criteria.modelPreferences
+  });
+
+  return filtered;
+}
+
+async function searchVehiclesByStructuredFilters(criteria: UserCriteria, offset = 0): Promise<Vehicle[]> {
   const supabase = getSupabaseRestConfig();
   if (!supabase) return [];
 
-  const params = buildVehicleSearchParams(criteria);
+  const params = buildVehicleSearchParams(criteria, offset);
 
   try {
     const response = await fetch(`${supabase.url}/rest/v1/vehicles?${params}`, {
       headers: supabase.headers,
-      next: { revalidate: 60 }
+      next: { revalidate: VEHICLE_REVALIDATE_SECONDS }
     });
     if (!response.ok) {
       const message = await response.text();
@@ -53,23 +109,62 @@ export async function searchVehicles(criteria: UserCriteria): Promise<Vehicle[]>
     }
 
     const rows = (await response.json()) as SupabaseVehicleRow[];
-    const vehicles = rows.map(mapVehicleRow).filter((vehicle): vehicle is Vehicle => Boolean(vehicle));
-    const filtered = filterVehiclesForSearch(normalizeSupabaseVehicles(vehicles), criteria);
-    matchDebug("vehicle-repository.search", {
-      rows: rows.length,
-      validVehicles: vehicles.length,
-      filteredVehicles: filtered.length,
-      queryFilters: summarizeVehicleSearchFilters(criteria),
-      brandPreferences: criteria.brandPreferences,
-      modelPreferences: criteria.modelPreferences
-    });
-    return filtered;
+    return rows.map(mapVehicleRow).filter((vehicle): vehicle is Vehicle => Boolean(vehicle));
   } catch {
     matchDebugWarn("vehicle-repository.fallback", {
       reason: "supabase-search-error",
       localVehicles: allVehicles.length
     });
     return filterVehiclesForSearch(allVehicles, criteria);
+  }
+}
+
+async function searchVehiclesByEmbedding(criteria: UserCriteria, message: string) {
+  const supabase = getSupabaseRestConfig();
+  if (!supabase) return { vehicles: [], status: "unavailable" as const };
+
+  const query = buildVehicleEmbeddingQuery(criteria, message);
+  const embeddingResult = await createEmbeddingWithProvider(query, "query");
+  if (!embeddingResult.embedding) {
+    matchDebugWarn("vehicle-repository.embedding-query-missing", {
+      status: embeddingResult.status,
+      provider: embeddingResult.provider,
+      reason:
+        embeddingResult.status === "disabled"
+          ? "FLOWRYD_DISABLE_EMBEDDINGS=1"
+          : "No query embedding provider succeeded; structured search only",
+      queryPreview: query.slice(0, 160)
+    });
+    return { vehicles: [], status: embeddingResult.status };
+  }
+
+  try {
+    const response = await fetch(`${supabase.url}/rest/v1/rpc/match_vehicles_by_embedding`, {
+      method: "POST",
+      headers: supabase.headers,
+      body: JSON.stringify({
+        query_embedding: `[${embeddingResult.embedding.join(",")}]`,
+        match_count: vehicleEmbeddingSearchLimit(),
+        min_similarity: vehicleEmbeddingMinSimilarity()
+      })
+    });
+
+    if (!response.ok) {
+      matchDebugWarn("vehicle-repository.embedding-search-unavailable", {
+        status: response.status,
+        message: await response.text()
+      });
+      return { vehicles: [], status: "unavailable" as const, provider: embeddingResult.provider };
+    }
+
+    const rows = (await response.json()) as SupabaseVehicleRow[];
+    const vehicles = rows.map(mapVehicleRow).filter((vehicle): vehicle is Vehicle => Boolean(vehicle));
+    return { vehicles, status: "ok" as const, provider: embeddingResult.provider };
+  } catch {
+    matchDebugWarn("vehicle-repository.embedding-search-error", {
+      reason: "rpc-error"
+    });
+    return { vehicles: [], status: "unavailable" as const, provider: embeddingResult.provider };
   }
 }
 
@@ -120,7 +215,7 @@ export async function getVehicleById(id: string): Promise<Vehicle | null> {
       `${supabase.url}/rest/v1/vehicles?select=id,payload&id=eq.${encodeURIComponent(id)}&limit=1`,
       {
         headers: supabase.headers,
-        next: { revalidate: 60 }
+        next: { revalidate: VEHICLE_REVALIDATE_SECONDS }
       }
     );
     if (!response.ok) return localVehicle;
@@ -152,7 +247,7 @@ async function fetchSupabaseVehicles(): Promise<Vehicle[] | null> {
     });
     const response = await fetch(`${supabase.url}/rest/v1/vehicles?${params}`, {
       headers: supabase.headers,
-      next: { revalidate: 60 }
+      next: { revalidate: VEHICLE_REVALIDATE_SECONDS }
     });
     if (!response.ok) return null;
 
@@ -177,7 +272,51 @@ function normalizeSupabaseVehicles(vehicles: Vehicle[]) {
   return withListingImages.length ? withListingImages : vehicles;
 }
 
-export function buildVehicleSearchParams(criteria: UserCriteria) {
+function mergeVehiclesById(vehicles: Vehicle[]) {
+  const byId = new Map<string, Vehicle>();
+  for (const vehicle of vehicles) {
+    const existing = byId.get(vehicle.id);
+    if (!existing) {
+      byId.set(vehicle.id, vehicle);
+      continue;
+    }
+    byId.set(vehicle.id, mergeVehicleSearchSignals(existing, vehicle));
+  }
+  return [...byId.values()];
+}
+
+function mergeVehicleSearchSignals(left: Vehicle, right: Vehicle): Vehicle {
+  const leftSimilarity = left.embeddingSimilarity ?? 0;
+  const rightSimilarity = right.embeddingSimilarity ?? 0;
+  if (rightSimilarity <= leftSimilarity) return left;
+  return { ...left, embeddingSimilarity: rightSimilarity };
+}
+
+function buildVehicleEmbeddingQuery(criteria: UserCriteria, message: string) {
+  return [
+    message,
+    criteria.rawPrompt,
+    criteria.bodyTypes.join(" "),
+    criteria.tripNeeds.join(" "),
+    criteria.mustHaveFeatures.join(" "),
+    criteria.qualitativeSignals.join(" "),
+    criteria.brandPreferences.join(" "),
+    criteria.modelPreferences.join(" "),
+    criteria.chargingAccess,
+    criteria.location,
+    criteria.cargoNeeds,
+    criteria.preferredCondition,
+    criteria.rangeFloorKm ? `${criteria.rangeFloorKm} km range reichweite` : null,
+    criteria.mileageMaxKm ? `${criteria.mileageMaxKm} km mileage kilometerstand` : null,
+    criteria.batterySoHMin ? `battery health soh batteriegesundheit ${criteria.batterySoHMin}` : null,
+    criteria.budgetMaxEUR ? `${criteria.budgetMaxEUR} eur budget` : null,
+    criteria.monthlyBudgetEUR ? `${criteria.monthlyBudgetEUR} eur monthly leasing` : null
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function buildVehicleSearchParams(criteria: UserCriteria, offset = 0) {
   const params = new URLSearchParams({
     select: VEHICLE_SELECT,
     market: "eq.AT",
@@ -185,10 +324,12 @@ export function buildVehicleSearchParams(criteria: UserCriteria) {
     order: "price_eur.asc,range_km.desc",
     limit: SUPABASE_VEHICLE_LIMIT
   });
+  if (offset > 0) params.set("offset", String(offset));
 
   const orGroups: string[][] = [];
 
-  if (criteria.budgetMaxEUR) params.set("price_eur", `lte.${criteria.budgetMaxEUR}`);
+  if (criteria.budgetMinEUR) params.append("price_eur", `gte.${criteria.budgetMinEUR}`);
+  if (criteria.budgetMaxEUR) params.append("price_eur", `lte.${criteria.budgetMaxEUR}`);
   if (criteria.preferredCondition !== "any") params.set("condition", `eq.${criteria.preferredCondition}`);
   if (criteria.rangeFloorKm) params.set("range_km", `gte.${criteria.rangeFloorKm}`);
   if (criteria.bodyTypes.length) params.set("body_type", `in.(${criteria.bodyTypes.join(",")})`);
@@ -312,10 +453,14 @@ function summarizeVehicleSearchFilters(criteria: UserCriteria) {
 function mapVehicleRow(row: SupabaseVehicleRow): Vehicle | null {
   if (!isVehicle(row.payload)) return null;
   const vehicle = sanitizeVehicleImages(row.payload);
-  return {
+  const mapped: Vehicle = {
     ...vehicle,
     features: normalizeVehicleFeatures(vehicle.features, vehicle)
   };
+  if (typeof row.similarity === "number" && Number.isFinite(row.similarity)) {
+    mapped.embeddingSimilarity = row.similarity;
+  }
+  return mapped;
 }
 
 function isVehicle(value: unknown): value is Vehicle {
@@ -337,6 +482,7 @@ function filterVehiclesForSearch(vehicles: Vehicle[], criteria: UserCriteria) {
   return vehicles.filter((vehicle) => {
     if (vehicle.market !== "AT") return false;
     if (!vehicle.available) return false;
+    if (criteria.budgetMinEUR && vehicle.priceEUR < criteria.budgetMinEUR) return false;
     if (criteria.budgetMaxEUR && vehicle.priceEUR > criteria.budgetMaxEUR) return false;
     if (criteria.monthlyBudgetEUR && estimateMonthlyVehiclePayment(vehicle) > criteria.monthlyBudgetEUR) {
       return false;

@@ -1,6 +1,6 @@
 import { generateMatchIntroMessage } from "./assistant-messages.ts";
 import { languageLabel, languageReplyInstruction } from "./criteria.ts";
-import { createOpenAiClient, openAiConfigured, openAiModel } from "./openai-provider.ts";
+import { createOpenAiChatCompletion, openAiConfigured, openAiModel } from "./openai-provider.ts";
 import type { MatchResult, RejectedSummary, UserCriteria } from "./types.ts";
 
 type LlmExplanation = {
@@ -250,7 +250,8 @@ async function generateWithOpenAi(
   if (!openAiConfigured()) return { explanations: [] };
 
   try {
-    const response = await createOpenAiClient().chat.completions.create(
+    const response = await createOpenAiChatCompletion(
+      "match-explanation",
       {
         model: openAiModel(),
         temperature: 0.2,

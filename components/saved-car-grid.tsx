@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import { VehicleImage } from "@/components/vehicle-image";
 import Link from "next/link";
 import { useState } from "react";
 import { SaveCarButton } from "@/components/save-car-button";
@@ -304,24 +304,12 @@ function getSavedCarSpecs(car: SavedCarCard) {
 }
 
 function SavedCarImage({ snapshot }: { snapshot: SavedCarSnapshot }) {
-  if (!snapshot.image) {
-    return (
-      <div className="flex h-52 w-full items-center justify-center bg-muted/60 px-4 text-center text-sm font-semibold text-muted-foreground">
-        {snapshot.name}
-      </div>
-    );
-  }
-
-  const isRemoteImage =
-    snapshot.image.startsWith("http://") ||
-    snapshot.image.startsWith("https://");
   return (
-    <Image
-      src={snapshot.image}
+    <VehicleImage
+      images={snapshot.image ? [snapshot.image] : []}
       alt={snapshot.name}
       width={720}
       height={520}
-      unoptimized={isRemoteImage}
       className="w-full h-52 object-cover"
     />
   );

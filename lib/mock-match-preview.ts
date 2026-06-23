@@ -66,14 +66,10 @@ const previewScoring: ScoringBreakdown = {
   priceFit: 92,
   rangeFit: 95,
   efficiencyFit: 88,
-  tcoFit: 80,
   brandFit: 85,
   cargoPassengerFit: 90,
   reliabilityFit: 88,
   featureFit: 92,
-  personaFit: 86,
-  batteryHealthFit: 90,
-  semanticFit: 78,
 };
 
 function demoCarToMatchResult(car: DemoCar, listingIndex: number): MatchResult {

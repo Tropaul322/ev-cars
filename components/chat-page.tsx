@@ -8,17 +8,20 @@ import {
   MessageCirclePlus,
   Sparkles,
 } from "lucide-react";
-import Image from "next/image";
+import { VehicleImage } from "@/components/vehicle-image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
+  memo,
   type ReactNode,
 } from "react";
-import { Composer } from "@/components/Composer";
+import { Composer, type ComposerHandle } from "@/components/Composer";
 import { WebShell } from "@/components/WebShell";
 import { SaveCarButton } from "@/components/save-car-button";
 import { Button } from "@/components/ui/button";
@@ -35,7 +38,27 @@ import {
 } from "@/lib/mock-match-preview";
 import type { SavedCarSnapshot } from "@/lib/repositories/saved-car-repository";
 import { cn, formatEUR, formatNumber } from "@/lib/utils";
-import type { MatchResponse, MatchResult, UserCriteria } from "@/lib/types";
+import {
+  getCachedChat,
+  getCachedChatList,
+  setCachedChat,
+  setCachedChatDetail,
+  setCachedChatList,
+  shouldRevalidateChat,
+  shouldRevalidateChatList,
+  upsertCachedChatSession,
+  type CachedChat,
+  type CachedChatSession,
+} from "@/lib/client-data-cache";
+import type {
+  ClarificationOption,
+  ClarificationPrompt,
+  CriteriaPatch,
+  MatchResponse,
+  MatchResult,
+  MissingCriteria,
+  UserCriteria,
+} from "@/lib/types";
 import {
   formatCondition,
   getVehicleDetailSections,
@@ -44,8 +67,15 @@ import {
 
 type Message =
   | { role: "user"; text: string }
-  | { role: "bot"; text: ReactNode; preview?: boolean }
+  | { role: "bot"; text: ReactNode; preview?: boolean; prompt?: ClarificationPrompt }
   | { role: "results"; matches: MatchResult[]; preview?: boolean };
+
+type SendPayload = {
+  criteriaPatch?: CriteriaPatch;
+  intent?: "show_matches";
+  skippedKeys?: MissingCriteria[];
+  currentPromptKey?: ClarificationPrompt["key"];
+};
 
 type StoredChatMessage = {
   role: "user" | "assistant";
@@ -54,17 +84,8 @@ type StoredChatMessage = {
   createdAt?: string;
 };
 
-type StoredChatSession = {
-  id: string;
-  title: string | null;
-  latestMessageAt: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type StoredChat = StoredChatSession & {
-  messages: StoredChatMessage[];
-};
+type StoredChatSession = CachedChatSession;
+type StoredChat = CachedChat;
 
 const initialMessages: Message[] = [
   {
@@ -83,20 +104,44 @@ const initialMessages: Message[] = [
   },
 ];
 
-function replaceChatUrl() {
-  window.history.replaceState(window.history.state, "", "/chat");
+const PENDING_CHAT_ID = "__pending__";
+
+function createPendingSession(): StoredChatSession {
+  const now = new Date().toISOString();
+  return {
+    id: PENDING_CHAT_ID,
+    title: "New search",
+    latestMessageAt: now,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 export default function ChatPage() {
-  const pathname = usePathname();
+  const router = useRouter();
+  const params = useParams<{ chatId?: string | string[] }>();
+  const routeChatId = Array.isArray(params.chatId)
+    ? params.chatId[0]
+    : typeof params.chatId === "string"
+      ? params.chatId
+      : undefined;
+  const composerRef = useRef<ComposerHandle>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [criteria, setCriteria] = useState<UserCriteria | null>(null);
-  const [chatSessions, setChatSessions] = useState<StoredChatSession[]>([]);
+  const [activePrompt, setActivePrompt] = useState<ClarificationPrompt | null>(null);
+  const [skippedKeys, setSkippedKeys] = useState<MissingCriteria[]>([]);
+  const [chatSessions, setChatSessions] = useState<StoredChatSession[]>(
+    () => getCachedChatList() ?? [],
+  );
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(
+    () => !getCachedChatList(),
+  );
   const [restoringChatId, setRestoringChatId] = useState<string | null>(null);
+  const entranceAnimationStartIndex = useRef(0);
   const pendingRealQuery = useRef<string | null>(null);
   const previewTimer = useRef<number | null>(null);
   const sendRealRef = useRef<
@@ -104,59 +149,76 @@ export default function ChatPage() {
   >(async () => {});
   const sendMockPreviewRef = useRef<(text: string) => void>(() => {});
 
-  const loadChatSessions = useCallback(async () => {
+  const loadChatSessions = useCallback(async (options?: { force?: boolean }) => {
+    const cached = getCachedChatList();
+    if (!options?.force && cached && !shouldRevalidateChatList()) {
+      setHistoryLoading(false);
+      return cached;
+    }
+
+    setHistoryLoading(!cached);
     try {
       const response = await fetch("/api/chats");
-      if (!response.ok) return;
+      if (!response.ok) {
+        if (cached) setChatSessions(cached);
+        return cached ?? [];
+      }
       const data = (await response.json()) as { chats: StoredChatSession[] };
+      setCachedChatList(data.chats);
       setChatSessions(data.chats);
+      return data.chats;
     } catch {
-      // History is helpful, but the active chat still works without it.
+      if (cached) setChatSessions(cached);
+      return cached ?? [];
+    } finally {
+      setHistoryLoading(false);
     }
   }, []);
 
   const applyStoredChat = useCallback((chat: StoredChat) => {
     const hydrated = hydrateStoredChat(chat);
+    entranceAnimationStartIndex.current = hydrated.messages.length;
     setSessionId(chat.id);
-    setMessages(hydrated.messages.length ? hydrated.messages : initialMessages);
+    setMessages(hydrated.messages);
     setCriteria(hydrated.criteria);
-    replaceChatUrl();
+    setActivePrompt(hydrated.activePrompt);
+    setSkippedKeys([]);
+    setCachedChatDetail(chat);
   }, []);
 
-  const restoreChat = useCallback(
-    async (chatId: string) => {
-      if (loading || restoringChatId === chatId) return;
-      setRestoringChatId(chatId);
-
-      try {
-        const response = await fetch(
-          `/api/chats/${encodeURIComponent(chatId)}`,
-        );
-        if (response.status === 401) {
-          openDemoRegistration();
-          return;
-        }
-        if (!response.ok) return;
-        const data = (await response.json()) as { chat: StoredChat };
-        applyStoredChat(data.chat);
-        setHistoryOpen(false);
-      } catch {
-        // Keep the current chat in place if restoring history fails.
-      } finally {
-        setRestoringChatId(null);
-      }
+  const selectChat = useCallback(
+    (chatId: string) => {
+      if (loading || chatId === routeChatId) return;
+      if (chatId === PENDING_CHAT_ID) return;
+      setHistoryOpen(false);
+      router.push(`/chat/${chatId}`);
     },
-    [applyStoredChat, loading, restoringChatId],
+    [loading, routeChatId, router],
   );
 
   const startNewChat = useCallback(() => {
     if (loading) return;
-    setSessionId(null);
-    setCriteria(null);
-    setMessages(initialMessages);
+    const pending = createPendingSession();
     setHistoryOpen(false);
-    replaceChatUrl();
-  }, [loading]);
+    setChatSessions((current) => {
+      const withoutPending = current.filter((item) => item.id !== PENDING_CHAT_ID);
+      const next = [pending, ...withoutPending];
+      setCachedChatList(next);
+      return next;
+    });
+    if (routeChatId) {
+      router.push("/chat");
+    } else {
+      setSessionId(null);
+      setCriteria(null);
+      setActivePrompt(null);
+      setSkippedKeys([]);
+      entranceAnimationStartIndex.current = initialMessages.length;
+      setMessages(initialMessages);
+      setRestoringChatId(null);
+      requestAnimationFrame(() => composerRef.current?.focus());
+    }
+  }, [loading, routeChatId, router]);
 
   const clearPreviewTimer = useCallback(() => {
     if (previewTimer.current !== null) {
@@ -173,11 +235,15 @@ export default function ChatPage() {
   }, []);
 
   const sendReal = useCallback(
-    async (text: string, options?: { replacePreview?: boolean }) => {
+    async (
+      text: string,
+      options?: { replacePreview?: boolean; payload?: SendPayload },
+    ) => {
       const trimmed = text.trim();
       if (!trimmed || loading) return;
 
       clearPreviewTimer();
+      const payload = options?.payload;
 
       if (options?.replacePreview) {
         setMessages((current) => {
@@ -203,6 +269,10 @@ export default function ChatPage() {
             message: trimmed,
             sessionId,
             previousCriteria: criteria,
+            criteriaPatch: payload?.criteriaPatch,
+            intent: payload?.intent,
+            skippedKeys: payload?.skippedKeys ?? skippedKeys,
+            currentPromptKey: payload?.currentPromptKey ?? activePrompt?.key,
           }),
         });
 
@@ -214,17 +284,89 @@ export default function ChatPage() {
           throw new Error("The matching service returned an error.");
 
         const data = (await response.json()) as MatchResponse;
+        if ("matchDiagnostics" in data && data.matchDiagnostics) {
+          console.info("[match diagnostics]", data.matchDiagnostics);
+        }
+        const nextPrompt =
+          (data.type === "chat" || data.type === "clarification") && data.prompt
+            ? data.prompt
+            : null;
+        const now = new Date().toISOString();
+        const urlChanging = routeChatId !== data.sessionId;
+        const existingCached =
+          getCachedChat(data.sessionId) ??
+          (sessionId ? getCachedChat(sessionId) : null);
+        const existingIndex = chatSessions.findIndex(
+          (item) => item.id === data.sessionId,
+        );
+        const sessionMeta: StoredChatSession = {
+          id: data.sessionId,
+          title: trimmed.slice(0, 80) || "Untitled EV search",
+          latestMessageAt: now,
+          createdAt:
+            existingIndex >= 0
+              ? chatSessions[existingIndex].createdAt
+              : existingCached?.createdAt ?? now,
+          updatedAt: now,
+        };
+
         setSessionId(data.sessionId);
         setCriteria(data.criteria);
-        replaceChatUrl();
-        setMessages((current) => [
-          ...stripPreviewMessages(current),
-          { role: "bot", text: <p>{data.assistantMessage}</p> },
-          ...(data.type === "matches" && data.recommendations.length
-            ? [{ role: "results" as const, matches: data.recommendations }]
-            : []),
-        ]);
+        setActivePrompt(nextPrompt);
+        setCachedChat({
+          ...sessionMeta,
+          messages: [
+            ...(existingCached?.messages ?? []),
+            { role: "user", content: trimmed, payload: null, createdAt: now },
+            {
+              role: "assistant",
+              content: data.assistantMessage,
+              payload: { matchResponse: data },
+              createdAt: now,
+            },
+          ],
+        });
+        if (urlChanging) {
+          router.replace(`/chat/${data.sessionId}`);
+        }
+        setChatSessions((current) => {
+          const withoutPending = current.filter(
+            (item) => item.id !== PENDING_CHAT_ID,
+          );
+          const listIndex = withoutPending.findIndex(
+            (item) => item.id === data.sessionId,
+          );
+          let next: StoredChatSession[];
+          if (listIndex >= 0) {
+            next = [...withoutPending];
+            next[listIndex] = sessionMeta;
+          } else {
+            next = [sessionMeta, ...withoutPending];
+          }
+          setCachedChatList(next);
+          upsertCachedChatSession(sessionMeta);
+          return next;
+        });
+        if (!urlChanging) {
+          setMessages((current) => [
+            ...stripPreviewMessages(current),
+            {
+              role: "bot",
+              text: <p>{data.assistantMessage}</p>,
+              ...(nextPrompt ? { prompt: nextPrompt } : {}),
+            },
+            ...(data.type === "matches" && data.recommendations.length
+              ? [{ role: "results" as const, matches: data.recommendations }]
+              : []),
+          ]);
+        }
         void loadChatSessions();
+        void fetch(`/api/chats/${encodeURIComponent(data.sessionId)}`)
+          .then((response) => (response.ok ? response.json() : null))
+          .then((payload: { chat?: StoredChat } | null) => {
+            if (payload?.chat) setCachedChat(payload.chat);
+          })
+          .catch(() => undefined);
       } catch (error) {
         setMessages((current) => [
           ...stripPreviewMessages(current),
@@ -244,11 +386,16 @@ export default function ChatPage() {
       }
     },
     [
+      activePrompt,
+      chatSessions,
       criteria,
       clearPreviewTimer,
       loadChatSessions,
       loading,
+      routeChatId,
+      router,
       sessionId,
+      skippedKeys,
       stripPreviewMessages,
     ],
   );
@@ -261,7 +408,7 @@ export default function ChatPage() {
       pendingRealQuery.current = trimmed;
       setMessages((current) => [...current, { role: "user", text: trimmed }]);
       setLoading(true);
-      replaceChatUrl();
+      router.replace("/chat");
 
       if (previewTimer.current !== null) {
         window.clearTimeout(previewTimer.current);
@@ -286,26 +433,48 @@ export default function ChatPage() {
         openDemoRegistration();
       }, mockPreviewDelayMs);
     },
-    [loading],
+    [loading, router],
   );
 
   sendRealRef.current = sendReal;
   sendMockPreviewRef.current = sendMockPreview;
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, payload?: SendPayload) => {
       const trimmed = text.trim();
       if (!trimmed || loading) return;
 
       if (await hasDemoAccess()) {
-        await sendReal(trimmed);
+        await sendReal(trimmed, { payload });
         return;
       }
 
       const allowed = await requireDemoAccess();
-      if (allowed) await sendReal(trimmed);
+      if (allowed) await sendReal(trimmed, { payload });
     },
     [loading, sendReal],
+  );
+
+  const handlePromptSelect = useCallback(
+    (prompt: ClarificationPrompt, options: ClarificationOption[]) => {
+      if (loading || !options.length) return;
+      const label = options.map((option) => option.label).join(", ");
+      const skipOption = options.find((option) => option.skip);
+
+      if (skipOption && isMissingKey(prompt.key)) {
+        const nextSkipped = Array.from(new Set([...skippedKeys, prompt.key]));
+        setSkippedKeys(nextSkipped);
+        void send(label, {
+          skippedKeys: nextSkipped,
+          currentPromptKey: prompt.key,
+        });
+        return;
+      }
+
+      const criteriaPatch = mergeOptionPatches(options);
+      void send(label, { criteriaPatch, currentPromptKey: prompt.key });
+    },
+    [loading, send, skippedKeys],
   );
 
   useEffect(() => {
@@ -338,78 +507,167 @@ export default function ChatPage() {
   }, [clearPreviewTimer, sendReal]);
 
   useEffect(() => {
-    if (pathname !== "/chat") return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (loading || historyOpen) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key.length !== 1) return;
 
-    const query = new URLSearchParams(window.location.search).get("q");
-    if (query) {
-      let cancelled = false;
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
 
-      void (async () => {
-        if (await hasDemoAccess()) {
-          if (!cancelled) await sendRealRef.current(query);
-        } else if (!cancelled) {
-          sendMockPreviewRef.current(query);
-        }
-      })();
-      void loadChatSessions();
+      event.preventDefault();
+      composerRef.current?.appendText(event.key);
+    }
 
-      return () => {
-        cancelled = true;
-        clearPreviewTimer();
-        setLoading(false);
-      };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [historyOpen, loading]);
+
+  useEffect(() => {
+    void loadChatSessions();
+  }, [loadChatSessions]);
+
+  useEffect(() => {
+    if (routeChatId) return;
+
+    const query = new URLSearchParams(window.location.search).get("q")?.trim();
+    if (!query) {
+      requestAnimationFrame(() => composerRef.current?.focus());
+      return;
     }
 
     let cancelled = false;
-    async function loadInitialHistory() {
-      setHistoryLoading(true);
-      try {
-        const response = await fetch("/api/chats");
-        if (!response.ok) return;
-        const data = (await response.json()) as { chats: StoredChatSession[] };
-        if (cancelled) return;
-        setChatSessions(data.chats);
 
-        const latestChat = data.chats[0];
-        if (!latestChat) return;
-
-        const chatResponse = await fetch(
-          `/api/chats/${encodeURIComponent(latestChat.id)}`,
-        );
-        if (!chatResponse.ok || cancelled) return;
-        const chatData = (await chatResponse.json()) as { chat: StoredChat };
-        if (!chatData.chat.messages.length) return;
-        applyStoredChat(chatData.chat);
-      } catch {
-        // The greeting remains useful if chat history is unavailable.
-      } finally {
-        if (!cancelled) setHistoryLoading(false);
+    void (async () => {
+      if (await hasDemoAccess()) {
+        if (!cancelled) await sendRealRef.current(query);
+      } else if (!cancelled) {
+        sendMockPreviewRef.current(query);
       }
-    }
+    })();
 
-    void loadInitialHistory();
     return () => {
       cancelled = true;
-      setHistoryLoading(false);
+      clearPreviewTimer();
+      setLoading(false);
     };
-  }, [applyStoredChat, clearPreviewTimer, loadChatSessions, pathname]);
+  }, [clearPreviewTimer, routeChatId]);
+
+  useEffect(() => {
+    if (!routeChatId) {
+      const query = new URLSearchParams(window.location.search).get("q")?.trim();
+      if (!query) {
+        setSessionId(null);
+        setCriteria(null);
+        setActivePrompt(null);
+        setSkippedKeys([]);
+        entranceAnimationStartIndex.current = initialMessages.length;
+        setMessages(initialMessages);
+        setRestoringChatId(null);
+      }
+      return;
+    }
+
+    if (routeChatId === sessionId) {
+      setRestoringChatId(null);
+      return;
+    }
+
+    const cached = getCachedChat(routeChatId);
+    if (cached) {
+      applyStoredChat(cached);
+      setRestoringChatId(null);
+    } else {
+      setSessionId(null);
+      setCriteria(null);
+      setActivePrompt(null);
+      setSkippedKeys([]);
+      entranceAnimationStartIndex.current = 0;
+      setMessages([]);
+      setRestoringChatId(routeChatId);
+    }
+
+    if (cached && !shouldRevalidateChat(routeChatId)) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/chats/${encodeURIComponent(routeChatId)}`,
+        );
+        if (response.status === 401) {
+          openDemoRegistration();
+          return;
+        }
+        if (!response.ok || cancelled) return;
+        const data = (await response.json()) as { chat: StoredChat };
+        if (!cancelled) {
+          applyStoredChat(data.chat);
+          setRestoringChatId(null);
+        }
+      } catch {
+        // Keep cached content when refresh fails.
+      } finally {
+        if (!cancelled) setRestoringChatId(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyStoredChat, routeChatId, sessionId]);
+
+  const lastPromptIndex = findLastPromptIndex(messages);
+
+  const activeSessionId = useMemo(() => {
+    if (routeChatId) return routeChatId;
+    if (sessionId) return sessionId;
+    if (chatSessions.some((item) => item.id === PENDING_CHAT_ID)) {
+      return PENDING_CHAT_ID;
+    }
+    return null;
+  }, [chatSessions, routeChatId, sessionId]);
+
+  useEffect(() => {
+    const container = messagesScrollRef.current;
+    if (!container) return;
+
+    const scrollToBottom = () => {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    };
+
+    const frame = requestAnimationFrame(() => {
+      scrollToBottom();
+      requestAnimationFrame(scrollToBottom);
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [messages, loading]);
 
   return (
     <WebShell hideFooter fullHeight>
-      <div className="mx-auto flex w-full max-w-7xl flex-1 min-h-0 gap-6 px-4 pt-6 sm:px-6 lg:px-10 animate-in fade-in slide-in-from-bottom-8 zoom-in-95 duration-700 origin-bottom">
-        <aside className="hidden lg:flex w-80 shrink-0 flex-col border-r border-border pr-5">
+      <div className="mx-auto flex w-full max-w-7xl flex-1 min-h-0 gap-6 px-4 pt-6 sm:px-6 lg:px-10">
+        <aside className="hidden lg:flex w-80 shrink-0 min-h-0 flex-col self-stretch border-r border-border pr-5">
           <ChatHistoryPanel
             sessions={chatSessions}
-            activeSessionId={sessionId}
+            activeSessionId={activeSessionId}
             loading={historyLoading}
-            restoringChatId={restoringChatId}
             onNewChat={startNewChat}
-            onSelectChat={(chatId) => void restoreChat(chatId)}
+            onSelectChat={selectChat}
           />
         </aside>
 
         <div className="mx-auto flex w-full max-w-3xl flex-1 min-h-0 flex-col">
-          <div className="mb-6 flex items-center justify-between gap-3 animate-in fade-in duration-700 delay-200 fill-mode-both">
+          <div className="mb-6 flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <div className="size-10 rounded-2xl bg-primary/15 text-primary flex items-center justify-center">
                 <Sparkles className="size-5" aria-hidden="true" />
@@ -435,14 +693,27 @@ export default function ChatPage() {
             </Button>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto pr-1 pb-4">
+          <div
+            ref={messagesScrollRef}
+            className="scrollbar-none flex-1 min-h-0 overflow-y-auto pb-4"
+          >
             <div className="flex flex-col gap-4">
+              {restoringChatId && messages.length === 0 ? (
+                <ChatRestoreLoader />
+              ) : null}
               {messages.map((message, index) => {
+                const shouldAnimateEntrance =
+                  index >= entranceAnimationStartIndex.current;
+
                 if (message.role === "user") {
                   return (
                     <div
                       key={index}
-                      className="flex justify-end animate-in fade-in slide-in-from-bottom-2 duration-300"
+                      className={cn(
+                        "flex justify-end",
+                        shouldAnimateEntrance &&
+                          "animate-in fade-in slide-in-from-bottom-2 duration-300",
+                      )}
                     >
                       <div className="max-w-[80%] rounded-3xl bg-bubble-user text-bubble-user-foreground px-5 py-3 text-[15px]">
                         {message.text}
@@ -454,9 +725,23 @@ export default function ChatPage() {
                   return (
                     <div
                       key={index}
-                      className="max-w-[85%] rounded-3xl bg-bubble-bot px-5 py-4 text-[15px] leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-500"
+                      className={cn(
+                        "flex flex-col gap-3",
+                        shouldAnimateEntrance &&
+                          "animate-in fade-in slide-in-from-bottom-2 duration-500",
+                      )}
                     >
-                      {message.text}
+                      <div className="max-w-[85%] rounded-3xl bg-bubble-bot px-5 py-4 text-[15px] leading-relaxed">
+                        {message.text}
+                      </div>
+                      {message.prompt ? (
+                        <ChatPrompt
+                          prompt={message.prompt}
+                          disabled={index !== lastPromptIndex || loading}
+                          animate={shouldAnimateEntrance}
+                          onSelect={handlePromptSelect}
+                        />
+                      ) : null}
                     </div>
                   );
                 }
@@ -465,6 +750,7 @@ export default function ChatPage() {
                     key={index}
                     matches={message.matches}
                     locked={Boolean(message.preview)}
+                    animate={shouldAnimateEntrance}
                   />
                 );
               })}
@@ -474,9 +760,11 @@ export default function ChatPage() {
 
           <div className="py-4 bg-background">
             <Composer
+              ref={composerRef}
               placeholder="Ask a follow-up question..."
               disabled={loading}
               variant="flat"
+              autoFocus={!routeChatId}
               onSubmit={(value) => void send(value)}
             />
           </div>
@@ -491,11 +779,10 @@ export default function ChatPage() {
             <div className="h-full p-5">
               <ChatHistoryPanel
                 sessions={chatSessions}
-                activeSessionId={sessionId}
+                activeSessionId={activeSessionId}
                 loading={historyLoading}
-                restoringChatId={restoringChatId}
                 onNewChat={startNewChat}
-                onSelectChat={(chatId) => void restoreChat(chatId)}
+                onSelectChat={selectChat}
               />
             </div>
           </SheetContent>
@@ -505,24 +792,39 @@ export default function ChatPage() {
   );
 }
 
-function ChatHistoryPanel({
+const ChatHistoryPanel = memo(function ChatHistoryPanel({
   sessions,
   activeSessionId,
   loading,
-  restoringChatId,
   onNewChat,
   onSelectChat,
 }: {
   sessions: StoredChatSession[];
   activeSessionId: string | null;
   loading: boolean;
-  restoringChatId: string | null;
   onNewChat: () => void;
   onSelectChat: (chatId: string) => void;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const savedScrollTop = useRef(0);
+
+  const handleScroll = useCallback(() => {
+    if (listRef.current) {
+      savedScrollTop.current = listRef.current.scrollTop;
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    list.scrollTop = savedScrollTop.current;
+  });
+
+  const showSkeleton = loading && sessions.length === 0;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex shrink-0 items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-lg font-extrabold">Chat history</h2>
           <p className="text-xs text-muted-foreground">
@@ -540,8 +842,12 @@ function ChatHistoryPanel({
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {loading ? (
+      <div
+        ref={listRef}
+        onScroll={handleScroll}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+      >
+        {showSkeleton ? (
           <div className="flex flex-col gap-2">
             {[0, 1, 2].map((item) => (
               <div
@@ -552,35 +858,37 @@ function ChatHistoryPanel({
           </div>
         ) : sessions.length ? (
           <div className="flex flex-col gap-2">
-            {sessions.map((session) => (
-              <button
-                key={session.id}
-                type="button"
-                onClick={() => onSelectChat(session.id)}
-                disabled={Boolean(restoringChatId)}
-                className={cn(
-                  "w-full rounded-2xl border px-3 py-3 text-left transition-colors disabled:opacity-60",
-                  activeSessionId === session.id
-                    ? "border-primary/30 bg-accent text-accent-foreground"
-                    : "border-transparent bg-muted/45 text-foreground hover:bg-muted",
-                )}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-background/80 text-primary">
-                    <History className="size-4" aria-hidden="true" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold">
-                      {session.title ?? "Untitled EV search"}
+            {sessions.map((session) => {
+              const isActive = activeSessionId === session.id;
+              return (
+                <button
+                  key={session.id}
+                  type="button"
+                  onClick={() => onSelectChat(session.id)}
+                  className={cn(
+                    "w-full min-h-20 rounded-2xl border px-3 py-3 text-left transition-[background-color,box-shadow] duration-150",
+                    isActive
+                      ? "border-primary/30 bg-accent text-accent-foreground shadow-sm"
+                      : "border-transparent bg-muted/45 text-foreground hover:bg-muted",
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-background/80 text-primary">
+                      <History className="size-4" aria-hidden="true" />
                     </div>
-                    <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Clock3 className="size-3.5" aria-hidden="true" />
-                      {formatChatTimestamp(session.latestMessageAt)}
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold">
+                        {session.title ?? "Untitled EV search"}
+                      </div>
+                      <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Clock3 className="size-3.5" aria-hidden="true" />
+                        {formatChatTimestamp(session.latestMessageAt)}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>
         ) : (
           <div className="rounded-2xl bg-muted/50 px-4 py-5 text-sm text-muted-foreground">
@@ -590,7 +898,7 @@ function ChatHistoryPanel({
       </div>
     </div>
   );
-}
+});
 
 function formatChatTimestamp(value: string) {
   const date = new Date(value);
@@ -613,9 +921,11 @@ function formatChatTimestamp(value: string) {
 function hydrateStoredChat(chat: StoredChat): {
   messages: Message[];
   criteria: UserCriteria | null;
+  activePrompt: ClarificationPrompt | null;
 } {
   const messages: Message[] = [];
   let criteria: UserCriteria | null = null;
+  let activePrompt: ClarificationPrompt | null = null;
 
   for (const storedMessage of chat.messages) {
     if (storedMessage.role === "user") {
@@ -626,7 +936,17 @@ function hydrateStoredChat(chat: StoredChat): {
     const matchResponse = extractStoredMatchResponse(storedMessage);
     const assistantText =
       matchResponse?.assistantMessage ?? storedMessage.content;
-    messages.push({ role: "bot", text: <p>{assistantText}</p> });
+    const prompt =
+      matchResponse &&
+      (matchResponse.type === "chat" || matchResponse.type === "clarification")
+        ? matchResponse.prompt
+        : undefined;
+    messages.push({
+      role: "bot",
+      text: <p>{assistantText}</p>,
+      ...(prompt ? { prompt } : {}),
+    });
+    activePrompt = prompt ?? null;
 
     if (matchResponse) {
       criteria = matchResponse.criteria;
@@ -642,7 +962,7 @@ function hydrateStoredChat(chat: StoredChat): {
     }
   }
 
-  return { messages, criteria };
+  return { messages, criteria, activePrompt };
 }
 
 function extractStoredMatchResponse(
@@ -661,12 +981,86 @@ function extractStoredMatchResponse(
   return matchResponse as MatchResponse;
 }
 
+function isMissingKey(key: ClarificationPrompt["key"]): key is MissingCriteria {
+  return (
+    key === "budget" ||
+    key === "use_case" ||
+    key === "charging_or_range" ||
+    key === "vehicle_preferences"
+  );
+}
+
+function mergeOptionPatches(options: ClarificationOption[]): CriteriaPatch {
+  const patch: Record<string, unknown> = {};
+  for (const option of options) {
+    if (!option.patch) continue;
+    for (const [key, value] of Object.entries(option.patch)) {
+      if (Array.isArray(value)) {
+        const existing = (patch[key] as unknown[] | undefined) ?? [];
+        patch[key] = Array.from(new Set([...existing, ...value]));
+      } else {
+        patch[key] = value;
+      }
+    }
+  }
+  return patch as CriteriaPatch;
+}
+
+function findLastPromptIndex(messages: Message[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "bot" && message.prompt) return index;
+  }
+  return -1;
+}
+
+function ChatPrompt({
+  prompt,
+  disabled,
+  animate = true,
+  onSelect,
+}: {
+  prompt: ClarificationPrompt;
+  disabled: boolean;
+  animate?: boolean;
+  onSelect: (prompt: ClarificationPrompt, options: ClarificationOption[]) => void;
+}) {
+  const baseChip =
+    "rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap gap-2 pl-1",
+        animate && "animate-in fade-in slide-in-from-bottom-1 duration-300",
+      )}
+    >
+      {prompt.options.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          disabled={disabled}
+          onClick={() => !disabled && onSelect(prompt, [option])}
+          className={cn(
+            baseChip,
+            "border-border bg-background text-foreground hover:bg-muted",
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ResultsBlock({
   matches,
   locked = false,
+  animate = true,
 }: {
   matches: MatchResult[];
   locked?: boolean;
+  animate?: boolean;
 }) {
   const [detailMatch, setDetailMatch] = useState<MatchResult | null>(null);
   const groups = groupMatchesByModel(matches);
@@ -674,7 +1068,12 @@ function ResultsBlock({
 
   return (
     <>
-      <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-3">
+      <div
+        className={cn(
+          "space-y-3",
+          animate && "animate-in fade-in slide-in-from-bottom-2 duration-500",
+        )}
+      >
         <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">
           {groups.length} model{groups.length === 1 ? "" : "s"} •{" "}
           {totalListings} listing
@@ -691,8 +1090,11 @@ function ResultsBlock({
             {groups.map((group, index) => (
               <div
                 key={group.key}
-                className="animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both"
-                style={{ animationDelay: `${index * 280}ms` }}
+                className={cn(
+                  animate &&
+                    "animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both",
+                )}
+                style={animate ? { animationDelay: `${index * 280}ms` } : undefined}
               >
                 <ModelCard group={group} onOpenDetails={setDetailMatch} />
               </div>
@@ -735,9 +1137,6 @@ function ModelCard({
 }) {
   const [open, setOpen] = useState(false);
   const match = group.matches[0];
-  const imageSrc = match.vehicle.images[0] ?? "/flowryd/car-tesla-y.jpg";
-  const isRemoteImage =
-    imageSrc.startsWith("http://") || imageSrc.startsWith("https://");
   const rangeLabel =
     group.matches.length > 1
       ? maxRangeLabel(group.matches)
@@ -747,12 +1146,11 @@ function ModelCard({
     <div className="rounded-3xl bg-bubble-bot overflow-hidden">
       <div className="flex items-center gap-4 p-4">
         <div className="relative size-24 sm:size-28 shrink-0 rounded-2xl overflow-hidden">
-          <Image
-            src={imageSrc}
+          <VehicleImage
+            images={match.vehicle.images}
             alt={group.title}
             width={220}
             height={220}
-            unoptimized={isRemoteImage}
             className="w-full h-full object-cover"
           />
           <span className="absolute top-1.5 left-1.5 bg-match text-match-foreground text-[10px] font-semibold px-2 py-0.5 rounded-full">
@@ -809,21 +1207,17 @@ function ListingCard({
 }) {
   const vehicle = match.vehicle;
   const vehicleTitle = `${vehicle.make} ${vehicle.model}`;
-  const imageSrc = vehicle.images[0] ?? "/flowryd/car-tesla-y.jpg";
-  const isRemoteImage =
-    imageSrc.startsWith("http://") || imageSrc.startsWith("https://");
   const listingHref = vehicle.listingUrl ?? `/car/${vehicle.id}`;
 
   return (
     <article className="rounded-3xl bg-white overflow-hidden hover:shadow-[0_20px_50px_-20px_rgba(40,40,80,0.25)] transition-shadow">
       <div className="sm:grid sm:grid-cols-[42%_1fr]">
         <div className="relative sm:row-start-1 sm:col-start-1 sm:h-full">
-          <Image
-            src={imageSrc}
+          <VehicleImage
+            images={vehicle.images}
             alt={vehicleTitle}
             width={520}
             height={360}
-            unoptimized={isRemoteImage}
             className="w-full h-48 sm:h-full sm:absolute sm:inset-0 object-cover"
           />
           <span className="absolute top-3 left-3 bg-match text-match-foreground text-xs font-semibold px-3 py-1.5 rounded-full">
@@ -892,9 +1286,6 @@ function DetailsSheet({
 
   const vehicle = match.vehicle;
   const vehicleTitle = `${vehicle.make} ${vehicle.model}`;
-  const imageSrc = vehicle.images[0] ?? "/flowryd/car-tesla-y.jpg";
-  const isRemoteImage =
-    imageSrc.startsWith("http://") || imageSrc.startsWith("https://");
   const stats = getVehicleDetailStats(
     vehicle,
     formatEUR(match.tco.purchasePriceWithVAT),
@@ -918,12 +1309,11 @@ function DetailsSheet({
         <div className="sticky top-0 z-10 p-5 border-b border-border bg-background rounded-t-[20px]">
           <div className="flex items-center gap-3">
             <div className="relative size-16 shrink-0 rounded-2xl overflow-hidden">
-              <Image
-                src={imageSrc}
+              <VehicleImage
+                images={vehicle.images}
                 alt={vehicleTitle}
                 width={112}
                 height={112}
-                unoptimized={isRemoteImage}
                 className="w-full h-full object-cover"
               />
               <span className="absolute top-1 left-1 bg-match text-match-foreground text-[10px] font-semibold px-1.5 py-0.5 rounded-full">
@@ -1048,6 +1438,23 @@ function SpecRow({ k, v }: { k: string; v: string }) {
   );
 }
 
+function ChatRestoreLoader() {
+  return (
+    <div className="flex items-center gap-3 px-1 py-2">
+      <div
+        className="size-5 shrink-0 rounded-full animate-spin [animation-duration:0.9s]"
+        style={{
+          background:
+            "conic-gradient(from 0deg, transparent 0deg, #a855f7 90deg, #ec4899 270deg, transparent 360deg)",
+          WebkitMask: "radial-gradient(circle, transparent 55%, #000 57%)",
+          mask: "radial-gradient(circle, transparent 55%, #000 57%)",
+        }}
+      />
+      <span className="text-sm text-muted-foreground">Loading conversation…</span>
+    </div>
+  );
+}
+
 const loadingSteps = [
   "Reading your request…",
   "Matching against inventory",
@@ -1157,14 +1564,10 @@ function formatScoringBreakdown(match: MatchResult) {
     { label: "Price", value: match.scoringBreakdown.priceFit },
     { label: "Range", value: match.scoringBreakdown.rangeFit },
     { label: "Efficiency", value: match.scoringBreakdown.efficiencyFit },
-    { label: "TCO", value: match.scoringBreakdown.tcoFit },
     { label: "Brand", value: match.scoringBreakdown.brandFit },
     { label: "Cargo / seats", value: match.scoringBreakdown.cargoPassengerFit },
     { label: "Reliability", value: match.scoringBreakdown.reliabilityFit },
     { label: "Features", value: match.scoringBreakdown.featureFit },
-    { label: "Persona", value: match.scoringBreakdown.personaFit },
-    { label: "Battery health", value: match.scoringBreakdown.batteryHealthFit },
-    { label: "Semantic", value: match.scoringBreakdown.semanticFit },
   ];
 }
 

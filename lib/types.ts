@@ -1,3 +1,5 @@
+import type { MatchDiagnostics } from "./match-diagnostics.ts";
+
 export type Language = "de" | "en";
 export type VehicleCondition = "new" | "used";
 export type ChargingAccess = "home" | "work" | "public" | "none" | "unknown";
@@ -129,6 +131,8 @@ export type Vehicle = {
   notes: string;
   brandOrigin: "europe" | "china" | "korea" | "us" | "other";
   reviewTags: string[];
+  /** Set during embedding search; cosine similarity to the query vector (0–1). */
+  embeddingSimilarity?: number;
   raw?: unknown;
 };
 
@@ -136,6 +140,7 @@ export type BrandOrigin = Vehicle["brandOrigin"];
 
 export type UserCriteria = {
   language: Language;
+  budgetMinEUR: number | null;
   budgetMaxEUR: number | null;
   monthlyBudgetEUR: number | null;
   dailyKm: number | null;
@@ -162,18 +167,39 @@ export type UserCriteria = {
   rawPrompt: string;
 };
 
+export type CriteriaPatch = Partial<
+  Omit<UserCriteria, "language" | "rawPrompt"> & {
+    language: UserCriteria["language"];
+    remove: string[];
+  }
+>;
+
+export type ClarificationPromptKey = MissingCriteria | "ready";
+
+export type ClarificationOption = {
+  id: string;
+  label: string;
+  patch?: CriteriaPatch;
+  skip?: boolean;
+};
+
+export type ClarificationPrompt = {
+  key: ClarificationPromptKey;
+  question: string;
+  explanation: string;
+  selectMode: "single" | "multi";
+  options: ClarificationOption[];
+  showMatchAction: boolean;
+};
+
 export type ScoringBreakdown = {
   priceFit: number;
   rangeFit: number;
   efficiencyFit: number;
-  tcoFit: number;
   brandFit: number;
   cargoPassengerFit: number;
   reliabilityFit: number;
   featureFit: number;
-  personaFit: number;
-  batteryHealthFit: number;
-  semanticFit: number;
 };
 
 export type TcoBreakdown = {
@@ -239,6 +265,7 @@ export type MatchResponse =
       recommendations: [];
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
+      prompt?: ClarificationPrompt;
     }
   | {
       type: "clarification";
@@ -250,6 +277,7 @@ export type MatchResponse =
       recommendations: [];
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
+      prompt?: ClarificationPrompt;
     }
   | {
       type: "matches";
@@ -261,6 +289,7 @@ export type MatchResponse =
       recommendations: MatchResult[];
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
+      matchDiagnostics?: MatchDiagnostics;
     }
   | {
       type: "no_matches";
@@ -272,7 +301,9 @@ export type MatchResponse =
       recommendations: [];
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
+      matchDiagnostics?: MatchDiagnostics;
     };
+export type { MatchDiagnostics };
 
 export type CompareVehicle = {
   vehicle: Vehicle;

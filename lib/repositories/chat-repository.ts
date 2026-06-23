@@ -1,4 +1,6 @@
 import { getSupabaseRestConfig } from "./supabase-rest.ts";
+import { vehicleExclusionKeys } from "../match-diagnostics.ts";
+import type { MatchResponse, Vehicle } from "../types.ts";
 
 export type ChatMessageRole = "user" | "assistant";
 
@@ -249,7 +251,34 @@ export async function saveChatMessage(input: {
   return rowToMessage(row);
 }
 
-async function listChatMessages(testerRegistrationId: string, chatSessionId: string): Promise<ChatMessage[]> {
+export async function recoverShownVehicleKeysFromChat(
+  testerRegistrationId: string,
+  chatSessionId: string
+): Promise<string[]> {
+  const messages = await listChatMessages(testerRegistrationId, chatSessionId);
+  const keys = new Set<string>();
+
+  for (const message of messages) {
+    if (message.role !== "assistant" || !message.payload) continue;
+    const matchResponse = message.payload.matchResponse;
+    if (!matchResponse || typeof matchResponse !== "object") continue;
+
+    const recommendations = (matchResponse as MatchResponse & { recommendations?: Array<{ vehicle?: Vehicle }> })
+      .recommendations;
+    if (!Array.isArray(recommendations)) continue;
+
+    for (const recommendation of recommendations) {
+      if (!recommendation?.vehicle) continue;
+      for (const key of vehicleExclusionKeys(recommendation.vehicle)) {
+        keys.add(key);
+      }
+    }
+  }
+
+  return [...keys];
+}
+
+export async function listChatMessages(testerRegistrationId: string, chatSessionId: string): Promise<ChatMessage[]> {
   const supabase = getSupabaseRestConfig();
   if (!supabase) return localMessagesFor(chatSessionId).filter((message) => message.testerRegistrationId === testerRegistrationId);
 
@@ -263,7 +292,7 @@ async function listChatMessages(testerRegistrationId: string, chatSessionId: str
   try {
     const response = await fetch(`${supabase.url}/rest/v1/chat_messages?${params}`, {
       headers: supabase.headers,
-      next: { revalidate: 0 }
+      cache: "no-store"
     });
     if (!response.ok) return [];
     const rows = (await response.json()) as ChatMessageRow[];

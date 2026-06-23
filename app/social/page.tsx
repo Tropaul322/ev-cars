@@ -1,6 +1,8 @@
 import Image from "next/image";
 import { WebShell } from "@/components/WebShell";
 
+export const revalidate = 3600;
+
 export const metadata = {
   title: "Social — FlowRyd",
 };

@@ -1,6 +1,8 @@
 import { Gift, PlugZap, Truck, Zap } from "lucide-react";
 import { WebShell } from "@/components/WebShell";
 
+export const revalidate = 3600;
+
 export const metadata = {
   title: "Perks — FlowRyd",
 };

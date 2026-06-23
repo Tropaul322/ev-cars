@@ -82,6 +82,7 @@ test("scored inventory gets non-zero feature fit for typical listings", () => {
     efficiencyKwhPer100Km: 17,
     batteryKwh: 77,
     batterySoH: 94,
+    chargingCycles: null,
     bodyType: "suv",
     seats: 5,
     cargoLiters: 520,

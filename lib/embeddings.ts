@@ -1,6 +1,9 @@
+import { createGeminiEmbedding, geminiConfigured } from "./gemini-provider.ts";
+import { matchDebug, matchDebugWarn } from "./match-debug.ts";
 import { createOpenAiClient, openAiConfigured, openAiEmbeddingDimensions, openAiEmbeddingModel } from "./openai-provider.ts";
 
 export type EmbeddingInputKind = "query" | "document";
+export type EmbeddingProvider = "openai" | "gemini";
 
 export function embeddingDimensions() {
   return openAiEmbeddingDimensions();
@@ -22,16 +25,48 @@ export async function createEmbedding(
   kind: EmbeddingInputKind,
   title?: string | null
 ): Promise<number[] | null> {
-  if (process.env.FLOWRYD_DISABLE_EMBEDDINGS === "1") return null;
+  const result = await createEmbeddingWithProvider(input, kind, title);
+  return result.embedding;
+}
 
-  const text = formatEmbeddingInput(input, kind, title);
-  if (!text.trim()) return null;
-
-  if (openAiConfigured()) {
-    return createOpenAiEmbedding(text);
+export async function createEmbeddingWithProvider(
+  input: string,
+  kind: EmbeddingInputKind,
+  title?: string | null
+): Promise<{ embedding: number[] | null; provider?: EmbeddingProvider; status: "ok" | "disabled" | "unavailable" }> {
+  if (process.env.FLOWRYD_DISABLE_EMBEDDINGS === "1") {
+    return { embedding: null, status: "disabled" };
   }
 
-  return null;
+  const text = formatEmbeddingInput(input, kind, title);
+  if (!text.trim()) {
+    return { embedding: null, status: "unavailable" };
+  }
+
+  if (openAiConfigured()) {
+    const openAiEmbedding = await createOpenAiEmbedding(text);
+    if (openAiEmbedding) {
+      matchDebug("embeddings.query", { provider: "openai", dimensions: openAiEmbedding.length });
+      return { embedding: openAiEmbedding, provider: "openai", status: "ok" };
+    }
+    matchDebugWarn("embeddings.openai-failed", { reason: "falling back to Gemini when configured" });
+  }
+
+  if (geminiConfigured()) {
+    const geminiEmbedding = await createGeminiEmbedding(text, embeddingDimensions());
+    if (geminiEmbedding) {
+      matchDebug("embeddings.query", { provider: "gemini", dimensions: geminiEmbedding.length });
+      return { embedding: geminiEmbedding, provider: "gemini", status: "ok" };
+    }
+    matchDebugWarn("embeddings.gemini-failed", { reason: "Gemini embedding request failed" });
+  }
+
+  matchDebugWarn("embeddings.unavailable", {
+    reason: "No embedding provider produced a query vector",
+    openAiConfigured: openAiConfigured(),
+    geminiConfigured: geminiConfigured()
+  });
+  return { embedding: null, status: "unavailable" };
 }
 
 function formatEmbeddingInput(input: string, kind: EmbeddingInputKind, title?: string | null) {

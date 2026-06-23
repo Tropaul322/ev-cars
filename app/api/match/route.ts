@@ -11,7 +11,7 @@ import {
   getChatSession,
   saveChatMessage
 } from "@/lib/repositories/chat-repository";
-import type { UserCriteria } from "@/lib/types";
+import type { ClarificationPromptKey, CriteriaPatch, MissingCriteria, UserCriteria } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -20,6 +20,10 @@ type MatchRequest = {
   sessionId?: string;
   previousCriteria?: UserCriteria;
   criteriaOverride?: UserCriteria;
+  criteriaPatch?: CriteriaPatch;
+  intent?: "show_matches";
+  skippedKeys?: MissingCriteria[];
+  currentPromptKey?: ClarificationPromptKey;
 };
 
 export async function POST(request: Request) {
@@ -54,6 +58,10 @@ export async function POST(request: Request) {
     testerRegistrationId: registration!.id,
     previousCriteria: body.previousCriteria,
     criteriaOverride: body.criteriaOverride,
+    criteriaPatch: body.criteriaPatch,
+    intent: body.intent,
+    skippedKeys: body.skippedKeys,
+    currentPromptKey: body.currentPromptKey,
     testerLocation: registration!.location
   });
   await saveChatMessage({

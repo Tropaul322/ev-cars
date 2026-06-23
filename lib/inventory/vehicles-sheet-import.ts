@@ -1,5 +1,28 @@
 import type { Vehicle } from "../types.ts";
 
+const SHEET_COLUMN_ALIASES: Record<string, string> = {
+  price_eur: "priceEUR",
+  monthly_lease_eur: "monthlyLeaseEUR",
+  mileage_km: "mileageKm",
+  range_km: "rangeKm",
+  efficiency_kwh_per_100_km: "efficiencyKwhPer100Km",
+  battery_kwh: "batteryKwh",
+  battery_soh: "batterySoH",
+  body_type: "bodyType",
+  cargo_liters: "cargoLiters",
+  power_kw: "powerKw",
+  listing_url: "listingUrl",
+  brand_origin: "brandOrigin",
+  review_tags: "reviewTags",
+  dedupe_key: "dedupeKey",
+  source_listing_id: "sourceListingId",
+  leasing_eligible: "leasingEligible",
+  lease_duration_months: "leaseDurationMonths",
+  exterior_color: "exteriorColor",
+  vat_deductible: "vatDeductible",
+  seller_type: "sellerType"
+};
+
 const ARRAY_COLUMNS = new Set(["features", "images", "reviewTags"]);
 const INTEGER_COLUMNS = new Set([
   "year",
@@ -22,7 +45,7 @@ export function parseVehicleSheetCsv(content: string): Vehicle[] {
   if (rows.length === 0) return [];
 
   const [headerRow, ...dataRows] = rows;
-  const headers = headerRow.map((header) => header.trim());
+  const headers = headerRow.map((header) => normalizeSheetColumn(header.trim()));
 
   return dataRows
     .filter((row) => row.some((value) => value.trim().length > 0))
@@ -92,7 +115,26 @@ function sheetRecordToVehicle(record: Record<string, string>): Vehicle {
   if (!payload.images) payload.images = [];
   if (payload.chargingCycles === undefined) payload.chargingCycles = null;
 
+  applySheetImportDefaults(payload, record.id?.trim());
+
   return payload as Vehicle;
+}
+
+function applySheetImportDefaults(payload: Record<string, unknown>, id?: string) {
+  if (!payload.source) payload.source = "seed";
+  if (!payload.market) payload.market = "AT";
+  if (payload.available === undefined) payload.available = true;
+  if (!payload.brandOrigin) payload.brandOrigin = "other";
+  if (!payload.dedupeKey && id) payload.dedupeKey = id;
+
+  const titleParts = [payload.make, payload.model, payload.trim].filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0
+  );
+  if (!payload.title && titleParts.length > 0) {
+    payload.title = titleParts.join(" ");
+  } else if (!payload.title && id) {
+    payload.title = id;
+  }
 }
 
 function parseCsv(content: string): string[][] {
@@ -151,4 +193,8 @@ function parseCsv(content: string): string[][] {
 function csvEscape(value: string) {
   if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
   return value;
+}
+
+function normalizeSheetColumn(header: string) {
+  return SHEET_COLUMN_ALIASES[header] ?? header;
 }
