@@ -18,12 +18,14 @@ export function PageTransition({
   fullHeight?: boolean;
 }) {
   const pathname = usePathname();
+  const animate = pathname !== "/" && !pathname.startsWith("/chat");
 
   return (
     <div
       key={transitionKey(pathname)}
       className={cn(
-        "flex flex-1 flex-col animate-in fade-in slide-in-from-bottom-4 duration-300 fill-mode-both motion-reduce:animate-none",
+        "flex flex-1 flex-col",
+        animate && "animate-in fade-in duration-200 fill-mode-both motion-reduce:animate-none",
         fullHeight && "min-h-0",
       )}
     >

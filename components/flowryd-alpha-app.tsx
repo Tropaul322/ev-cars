@@ -17,8 +17,8 @@ export function FlowRydAlphaApp() {
 
   return (
     <WebShell transparentHeader>
-      <section className="relative -mt-[7.25rem] md:-mt-16 pt-[7.25rem] md:pt-16">
-        <div className="absolute inset-0 z-0">
+      <section className="relative isolate pt-[7.25rem] md:pt-16">
+        <div className="absolute inset-x-0 top-[-7.25rem] bottom-0 md:top-[-4rem] -z-10">
           <Image
             src="/flowryd/hero-gradient.jpg"
             alt=""

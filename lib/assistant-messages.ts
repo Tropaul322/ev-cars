@@ -1,7 +1,7 @@
 import { clarificationQuestion, criteriaSummary, languageReplyInstruction } from "./criteria.ts";
 import { buildLlmMessages, conversationContinues, type LlmConversationTurn } from "./llm-conversation.ts";
 import type { Language } from "./types.ts";
-import { createOpenAiChatCompletion, openAiConfigured, openAiModel } from "./openai-provider.ts";
+import { createOpenAiChatCompletion, openAiChatTimeout, openAiConfigured, openAiModel } from "./openai-provider.ts";
 import type { MissingCriteria, RejectedSummary, UserCriteria } from "./types.ts";
 
 type AssistantMessageInput = {
@@ -331,7 +331,7 @@ async function generateMessage(
         response_format: { type: "json_object" },
         messages: buildLlmMessages(systemPrompt, conversationHistory, JSON.stringify({ kind, ...context }))
       },
-      { timeout: 5000 }
+      { timeout: openAiChatTimeout("assistant-message") }
     );
     return parseMessageJson(response.choices[0]?.message?.content ?? "");
   } catch {

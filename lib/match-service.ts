@@ -22,8 +22,9 @@ import {
   getMissingCriteria
 } from "./criteria.ts";
 import { applyChipPatch, normalizeCriteria } from "./criteria-normalizer.ts";
-import { classifyConversationTurn, resolveConversationTurn } from "./conversational-intent.ts";
+import { classifyConversationTurn, looksLikeNextBatchRequest, resolveConversationTurn } from "./conversational-intent.ts";
 import { selectAndExplainMatches } from "./explanations.ts";
+import { applyLlmRankings, rankRecommendationsWithLlm } from "./llm-scoring.ts";
 import { chatMessagesToLlmHistory, type LlmConversationTurn } from "./llm-conversation.ts";
 import {
   buildMatchDiagnostics,
@@ -92,18 +93,20 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
   const storedSession = body.sessionId ? await getMatchSession(sessionId, body.testerRegistrationId) : null;
   const previousCriteria = body.previousCriteria ?? storedSession?.criteria ?? null;
   const hasPriorContext = Boolean(previousCriteria);
-  const isNextBatch = isNextBatchRequest(body.message) && Boolean(previousCriteria);
-  let skippedKeys = (body.skippedKeys ?? []).filter(isMissingCriteriaKey);
-
-  let criteria: UserCriteria;
-  let confidence: number;
-  let criteriaChanged: boolean;
-  const turnKind = await resolveConversationTurn({
+  const resolvedTurn = await resolveConversationTurn({
     message: body.message,
     conversationHistory,
     currentPromptKey: body.currentPromptKey ?? null,
     knownCriteria: previousCriteria ? criteriaSummary(previousCriteria) : []
   });
+  const { trigger, turnKind } = resolvedTurn;
+  const isNextBatch =
+    trigger === "next_batch" || (looksLikeNextBatchRequest(body.message) && Boolean(previousCriteria));
+  let skippedKeys = (body.skippedKeys ?? []).filter(isMissingCriteriaKey);
+
+  let criteria: UserCriteria;
+  let confidence: number;
+  let criteriaChanged: boolean;
   const isMetaQuestion = turnKind === "meta";
   const isSmallTalk = turnKind === "small_talk";
 
@@ -111,7 +114,10 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     sessionId,
     message: body.message,
     turnKind,
-    patternHint: classifyConversationTurn(body.message)
+    trigger,
+    patternHint: resolvedTurn.patternHint,
+    patternTriggers: resolvedTurn.patternTriggers,
+    source: resolvedTurn.source
   });
 
   if (body.criteriaPatch) {
@@ -150,6 +156,12 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
         criteriaChanged = true;
       }
     }
+  }
+
+  if (resolvedTurn.criteriaPatch && Object.keys(resolvedTurn.criteriaPatch).length > 0) {
+    criteria = applyChipPatch(criteria, resolvedTurn.criteriaPatch);
+    confidence = getCriteriaConfidence(criteria);
+    criteriaChanged = true;
   }
 
   if (!criteria.location && body.testerLocation) {
@@ -192,16 +204,17 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
 
   const isChatTurn =
     !body.criteriaPatch &&
-    (turnKind === "small_talk" ||
-      turnKind === "meta" ||
-      (turnKind === "ev_question" && !criteriaChanged));
+    (trigger === "small_talk" ||
+      trigger === "meta" ||
+      (trigger === "ev_question" && !criteriaChanged));
 
   const wantsMatch =
     !isChatTurn &&
     (body.intent === "show_matches" ||
+      trigger === "show_matches" ||
+      trigger === "next_batch" ||
+      trigger === "brand_focus" ||
       isNextBatch ||
-      turnKind === "show_matches" ||
-      isExplicitShowMatches(body.message) ||
       (!hasPriorContext &&
         (hasInventoryLookup(criteria) ||
           readiness.readyToMatch ||
@@ -216,13 +229,13 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     const offerPrompt = !isChatTurn && nextPrompt.key !== "ready";
 
     if (isChatTurn) {
-      if (turnKind === "meta") {
+      if (trigger === "meta") {
         assistantMessage = await generateCapabilityResponse({
           message: body.message,
           criteria,
           conversationHistory
         });
-      } else if (turnKind === "small_talk") {
+      } else if (trigger === "small_talk") {
         assistantMessage = await generateChatGreeting({
           message: body.message,
           criteria,
@@ -309,8 +322,30 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
   const ragContext = await retrieveRagContext(body.message, criteria, matchingCandidates);
   const recommendationLimit = resolveRecommendationLimit(criteria);
   const result = matchVehicles(matchingCandidates, criteria, MATCH_CANDIDATE_LIMIT, { ragContext });
-  const diversifiedRecommendations = diversifyRecommendations(
+  const llmScoring = await rankRecommendationsWithLlm(
     result.recommendations,
+    criteria,
+    body.message,
+    ragContext
+  );
+  const rankedRecommendations = llmScoring.usedLlm
+    ? applyLlmRankings(result.recommendations, llmScoring.rankings)
+    : result.recommendations;
+  matchDebug("llm-scoring", {
+    sessionId,
+    usedLlm: llmScoring.usedLlm,
+    rankedVehicles: llmScoring.rankings.length,
+    topRecommendations: rankedRecommendations.slice(0, 5).map((match) => ({
+      id: match.vehicle.id,
+      make: match.vehicle.make,
+      model: match.vehicle.model,
+      score: match.score,
+      scoreSource: match.scoreSource ?? "rules",
+      ruleScore: match.ruleScore
+    }))
+  });
+  const diversifiedRecommendations = diversifyRecommendations(
+    rankedRecommendations,
     MATCH_CANDIDATE_LIMIT,
     MATCH_MODEL_DIVERSITY_LIMIT,
     MATCH_LISTING_DIVERSITY_LIMIT
@@ -421,7 +456,7 @@ function resolveRecommendationLimit(criteria: UserCriteria) {
 }
 
 function isNextBatchRequest(message: string) {
-  return /\b(next(?:\s+(?:batch|set|page|results?|cars?))?|more(?:\s+(?:cars?|options?|results?))?|show\s+more|another\s+(?:batch|set|option|options)|weiter|mehr|nächste|naechste|noch\s+mehr)\b/i.test(message);
+  return looksLikeNextBatchRequest(message);
 }
 
 function vehicleHasShownKey(vehicle: Vehicle, shownKeys: Set<string>) {

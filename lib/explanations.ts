@@ -1,6 +1,11 @@
 import { generateMatchIntroMessage } from "./assistant-messages.ts";
 import { languageLabel, languageReplyInstruction } from "./criteria.ts";
-import { createOpenAiChatCompletion, openAiConfigured, openAiModel } from "./openai-provider.ts";
+import {
+  createOpenAiChatCompletion,
+  openAiChatTimeout,
+  openAiConfigured,
+  openAiModel
+} from "./openai-provider.ts";
 import type { MatchResult, RejectedSummary, UserCriteria } from "./types.ts";
 
 type LlmExplanation = {
@@ -267,7 +272,7 @@ async function generateWithOpenAi(
           }
         ]
       },
-      { timeout: 4000 }
+      { timeout: openAiChatTimeout("match-explanation") }
     );
     const content = response.choices[0]?.message?.content;
     if (!content) return { explanations: [] };
@@ -316,7 +321,7 @@ export function buildExplanationInput(
       ragScore: match.ragScore,
       scoringBreakdown: match.scoringBreakdown,
       tradeoffs: match.ruledOutReasons,
-      retrievedEvidence: match.ragEvidence.map((evidence, evidenceIndex) => ({
+      retrievedEvidence: match.ragEvidence.slice(0, 2).map((evidence, evidenceIndex) => ({
         evidenceId: `E${evidenceIndex + 1}`,
         sourceType: evidence.sourceType,
         sourceId: evidence.sourceId,

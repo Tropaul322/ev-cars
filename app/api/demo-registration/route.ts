@@ -4,6 +4,7 @@ import {
   createDemoRegistration,
   DEMO_REGISTRATION_COOKIE,
   getDemoRegistration,
+  hasDeletionRequest,
   isActiveDemoRegistration,
   requestDemoRegistrationDeletion,
   validateDemoRegistration
@@ -28,6 +29,7 @@ export async function GET() {
 
   return NextResponse.json({
     registered: true,
+    deletionRequested: hasDeletionRequest(registration),
     tester: {
       name: registration!.name,
       email: registration!.email,
@@ -70,15 +72,31 @@ export async function POST(request: Request) {
 
 export async function DELETE() {
   const cookieStore = await cookies();
-  await requestDemoRegistrationDeletion(cookieStore.get(DEMO_REGISTRATION_COOKIE)?.value);
+  const registrationId = cookieStore.get(DEMO_REGISTRATION_COOKIE)?.value;
+  await requestDemoRegistrationDeletion(registrationId);
 
-  const response = NextResponse.json({ registered: false, deletionRequested: true });
-  response.cookies.set(DEMO_REGISTRATION_COOKIE, "", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 0,
-    path: "/"
+  const registration = await getDemoRegistration(registrationId);
+  if (!isActiveDemoRegistration(registration)) {
+    const response = NextResponse.json({ registered: false, deletionRequested: true });
+    response.cookies.set(DEMO_REGISTRATION_COOKIE, "", {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 0,
+      path: "/"
+    });
+    return response;
+  }
+
+  const activeRegistration = registration!;
+
+  return NextResponse.json({
+    registered: true,
+    deletionRequested: true,
+    tester: {
+      name: activeRegistration.name,
+      email: activeRegistration.email,
+      location: activeRegistration.location
+    }
   });
-  return response;
 }

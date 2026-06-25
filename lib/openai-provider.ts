@@ -10,6 +10,21 @@ export const defaultOpenAiModel = "gpt-4o-mini";
 export const defaultOpenAiEmbeddingModel = "text-embedding-3-small";
 export const defaultOpenAiEmbeddingDimensions = 1536;
 
+const defaultOpenAiChatTimeoutsMs: Record<string, number> = {
+  "criteria-normalizer": 2500,
+  "turn-classifier": 4000,
+  "match-scoring": 8000,
+  "match-explanation": 12000,
+  "assistant-message": 8000,
+  embeddings: 8000
+};
+
+export function openAiChatTimeout(stage: string, fallback = 5000) {
+  const configured = Number(process.env.FLOWRYD_LLM_TIMEOUT_MS);
+  if (Number.isFinite(configured) && configured > 0) return configured;
+  return defaultOpenAiChatTimeoutsMs[stage] ?? fallback;
+}
+
 export function openAiConfigured() {
   return Boolean(process.env.OPENAI_API_KEY);
 }

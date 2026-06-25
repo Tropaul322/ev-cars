@@ -1,34 +1,20 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { allVehicles } from "../lib/data/all-vehicles.ts";
 import {
-  createOpenAiClient,
   openAiConfigured,
   openAiEmbeddingDimensions,
   openAiEmbeddingModel
 } from "../lib/openai-provider.ts";
 import { getSupabaseRestConfig } from "../lib/repositories/supabase-rest.ts";
 import type { Vehicle } from "../lib/types.ts";
-import { buildVehicleEmbeddingText, vehicleTitle } from "../lib/vehicle-embedding-text.ts";
-
-type VehicleEmbeddingRow = {
-  id: string;
-  payload: Vehicle;
-  embedding_model?: string | null;
-  embedding_dimensions?: number | null;
-  embedding_input_hash?: string | null;
-};
-
-type EmbeddingUpdateRow = {
-  id: string;
-  payload: Vehicle;
-  embedding: string;
-  embedding_model: string;
-  embedding_dimensions: number;
-  embedding_input_hash: string;
-  embedding_updated_at: string;
-};
+import {
+  buildVehicleEmbeddingInput,
+  embedVehicles,
+  fetchVehicleEmbeddingRows,
+  hashVehicleEmbeddingInput,
+  type VehicleEmbeddingRow
+} from "../lib/vehicle-embeddings.ts";
 
 type EmbedVehiclesOptions = {
   dryRun: boolean;
@@ -67,7 +53,7 @@ const rows =
 const uniqueRows = dedupeVehicleRows(rows);
 const selectedRows = options.limit === null ? uniqueRows : uniqueRows.slice(0, options.limit);
 const embeddingInputs = selectedRows.map((row) => {
-  const text = formatVehicleEmbeddingInput(row.payload);
+  const text = buildVehicleEmbeddingInput(row.payload);
   return {
     row,
     text,
@@ -96,7 +82,14 @@ if (options.dryRun) {
   process.exit(0);
 }
 
-const result = await embedAndUpsertVehicles(pendingInputs, options);
+const vehicles = pendingInputs.map((input) => input.row.payload);
+const existingRows = pendingInputs.map((input) => input.row);
+const result = await embedVehicles(vehicles, existingRows, {
+  force: options.force,
+  batchSize: options.batchSize,
+  model: options.model,
+  dimensions: options.dimensions
+});
 console.table([result]);
 
 async function fetchVehicleRows(optionsValue: EmbedVehiclesOptions): Promise<VehicleEmbeddingRow[]> {
@@ -156,92 +149,6 @@ function dedupeVehicleRows(rows: VehicleEmbeddingRow[]) {
   return [...byId.values()];
 }
 
-async function embedAndUpsertVehicles(
-  inputs: { row: VehicleEmbeddingRow; text: string; hash: string }[],
-  optionsValue: EmbedVehiclesOptions
-) {
-  const currentSupabase = getSupabaseRestConfig();
-  if (!currentSupabase) throw new Error("Supabase config is missing.");
-  if (!inputs.length) return { attempted: 0, updated: 0 };
-
-  const client = createOpenAiClient();
-  let updated = 0;
-
-  for (const inputChunk of chunk(inputs, optionsValue.batchSize)) {
-    const response = await client.embeddings.create(
-      {
-        model: optionsValue.model,
-        input: inputChunk.map((input) => input.text),
-        dimensions: optionsValue.dimensions,
-        encoding_format: "float"
-      },
-      { timeout: 30000 }
-    );
-
-    const timestamp = new Date().toISOString();
-    const updateRows: EmbeddingUpdateRow[] = inputChunk.map((input, index) => {
-      const embedding = response.data[index]?.embedding;
-      if (!Array.isArray(embedding) || embedding.length !== optionsValue.dimensions) {
-        throw new Error(`Invalid embedding returned for vehicle ${input.row.id}.`);
-      }
-      return {
-        id: input.row.id,
-        payload: input.row.payload,
-        embedding: `[${embedding.join(",")}]`,
-        embedding_model: optionsValue.model,
-        embedding_dimensions: optionsValue.dimensions,
-        embedding_input_hash: input.hash,
-        embedding_updated_at: timestamp
-      };
-    });
-
-    await upsertEmbeddingRows(dedupeEmbeddingRows(updateRows));
-    updated += updateRows.length;
-    console.log(`Embedded ${updated}/${inputs.length} vehicles`);
-  }
-
-  return { attempted: inputs.length, updated };
-}
-
-function dedupeEmbeddingRows(rows: EmbeddingUpdateRow[]) {
-  const byId = new Map<string, EmbeddingUpdateRow>();
-
-  for (const row of rows) {
-    byId.set(row.id, row);
-  }
-
-  return [...byId.values()];
-}
-
-async function upsertEmbeddingRows(rows: EmbeddingUpdateRow[]) {
-  const currentSupabase = getSupabaseRestConfig();
-  if (!currentSupabase) throw new Error("Supabase config is missing.");
-
-  const response = await fetch(`${currentSupabase.url}/rest/v1/vehicles?on_conflict=id`, {
-    method: "POST",
-    headers: {
-      ...currentSupabase.headers,
-      Prefer: "resolution=merge-duplicates,return=minimal"
-    },
-    body: JSON.stringify(rows)
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Supabase upsert failed for vehicle embeddings: ${response.status} ${body}`);
-  }
-}
-
-function formatVehicleEmbeddingInput(vehicle: Vehicle) {
-  const title = vehicleTitle(vehicle).trim() || "none";
-  const text = buildVehicleEmbeddingText(vehicle).replace(/\s+/g, " ").trim();
-  return `title: ${title} | text: ${text}`;
-}
-
-function hashVehicleEmbeddingInput(value: string) {
-  return crypto.createHash("sha256").update(value).digest("hex");
-}
-
 function printEstimate(texts: string[]) {
   const estimatedTokens = texts.reduce((total, text) => total + Math.ceil(text.length / 4), 0);
   const estimatedCostUsd = (estimatedTokens / 1_000_000) * (options.model === "text-embedding-3-large" ? 0.13 : 0.02);
@@ -278,14 +185,6 @@ function positiveInteger(arg: string, name: string) {
   const value = Number(arg.slice(name.length + 1));
   if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer.`);
   return value;
-}
-
-function chunk<T>(rows: T[], size: number) {
-  const chunks: T[][] = [];
-  for (let index = 0; index < rows.length; index += size) {
-    chunks.push(rows.slice(index, index + size));
-  }
-  return chunks;
 }
 
 function isVehicle(value: unknown): value is Vehicle {

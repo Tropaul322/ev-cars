@@ -49,6 +49,7 @@ FLOWRYD_VEHICLE_EMBEDDING_MIN_SIMILARITY=0.1
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
 INGEST_ADMIN_TOKEN=...
+ADMIN_SESSION_SECRET=... # at least 32 random characters for signing admin sessions
 AUSTRIA_BEV_INCENTIVE_EUR=0
 FIRECRAWL_API_KEY=...
 ```
@@ -86,6 +87,33 @@ flow.
 For production demos, use a Supabase project in an EU region and a server-side
 `SUPABASE_SERVICE_ROLE_KEY` so writes to `tester_registrations` stay in the
 configured EU data store. Local demos fall back to in-memory storage.
+
+## Admin Panel
+
+The admin panel lives at `/admin` and is separate from the public demo UI.
+
+### Setup
+
+1. Apply the `admin_users` migration in `supabase/migrations/202606250001_add_admin_users.sql`.
+2. Set `ADMIN_SESSION_SECRET` in `.env.local` (32+ random characters).
+3. Create the first admin user:
+
+```bash
+npm run admin:create -- --email admin@example.com --password 'your-strong-password' --name 'Admin'
+```
+
+- `POST /api/admin/login` validates credentials against `admin_users` and sets an HTTP-only
+  `flowryd_admin_session` cookie (8-hour TTL).
+- `POST /api/admin/logout` clears the admin session.
+- Protected `/admin/*` pages and `/api/admin/*` routes require a valid admin session.
+
+Admin capabilities:
+
+- Browse all `tester_registrations` and open full chat histories.
+- Add vehicles via a multi-step wizard, edit existing vehicles, and soft-delete
+  by setting `available=false`.
+- Import vehicles from CSV (`public/templates/vehicles-sheet-template.csv`) and
+  generate embeddings for saved vehicles automatically.
 
 ## Scrape FlowRyd Dashboard
 

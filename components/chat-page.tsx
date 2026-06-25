@@ -27,8 +27,10 @@ import { SaveCarButton } from "@/components/save-car-button";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
+  getDemoRegistrationStatus,
   hasDemoAccess,
   openDemoRegistration,
+  peekDemoRegistrationStatus,
   requireDemoAccess,
 } from "@/lib/demo-access-client";
 import {
@@ -139,6 +141,9 @@ export default function ChatPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(
     () => !getCachedChatList(),
+  );
+  const [demoAccess, setDemoAccess] = useState<boolean | null>(
+    () => peekDemoRegistrationStatus()?.registered ?? null,
   );
   const [restoringChatId, setRestoringChatId] = useState<string | null>(null);
   const entranceAnimationStartIndex = useRef(0);
@@ -347,19 +352,17 @@ export default function ChatPage() {
           upsertCachedChatSession(sessionMeta);
           return next;
         });
-        if (!urlChanging) {
-          setMessages((current) => [
-            ...stripPreviewMessages(current),
-            {
-              role: "bot",
-              text: <p>{data.assistantMessage}</p>,
-              ...(nextPrompt ? { prompt: nextPrompt } : {}),
-            },
-            ...(data.type === "matches" && data.recommendations.length
-              ? [{ role: "results" as const, matches: data.recommendations }]
-              : []),
-          ]);
-        }
+        setMessages((current) => [
+          ...stripPreviewMessages(current),
+          {
+            role: "bot",
+            text: <p>{data.assistantMessage}</p>,
+            ...(nextPrompt ? { prompt: nextPrompt } : {}),
+          },
+          ...(data.type === "matches" && data.recommendations.length
+            ? [{ role: "results" as const, matches: data.recommendations }]
+            : []),
+        ]);
         void loadChatSessions();
         void fetch(`/api/chats/${encodeURIComponent(data.sessionId)}`)
           .then((response) => (response.ok ? response.json() : null))
@@ -484,6 +487,22 @@ export default function ChatPage() {
   }, [clearPreviewTimer]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const refreshAccess = async () => {
+      const status = await getDemoRegistrationStatus();
+      if (!cancelled) setDemoAccess(status.registered);
+    };
+
+    void refreshAccess();
+    window.addEventListener("flowryd:registration-changed", refreshAccess);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("flowryd:registration-changed", refreshAccess);
+    };
+  }, []);
+
+  useEffect(() => {
     const onRegistrationChanged = () => {
       void (async () => {
         if (!(await hasDemoAccess())) return;
@@ -563,7 +582,7 @@ export default function ChatPage() {
   useEffect(() => {
     if (!routeChatId) {
       const query = new URLSearchParams(window.location.search).get("q")?.trim();
-      if (!query) {
+      if (!query && !sessionId) {
         setSessionId(null);
         setCriteria(null);
         setActivePrompt(null);
@@ -627,6 +646,8 @@ export default function ChatPage() {
   }, [applyStoredChat, routeChatId, sessionId]);
 
   const lastPromptIndex = findLastPromptIndex(messages);
+  const hasUserMessages = messages.some((message) => message.role === "user");
+  const emptyPreviewMatches = useMemo(() => buildMockMatchPreview(), []);
 
   const activeSessionId = useMemo(() => {
     if (routeChatId) return routeChatId;
@@ -636,6 +657,14 @@ export default function ChatPage() {
     }
     return null;
   }, [chatSessions, routeChatId, sessionId]);
+
+  const showLockedEmptyPreview =
+    demoAccess === false &&
+    !routeChatId &&
+    !sessionId &&
+    !loading &&
+    !restoringChatId &&
+    !hasUserMessages;
 
   useEffect(() => {
     const container = messagesScrollRef.current;
@@ -754,6 +783,9 @@ export default function ChatPage() {
                   />
                 );
               })}
+              {showLockedEmptyPreview ? (
+                <EmptyChatPreview matches={emptyPreviewMatches} />
+              ) : null}
               {loading ? <LoadingBlock /> : null}
             </div>
           </div>
@@ -866,7 +898,7 @@ const ChatHistoryPanel = memo(function ChatHistoryPanel({
                   type="button"
                   onClick={() => onSelectChat(session.id)}
                   className={cn(
-                    "w-full min-h-20 rounded-2xl border px-3 py-3 text-left transition-[background-color,box-shadow] duration-150",
+                    "w-full min-h-20 rounded-2xl border px-3 py-3 text-left",
                     isActive
                       ? "border-primary/30 bg-accent text-accent-foreground shadow-sm"
                       : "border-transparent bg-muted/45 text-foreground hover:bg-muted",
@@ -899,6 +931,14 @@ const ChatHistoryPanel = memo(function ChatHistoryPanel({
     </div>
   );
 });
+
+function EmptyChatPreview({ matches }: { matches: MatchResult[] }) {
+  return (
+    <div className="pt-1">
+      <ResultsBlock matches={matches} locked animate={false} />
+    </div>
+  );
+}
 
 function formatChatTimestamp(value: string) {
   const date = new Date(value);

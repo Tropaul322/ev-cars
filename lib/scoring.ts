@@ -8,6 +8,7 @@ import type {
   Vehicle
 } from "./types.ts";
 import { getRagEvidenceForVehicle } from "./rag.ts";
+import { blendSemanticSignals, scoreVehicleTopicAffinity } from "./semantic-scoring.ts";
 import { calculateTco, estimateMonthlyVehiclePayment } from "./tco.ts";
 import {
   vehicleMatchesBrandOriginPreferences,
@@ -59,11 +60,13 @@ export function matchVehicles(
       }, 0)
     );
     const ragScore = getRagScore(vehicle, options.ragContext);
-    const score = clamp(baseScore, 0, 100);
+    const ruleScore = applySemanticScoreBlend(baseScore, vehicle, criteria, options.ragContext);
 
     passed.push({
       vehicle,
-      score,
+      score: ruleScore,
+      ruleScore,
+      scoreSource: "rules",
       ragScore,
       ragEvidence: getRagEvidenceForVehicle(vehicle, options.ragContext),
       hardFilterStatus: "passed",
@@ -345,6 +348,22 @@ function normalizeBrand(value: string) {
 }
 
 const premiumMakes = new Set(["audi", "bmw", "mercedes", "polestar", "volvo", "porsche", "nio"]);
+
+function applySemanticScoreBlend(
+  baseScore: number,
+  vehicle: Vehicle,
+  criteria: UserCriteria,
+  ragContext?: RagContext
+) {
+  const keywordScore = ragContext?.vehicleScores[vehicle.id] ?? 0;
+  const topicScore = ragContext ? scoreVehicleTopicAffinity(vehicle, criteria, ragContext.topicAffinity) : 0;
+  const hasKeywordOrTopic = keywordScore > 0 || topicScore > 0;
+  if (!hasKeywordOrTopic) return clamp(baseScore, 0, 100);
+
+  const semanticBlend = blendSemanticSignals({ keywordScore, topicScore });
+  const semanticWeight = 0.22;
+  return clamp(baseScore * (1 - semanticWeight) + semanticBlend * 100 * semanticWeight, 0, 100);
+}
 
 function getRagScore(vehicle: Vehicle, ragContext?: RagContext) {
   const keywordScore = ragContext?.vehicleScores[vehicle.id] ?? 0;

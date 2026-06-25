@@ -232,9 +232,15 @@ export type RagContext = {
   topicAffinity: Partial<Record<KnowledgeTopic, number>>;
 };
 
+export type MatchScoreSource = "rules" | "llm";
+
 export type MatchResult = {
   vehicle: Vehicle;
   score: number;
+  ruleScore?: number;
+  llmScore?: number;
+  scoreSource?: MatchScoreSource;
+  llmFitSummary?: string;
   ragScore: number;
   ragEvidence: RagEvidence[];
   hardFilterStatus: "passed";

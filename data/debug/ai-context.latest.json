@@ -1,17 +1,16 @@
 {
-  "inspectedAt": "2026-06-18T20:37:54.803Z",
-  "message": "Budget 45000 EUR, keine Tesla, Pendeln und Wochenendfahrten, gute Effizienz.",
+  "inspectedAt": "2026-06-24T10:10:16.142Z",
+  "message": "So i need an american car like Ford or Tesla price somewhree 35k EUR with a good range for trips",
   "normalization": {
-    "confidence": 0.75,
-    "missingCriteria": [
-      "charging_or_range"
-    ],
+    "confidence": 0.81,
+    "missingCriteria": [],
     "criteriaPatch": {
-      "language": "de",
-      "budgetMaxEUR": 45000,
+      "language": "en",
+      "budgetMinEUR": null,
+      "budgetMaxEUR": 35000,
       "monthlyBudgetEUR": null,
       "dailyKm": null,
-      "rangeFloorKm": null,
+      "rangeFloorKm": 450,
       "mileageMaxKm": null,
       "mileageTargetKm": null,
       "batterySoHMin": null,
@@ -22,16 +21,17 @@
       "preferredCondition": "any",
       "bodyTypes": [],
       "tripNeeds": [
-        "commute"
+        "road_trip"
       ],
       "brandPreferences": [
-        "Tesla"
+        "Tesla",
+        "Ford"
       ],
-      "preferredBrandOrigins": [],
+      "preferredBrandOrigins": [
+        "us"
+      ],
       "modelPreferences": [],
-      "avoidedBrands": [
-        "Tesla"
-      ],
+      "avoidedBrands": [],
       "brandFit": "medium",
       "reliabilityImportance": "medium",
       "mustHaveFeatures": [],
@@ -40,27 +40,31 @@
     }
   },
   "ragSummary": {
-    "query": "Budget 45000 EUR, keine Tesla, Pendeln und Wochenendfahrten, gute Effizienz. Budget 45000 EUR, keine Tesla, Pendeln und Wochenendfahrten, gute Effizienz.\nBudget 45000 EUR, keine Tesla, Pendeln und Wochenendfahrten, gute Effizienz. commute Tesla unknown any 45000 eur budget",
-    "topicAffinity": {},
-    "documentCount": 0,
+    "query": "So i need an american car like Ford or Tesla price somewhree 35k EUR with a good range for trips So i need an american car like Ford or Tesla price somewhree 35k EUR with a good range for trips\nSo i need an american car like Ford or Tesla price somewhree 35k EUR with a good range for trips road_trip Tesla Ford unknown any 450 km range reichweite 35000 eur budget",
+    "topicAffinity": {
+      "technical_spec": 0.83,
+      "review": 0.17
+    },
+    "documentCount": 6,
     "vehicleEvidenceCount": 30
   },
   "explanationInput": {
-    "language": "de",
-    "requiredResponseLanguage": "German",
-    "responseLanguageInstruction": "The user's current message is in German. You MUST write all user-facing text in German only. Never respond in English.",
+    "language": "en",
+    "requiredResponseLanguage": "English",
+    "responseLanguageInstruction": "The user's current message is in English. You MUST write all user-facing text in English only. Never respond in German.",
     "criteria": {
-      "language": "de",
-      "budgetMaxEUR": 45000,
+      "language": "en",
+      "budgetMinEUR": null,
+      "budgetMaxEUR": 35000,
       "monthlyBudgetEUR": null,
       "dailyKm": null,
-      "rangeFloorKm": null,
+      "rangeFloorKm": 450,
       "mileageMaxKm": null,
       "mileageTargetKm": null,
       "batterySoHMin": null,
       "batteryHealthRequired": false,
       "tripNeeds": [
-        "commute"
+        "road_trip"
       ],
       "chargingAccess": "unknown",
       "passengers": null,
@@ -68,42 +72,449 @@
       "preferredCondition": "any",
       "bodyTypes": [],
       "brandPreferences": [
-        "Tesla"
+        "Tesla",
+        "Ford"
       ],
-      "preferredBrandOrigins": [],
+      "preferredBrandOrigins": [
+        "us"
+      ],
       "modelPreferences": [],
-      "avoidedBrands": [
-        "Tesla"
-      ],
+      "avoidedBrands": [],
       "brandFit": "medium",
       "reliabilityImportance": "medium",
       "mustHaveFeatures": [],
       "qualitativeSignals": [],
       "location": null,
-      "rawPrompt": "Budget 45000 EUR, keine Tesla, Pendeln und Wochenendfahrten, gute Effizienz.\nBudget 45000 EUR, keine Tesla, Pendeln und Wochenendfahrten, gute Effizienz."
+      "rawPrompt": "So i need an american car like Ford or Tesla price somewhree 35k EUR with a good range for trips\nSo i need an american car like Ford or Tesla price somewhree 35k EUR with a good range for trips"
     },
-    "rejectedSummary": [
+    "rejectedSummary": [],
+    "matches": [
       {
-        "reason": "above purchase budget of EUR 45 000",
-        "count": 94
+        "vehicleId": "inventory:willhaben:2013699839",
+        "vehicle": {
+          "make": "Tesla",
+          "model": "Model 3",
+          "trim": "(reserviert) Tesla Model 3 Tesla Model 3 LR AWD | Neue Bremsen | sofort verfügbar Limousine",
+          "year": 2021,
+          "condition": "used",
+          "bodyType": "sedan",
+          "priceEUR": 24499,
+          "monthlyLeaseEUR": null,
+          "rangeKm": 614,
+          "efficiencyKwhPer100Km": 13.4,
+          "batteryKwh": 82,
+          "batterySoH": 100,
+          "drivetrain": "AWD",
+          "seats": 5,
+          "cargoLiters": 430,
+          "features": [
+            "lane_keeping_assist",
+            "blind_spot_detection",
+            "heated_seats",
+            "awd",
+            "premium_audio"
+          ],
+          "warranty": "57a \"Pickerl\" Pickerl gültig bis 6.2026 Garantie Beschreibung Verkaufe Tesla Model 3 Long Range AWD (Dual Motor) aus Erstbesitz, Erstzulassung 06/20",
+          "location": "2021 EZ",
+          "available": true,
+          "notes": "willhaben Austrian EV listings inventory listing crawled. HTML hash: 650be74d27a8c2b064b17dfe3bb617e3ab3720cea41b39b4cde18a2308162a18."
+        },
+        "score": 90,
+        "ragScore": 7,
+        "scoringBreakdown": {
+          "priceFit": 100,
+          "rangeFit": 100,
+          "efficiencyFit": 100,
+          "brandFit": 100,
+          "cargoPassengerFit": 78,
+          "reliabilityFit": 86,
+          "featureFit": 50
+        },
+        "tradeoffs": [
+          "some requested comfort or safety features are missing"
+        ],
+        "retrievedEvidence": [
+          {
+            "evidenceId": "E1",
+            "sourceType": "vehicle_payload",
+            "sourceId": "inventory:willhaben:2013699839",
+            "title": "(reserviert) Tesla Model 3 Tesla Model 3 LR AWD | Neue Bremsen | sofort verfügbar Limousine",
+            "excerpt": "(reserviert) Tesla Model 3 Tesla Model 3 LR AWD | Neue Bremsen | sofort verfügbar Limousine: 2021 used sedan. EUR 24 499. 614 km range. 13.4 kWh/100 km. 430 l cargo. location 2021 EZ. features lane keeping assist, blind spot detection, heated seats sitzheizung, awd allrad winter, premium audio sound. willhaben Austrian EV listings inventory listing crawled. HTML hash:...",
+            "score": 0.95
+          },
+          {
+            "evidenceId": "E2",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:adac_ecotest_ev_consumption:chunk:22",
+            "title": "ADAC Elektroauto Test: Reichweite & Verbrauch im Vergleich (23/35) (adac_ecotest_ev_consumption)",
+            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/stromverbrauch-elektroautos-adac-test/",
+            "topic": "technical_spec",
+            "excerpt": "Iconic; 10/24 | 20,6 | 17,6 | | Skoda Enyaq RS iV; 3/23 | 20,6 | 17,1 | | Volvo EX30 Twin Motor Performance Cross Country Ultra AWD; 10/25 | 20,6 | 18,3 | | VW ID.5 Pro Performance; 8/22 | 20,7 | 16,3 | | Polestar 4 Long Range Single Motor; 4/25 | 20,8 | 17,8 | | Mercedes EBQ 350 Electric Art 4Matic; 5/22 | 21,1 | 18,2 | | BMW iX3 Impressive; 10/21 | 21,2 | 18,9 | | BYD Seal Design; 11/24 | 21,2 | 16,6 | | Cupra...",
+            "score": 1
+          },
+          {
+            "evidenceId": "E3",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:11",
+            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (12/25) (adac_winter_range_2026)",
+            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
+            "topic": "review",
+            "excerpt": "400 und 800 Volt im Wettstreit Die in 20 Minuten nachgeladenen Reichweiten liegen im Testfeld zwischen 150 und 300 Kilometer. Sehr gut laden vor allem Fahrzeuge mit 800-Volt-System (Audi A6 mit 300 km oder Smart #5 mit 264 km). Der Smart hätte noch besser abschneiden können, wenn er an einer 400-kW-Ladesäule statt an einer 300-kW-Säule das Maximum an möglicher Ladeleistung hätte realisieren können (siehe oben)....",
+            "score": 0.94
+          },
+          {
+            "evidenceId": "E4",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:hyundai_ioniq5_eu_specs:chunk:4",
+            "title": "IONIQ 5 | all-electric CUV | Performance |\n        Hyundai Motor Europe (5/16) (hyundai_ioniq5_eu_specs)",
+            "sourceUrl": "https://www.hyundai.com/eu/en/models/ioniq5/performance.html",
+            "topic": "technical_spec",
+            "excerpt": "In the space freed up by removing the internal combustion engine, we have mounted the driving motor low down. The battery is also placed low down within the chassis allowing ideal weight distribution between front and rear and a low center of gravity for improved handling performance and a more stable high-speed experience. 3. ### Designed for safety. E-GMP embraces unique EV design characteristics such as short...",
+            "score": 0.93
+          }
+        ]
       },
       {
-        "reason": "brand is BMW, not Tesla",
-        "count": 60
+        "vehicleId": "autoscout24:f670700a-7803-4e74-b455-60b061e7429b",
+        "vehicle": {
+          "make": "Tesla",
+          "model": "Model 3",
+          "trim": "Model 3 Long Range 75kWh",
+          "year": 2020,
+          "condition": "used",
+          "bodyType": "sedan",
+          "priceEUR": 20600,
+          "monthlyLeaseEUR": null,
+          "rangeKm": 560,
+          "efficiencyKwhPer100Km": 18,
+          "batteryKwh": 75,
+          "batterySoH": null,
+          "drivetrain": "RWD",
+          "seats": 5,
+          "cargoLiters": 430,
+          "features": [
+            "heated_seats",
+            "apple_carplay",
+            "reliable_connectivity",
+            "heat_pump",
+            "adaptive_cruise_control",
+            "blind_spot_detection",
+            "lane_keeping_assist"
+          ],
+          "warranty": "Used listing; verify remaining battery warranty and request battery state-of-health documentation.",
+          "location": "5524, Annaberg-Lungötz",
+          "available": true,
+          "notes": "Verkaufe Tesla Model 3 long range Allrad BJ 11/2020 rot,teilfoliert , Premium Innenraum schwarz , 19-Zoll Sportfelgen , 8 fach bereift, Winterreifen praktisch nur, garagengepflegt, Nichtraucher , leasingfähig, annehmbare Anhängerkupplung Abgabe gegen Barzahlung , keine Garantie oder Rücknahme möglich"
+        },
+        "score": 90,
+        "ragScore": 7,
+        "scoringBreakdown": {
+          "priceFit": 100,
+          "rangeFit": 100,
+          "efficiencyFit": 74,
+          "brandFit": 100,
+          "cargoPassengerFit": 78,
+          "reliabilityFit": 72,
+          "featureFit": 100
+        },
+        "tradeoffs": [
+          "battery state-of-health is not disclosed"
+        ],
+        "retrievedEvidence": [
+          {
+            "evidenceId": "E1",
+            "sourceType": "vehicle_payload",
+            "sourceId": "autoscout24:f670700a-7803-4e74-b455-60b061e7429b",
+            "title": "Tesla Model 3 Model 3 Long Range 75kWh",
+            "excerpt": "Tesla Model 3 Model 3 Long Range 75kWh: 2020 used sedan. EUR 20 600. 560 km range. 18 kWh/100 km. 430 l cargo. location 5524, Annaberg-Lungötz. features heated seats sitzheizung, apple carplay, reliable connectivity ota, heat pump warmepumpe, adaptive cruise control, blind spot detection. Verkaufe Tesla Model 3 long range Allrad BJ 11/2020 rot,teilfoliert , Premium Innenraum schwarz , 19-Zoll Sportfelgen , 8 fach...",
+            "score": 0.93
+          },
+          {
+            "evidenceId": "E2",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:adac_ecotest_ev_consumption:chunk:22",
+            "title": "ADAC Elektroauto Test: Reichweite & Verbrauch im Vergleich (23/35) (adac_ecotest_ev_consumption)",
+            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/stromverbrauch-elektroautos-adac-test/",
+            "topic": "technical_spec",
+            "excerpt": "Iconic; 10/24 | 20,6 | 17,6 | | Skoda Enyaq RS iV; 3/23 | 20,6 | 17,1 | | Volvo EX30 Twin Motor Performance Cross Country Ultra AWD; 10/25 | 20,6 | 18,3 | | VW ID.5 Pro Performance; 8/22 | 20,7 | 16,3 | | Polestar 4 Long Range Single Motor; 4/25 | 20,8 | 17,8 | | Mercedes EBQ 350 Electric Art 4Matic; 5/22 | 21,1 | 18,2 | | BMW iX3 Impressive; 10/21 | 21,2 | 18,9 | | BYD Seal Design; 11/24 | 21,2 | 16,6 | | Cupra...",
+            "score": 1
+          },
+          {
+            "evidenceId": "E3",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:11",
+            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (12/25) (adac_winter_range_2026)",
+            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
+            "topic": "review",
+            "excerpt": "400 und 800 Volt im Wettstreit Die in 20 Minuten nachgeladenen Reichweiten liegen im Testfeld zwischen 150 und 300 Kilometer. Sehr gut laden vor allem Fahrzeuge mit 800-Volt-System (Audi A6 mit 300 km oder Smart #5 mit 264 km). Der Smart hätte noch besser abschneiden können, wenn er an einer 400-kW-Ladesäule statt an einer 300-kW-Säule das Maximum an möglicher Ladeleistung hätte realisieren können (siehe oben)....",
+            "score": 0.94
+          },
+          {
+            "evidenceId": "E4",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:hyundai_ioniq5_eu_specs:chunk:4",
+            "title": "IONIQ 5 | all-electric CUV | Performance |\n        Hyundai Motor Europe (5/16) (hyundai_ioniq5_eu_specs)",
+            "sourceUrl": "https://www.hyundai.com/eu/en/models/ioniq5/performance.html",
+            "topic": "technical_spec",
+            "excerpt": "In the space freed up by removing the internal combustion engine, we have mounted the driving motor low down. The battery is also placed low down within the chassis allowing ideal weight distribution between front and rear and a low center of gravity for improved handling performance and a more stable high-speed experience. 3. ### Designed for safety. E-GMP embraces unique EV design characteristics such as short...",
+            "score": 0.93
+          }
+        ]
       },
       {
-        "reason": "brand is Audi, not Tesla",
-        "count": 24
+        "vehicleId": "inventory:willhaben:2137205857",
+        "vehicle": {
+          "make": "Tesla",
+          "model": "Model 3",
+          "trim": "Long Range AWD 75kWh Limousine",
+          "year": 2019,
+          "condition": "used",
+          "bodyType": "sedan",
+          "priceEUR": 19850,
+          "monthlyLeaseEUR": null,
+          "rangeKm": 560,
+          "efficiencyKwhPer100Km": 13.4,
+          "batteryKwh": 75,
+          "batterySoH": null,
+          "drivetrain": "AWD",
+          "seats": 5,
+          "cargoLiters": 430,
+          "features": [
+            "adaptive_cruise_control",
+            "heated_seats",
+            "awd"
+          ],
+          "warranty": "Fahrzeugtyp Limousine Weitere Vorteile Gewährleistung Garantie bis 1 Jahr Garantie MwSt. ausweisbar Leasingfähig Beschreibung Besichtigungen nur nach Ter",
+          "location": "2019 EZ",
+          "available": true,
+          "notes": "willhaben Austrian EV listings inventory listing crawled. HTML hash: a892d38087cb90d0e37c6f803d7b2a93e21b4d6f0d5b5586a530c3b681dc6850."
+        },
+        "score": 89,
+        "ragScore": 7,
+        "scoringBreakdown": {
+          "priceFit": 100,
+          "rangeFit": 100,
+          "efficiencyFit": 100,
+          "brandFit": 100,
+          "cargoPassengerFit": 78,
+          "reliabilityFit": 76,
+          "featureFit": 50
+        },
+        "tradeoffs": [
+          "battery state-of-health is not disclosed",
+          "some requested comfort or safety features are missing"
+        ],
+        "retrievedEvidence": [
+          {
+            "evidenceId": "E1",
+            "sourceType": "vehicle_payload",
+            "sourceId": "inventory:willhaben:2137205857",
+            "title": "Tesla Model 3 Long Range AWD 75kWh Limousine",
+            "excerpt": "Tesla Model 3 Long Range AWD 75kWh Limousine: 2019 used sedan. EUR 19 850. 560 km range. 13.4 kWh/100 km. 430 l cargo. location 2019 EZ. features adaptive cruise control, heated seats sitzheizung, awd allrad winter. willhaben Austrian EV listings inventory listing crawled. HTML hash: a892d38087cb90d0e37c6f803d7b2a93e21b4d6f0d5b5586a530c3b681dc6850.",
+            "score": 0.95
+          },
+          {
+            "evidenceId": "E2",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:adac_ecotest_ev_consumption:chunk:22",
+            "title": "ADAC Elektroauto Test: Reichweite & Verbrauch im Vergleich (23/35) (adac_ecotest_ev_consumption)",
+            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/stromverbrauch-elektroautos-adac-test/",
+            "topic": "technical_spec",
+            "excerpt": "Iconic; 10/24 | 20,6 | 17,6 | | Skoda Enyaq RS iV; 3/23 | 20,6 | 17,1 | | Volvo EX30 Twin Motor Performance Cross Country Ultra AWD; 10/25 | 20,6 | 18,3 | | VW ID.5 Pro Performance; 8/22 | 20,7 | 16,3 | | Polestar 4 Long Range Single Motor; 4/25 | 20,8 | 17,8 | | Mercedes EBQ 350 Electric Art 4Matic; 5/22 | 21,1 | 18,2 | | BMW iX3 Impressive; 10/21 | 21,2 | 18,9 | | BYD Seal Design; 11/24 | 21,2 | 16,6 | | Cupra...",
+            "score": 1
+          },
+          {
+            "evidenceId": "E3",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:11",
+            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (12/25) (adac_winter_range_2026)",
+            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
+            "topic": "review",
+            "excerpt": "400 und 800 Volt im Wettstreit Die in 20 Minuten nachgeladenen Reichweiten liegen im Testfeld zwischen 150 und 300 Kilometer. Sehr gut laden vor allem Fahrzeuge mit 800-Volt-System (Audi A6 mit 300 km oder Smart #5 mit 264 km). Der Smart hätte noch besser abschneiden können, wenn er an einer 400-kW-Ladesäule statt an einer 300-kW-Säule das Maximum an möglicher Ladeleistung hätte realisieren können (siehe oben)....",
+            "score": 0.94
+          },
+          {
+            "evidenceId": "E4",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:hyundai_ioniq5_eu_specs:chunk:4",
+            "title": "IONIQ 5 | all-electric CUV | Performance |\n        Hyundai Motor Europe (5/16) (hyundai_ioniq5_eu_specs)",
+            "sourceUrl": "https://www.hyundai.com/eu/en/models/ioniq5/performance.html",
+            "topic": "technical_spec",
+            "excerpt": "In the space freed up by removing the internal combustion engine, we have mounted the driving motor low down. The battery is also placed low down within the chassis allowing ideal weight distribution between front and rear and a low center of gravity for improved handling performance and a more stable high-speed experience. 3. ### Designed for safety. E-GMP embraces unique EV design characteristics such as short...",
+            "score": 0.93
+          }
+        ]
       },
       {
-        "reason": "brand is Kia, not Tesla",
-        "count": 23
+        "vehicleId": "inventory:vin:AUFFAHRWARNSYSTEM",
+        "vehicle": {
+          "make": "Tesla",
+          "model": "Model 3",
+          "trim": "Long Range AWD 75kWh Limousine",
+          "year": 2019,
+          "condition": "used",
+          "bodyType": "sedan",
+          "priceEUR": 19850,
+          "monthlyLeaseEUR": null,
+          "rangeKm": 560,
+          "efficiencyKwhPer100Km": 13.4,
+          "batteryKwh": 75,
+          "batterySoH": null,
+          "drivetrain": "AWD",
+          "seats": 5,
+          "cargoLiters": 430,
+          "features": [
+            "adaptive_cruise_control",
+            "heated_seats",
+            "awd"
+          ],
+          "warranty": "Fahrzeugtyp Limousine Weitere Vorteile Gewährleistung Garantie bis 1 Jahr Garantie MwSt. ausweisbar Leasingfähig Beschreibung Besichtigungen nur nach Ter",
+          "location": "2019 EZ",
+          "available": true,
+          "notes": "willhaben Austrian EV listings inventory listing crawled. HTML hash: a7394906d278ccdda28ac965625b5b220ca06403b70a3bcd126d4cdde2b8c336."
+        },
+        "score": 89,
+        "ragScore": 7,
+        "scoringBreakdown": {
+          "priceFit": 100,
+          "rangeFit": 100,
+          "efficiencyFit": 100,
+          "brandFit": 100,
+          "cargoPassengerFit": 78,
+          "reliabilityFit": 76,
+          "featureFit": 50
+        },
+        "tradeoffs": [
+          "battery state-of-health is not disclosed",
+          "some requested comfort or safety features are missing"
+        ],
+        "retrievedEvidence": [
+          {
+            "evidenceId": "E1",
+            "sourceType": "vehicle_payload",
+            "sourceId": "inventory:vin:AUFFAHRWARNSYSTEM",
+            "title": "Tesla Model 3 Long Range AWD 75kWh Limousine",
+            "excerpt": "Tesla Model 3 Long Range AWD 75kWh Limousine: 2019 used sedan. EUR 19 850. 560 km range. 13.4 kWh/100 km. 430 l cargo. location 2019 EZ. features adaptive cruise control, heated seats sitzheizung, awd allrad winter. willhaben Austrian EV listings inventory listing crawled. HTML hash: a7394906d278ccdda28ac965625b5b220ca06403b70a3bcd126d4cdde2b8c336.",
+            "score": 0.95
+          },
+          {
+            "evidenceId": "E2",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:adac_ecotest_ev_consumption:chunk:22",
+            "title": "ADAC Elektroauto Test: Reichweite & Verbrauch im Vergleich (23/35) (adac_ecotest_ev_consumption)",
+            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/stromverbrauch-elektroautos-adac-test/",
+            "topic": "technical_spec",
+            "excerpt": "Iconic; 10/24 | 20,6 | 17,6 | | Skoda Enyaq RS iV; 3/23 | 20,6 | 17,1 | | Volvo EX30 Twin Motor Performance Cross Country Ultra AWD; 10/25 | 20,6 | 18,3 | | VW ID.5 Pro Performance; 8/22 | 20,7 | 16,3 | | Polestar 4 Long Range Single Motor; 4/25 | 20,8 | 17,8 | | Mercedes EBQ 350 Electric Art 4Matic; 5/22 | 21,1 | 18,2 | | BMW iX3 Impressive; 10/21 | 21,2 | 18,9 | | BYD Seal Design; 11/24 | 21,2 | 16,6 | | Cupra...",
+            "score": 1
+          },
+          {
+            "evidenceId": "E3",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:11",
+            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (12/25) (adac_winter_range_2026)",
+            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
+            "topic": "review",
+            "excerpt": "400 und 800 Volt im Wettstreit Die in 20 Minuten nachgeladenen Reichweiten liegen im Testfeld zwischen 150 und 300 Kilometer. Sehr gut laden vor allem Fahrzeuge mit 800-Volt-System (Audi A6 mit 300 km oder Smart #5 mit 264 km). Der Smart hätte noch besser abschneiden können, wenn er an einer 400-kW-Ladesäule statt an einer 300-kW-Säule das Maximum an möglicher Ladeleistung hätte realisieren können (siehe oben)....",
+            "score": 0.94
+          },
+          {
+            "evidenceId": "E4",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:hyundai_ioniq5_eu_specs:chunk:4",
+            "title": "IONIQ 5 | all-electric CUV | Performance |\n        Hyundai Motor Europe (5/16) (hyundai_ioniq5_eu_specs)",
+            "sourceUrl": "https://www.hyundai.com/eu/en/models/ioniq5/performance.html",
+            "topic": "technical_spec",
+            "excerpt": "In the space freed up by removing the internal combustion engine, we have mounted the driving motor low down. The battery is also placed low down within the chassis allowing ideal weight distribution between front and rear and a low center of gravity for improved handling performance and a more stable high-speed experience. 3. ### Designed for safety. E-GMP embraces unique EV design characteristics such as short...",
+            "score": 0.93
+          }
+        ]
       },
       {
-        "reason": "brand is Volkswagen, not Tesla",
-        "count": 12
+        "vehicleId": "autoscout24:290eb859-d5ca-489a-ae90-64678bdbbe28",
+        "vehicle": {
+          "make": "Tesla",
+          "model": "Model S",
+          "trim": "Model S P90DLudicrous 90kWh (mit Batterie) Ludicrous",
+          "year": 2018,
+          "condition": "used",
+          "bodyType": "sedan",
+          "priceEUR": 29900,
+          "monthlyLeaseEUR": null,
+          "rangeKm": 505,
+          "efficiencyKwhPer100Km": 18,
+          "batteryKwh": 90,
+          "batterySoH": null,
+          "drivetrain": "RWD",
+          "seats": 5,
+          "cargoLiters": 430,
+          "features": [
+            "heated_seats",
+            "apple_carplay",
+            "reliable_connectivity",
+            "adaptive_cruise_control",
+            "blind_spot_detection",
+            "lane_keeping_assist"
+          ],
+          "warranty": "Used listing; verify remaining battery warranty and request battery state-of-health documentation.",
+          "location": "2136, Laa an der Thaya",
+          "available": true,
+          "notes": ""
+        },
+        "score": 89,
+        "ragScore": 7,
+        "scoringBreakdown": {
+          "priceFit": 100,
+          "rangeFit": 100,
+          "efficiencyFit": 74,
+          "brandFit": 100,
+          "cargoPassengerFit": 78,
+          "reliabilityFit": 72,
+          "featureFit": 100
+        },
+        "tradeoffs": [
+          "battery state-of-health is not disclosed"
+        ],
+        "retrievedEvidence": [
+          {
+            "evidenceId": "E1",
+            "sourceType": "vehicle_payload",
+            "sourceId": "autoscout24:290eb859-d5ca-489a-ae90-64678bdbbe28",
+            "title": "Tesla Model S Model S P90DLudicrous 90kWh (mit Batterie) Ludicrous",
+            "excerpt": "Tesla Model S Model S P90DLudicrous 90kWh (mit Batterie) Ludicrous: 2018 used sedan. EUR 29 900. 505 km range. 18 kWh/100 km. 430 l cargo. location 2136, Laa an der Thaya. features heated seats sitzheizung, apple carplay, reliable connectivity ota, adaptive cruise control, blind spot detection, lane keeping assist",
+            "score": 0.97
+          },
+          {
+            "evidenceId": "E2",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:adac_ecotest_ev_consumption:chunk:22",
+            "title": "ADAC Elektroauto Test: Reichweite & Verbrauch im Vergleich (23/35) (adac_ecotest_ev_consumption)",
+            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/stromverbrauch-elektroautos-adac-test/",
+            "topic": "technical_spec",
+            "excerpt": "Iconic; 10/24 | 20,6 | 17,6 | | Skoda Enyaq RS iV; 3/23 | 20,6 | 17,1 | | Volvo EX30 Twin Motor Performance Cross Country Ultra AWD; 10/25 | 20,6 | 18,3 | | VW ID.5 Pro Performance; 8/22 | 20,7 | 16,3 | | Polestar 4 Long Range Single Motor; 4/25 | 20,8 | 17,8 | | Mercedes EBQ 350 Electric Art 4Matic; 5/22 | 21,1 | 18,2 | | BMW iX3 Impressive; 10/21 | 21,2 | 18,9 | | BYD Seal Design; 11/24 | 21,2 | 16,6 | | Cupra...",
+            "score": 1
+          },
+          {
+            "evidenceId": "E3",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:adac_winter_range_2026:chunk:11",
+            "title": "Stresstest E-Autos im Winter: Wie die Reichweite auf der Autobahn ausfällt (12/25) (adac_winter_range_2026)",
+            "sourceUrl": "https://www.adac.de/rund-ums-fahrzeug/elektromobilitaet/elektroauto/elektroauto-reichweite-im-winter-adac-test-2026/",
+            "topic": "review",
+            "excerpt": "400 und 800 Volt im Wettstreit Die in 20 Minuten nachgeladenen Reichweiten liegen im Testfeld zwischen 150 und 300 Kilometer. Sehr gut laden vor allem Fahrzeuge mit 800-Volt-System (Audi A6 mit 300 km oder Smart #5 mit 264 km). Der Smart hätte noch besser abschneiden können, wenn er an einer 400-kW-Ladesäule statt an einer 300-kW-Säule das Maximum an möglicher Ladeleistung hätte realisieren können (siehe oben)....",
+            "score": 0.94
+          },
+          {
+            "evidenceId": "E4",
+            "sourceType": "knowledge_chunk",
+            "sourceId": "trusted-ev:hyundai_ioniq5_eu_specs:chunk:4",
+            "title": "IONIQ 5 | all-electric CUV | Performance |\n        Hyundai Motor Europe (5/16) (hyundai_ioniq5_eu_specs)",
+            "sourceUrl": "https://www.hyundai.com/eu/en/models/ioniq5/performance.html",
+            "topic": "technical_spec",
+            "excerpt": "In the space freed up by removing the internal combustion engine, we have mounted the driving motor low down. The battery is also placed low down within the chassis allowing ideal weight distribution between front and rear and a low center of gravity for improved handling performance and a more stable high-speed experience. 3. ### Designed for safety. E-GMP embraces unique EV design characteristics such as short...",
+            "score": 0.93
+          }
+        ]
       }
-    ],
-    "matches": []
+    ]
   }
 }

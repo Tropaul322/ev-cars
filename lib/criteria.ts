@@ -286,7 +286,10 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
   const mileageTargetKm = removals.has("mileage")
     ? null
     : extractMileageKm(text, "target") ?? inferMileagePreference(text).target ?? base.mileageTargetKm;
-  const rangeFloorKm = removals.has("range") ? null : extractKm(text, "range") ?? base.rangeFloorKm;
+  const tripNeeds = removals.has("use_case") ? [] : mergeUnique(base.tripNeeds, extractTripNeeds(text));
+  const rangeFloorKm = removals.has("range")
+    ? null
+    : extractKm(text, "range") ?? inferQualitativeRangeFloor(text, tripNeeds) ?? base.rangeFloorKm;
   const batteryHealth = extractBatteryHealth(text);
   const batterySoHMin = removals.has("battery") ? null : batteryHealth.min ?? base.batterySoHMin;
   const batteryHealthRequired = removals.has("battery")
@@ -303,14 +306,16 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
     : shouldReplaceLists && extractedBodyTypes.length
       ? extractedBodyTypes
       : mergeUnique(base.bodyTypes, extractedBodyTypes);
-  const tripNeeds = removals.has("use_case") ? [] : mergeUnique(base.tripNeeds, extractTripNeeds(text));
   const mustHaveFeatures = removals.has("features") ? [] : mergeUnique(base.mustHaveFeatures, extractFeatures(text));
   const extractedBrands = extractBrandPreferences(text);
+  const brandFocus = looksLikeBrandFocusQuestion(normalizedPrompt);
   const brandPreferences = removals.has("brand")
     ? []
     : shouldReplaceLists && extractedBrands.length
       ? extractedBrands
-      : mergeUnique(base.brandPreferences, extractedBrands);
+      : brandFocus && extractedBrands.length
+        ? extractedBrands
+        : mergeUnique(base.brandPreferences, extractedBrands);
   const preferredBrandOrigins = removals.has("origin")
     ? []
     : mergeUnique(base.preferredBrandOrigins, extractPreferredBrandOrigins(text));
@@ -321,7 +326,9 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
       ? extractedModels
       : shouldReplaceLists && extractedBrands.length
         ? []
-        : mergeUnique(base.modelPreferences, extractedModels);
+        : brandFocus && extractedBrands.length && !extractedModels.length
+          ? []
+          : mergeUnique(base.modelPreferences, extractedModels);
   const avoidedBrands = mergeUnique(base.avoidedBrands, extractAvoidedBrands(text));
   const location = removals.has("location") ? null : extractLocation(normalizedPrompt) ?? base.location;
   const qualitativeSignals = removals.has("qualitative")
@@ -635,6 +642,19 @@ export function hasReplaceIntent(text: string) {
   return /\b(only|just|nur|ausschliesslich|ausschließlich)\b/i.test(text);
 }
 
+export function looksLikeBrandFocusQuestion(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (
+    !/\b(what|how) about\b/i.test(trimmed) &&
+    !/\b(und\s+)?was ist mit\b/i.test(trimmed) &&
+    !/\b(what|how) about the\b/i.test(trimmed)
+  ) {
+    return false;
+  }
+  return extractBrandPreferences(trimmed).length > 0;
+}
+
 function extractRemovals(text: string) {
   const removals = new Set<CriteriaChipKey>();
   const hasRemoveIntent = /\b(remove|clear|delete|reset|ignore|forget|egal|entferne|loesche|lösche|vergiss)\b/i.test(text);
@@ -876,7 +896,8 @@ function extractTripNeeds(text: string): TripNeed[] {
     /(road\s*trip|autobahn|long\s*(trip|drive|distance)|langstrecke|urlaub|weekend|wochenende|highway|motorway|vacation|holiday)/i.test(
       text
     ) ||
-    /(cruis|leisure|joy\s*rid|pleasure\s*driv|fun\s*driv|sightseeing|scenic|touring|spazier|ausflug)/i.test(text)
+    /(cruis|leisure|joy\s*rid|pleasure\s*driv|fun\s*driv|sightseeing|scenic|touring|spazier|ausflug)/i.test(text) ||
+    /(?:for\s+)?trips?|reisen|fahrten|travels?/i.test(text)
   ) {
     tripNeeds.push("road_trip");
   }
@@ -948,11 +969,19 @@ function deriveReliabilityImportance(
   return previous;
 }
 
+function inferQualitativeRangeFloor(text: string, tripNeeds: TripNeed[]) {
+  if (/(good range|long range|great range|strong range|gute reichweite|hohe reichweite|lange reichweite)/i.test(text)) {
+    return tripNeeds.includes("road_trip") ? 450 : 380;
+  }
+  return null;
+}
+
 function extractLocation(prompt: string) {
   const plz = prompt.match(/\b([1-9]\d{3})\b/);
   if (plz) return plz[1];
   const city = prompt.match(/\b(Vienna|Wien|Graz|Linz|Salzburg|Innsbruck|Klagenfurt)\b/i);
-  return city?.[1] ?? null;
+  if (!city?.[1]) return null;
+  return /^vienna$/i.test(city[1]) ? "Wien" : city[1];
 }
 
 function mergeUnique<T>(left: T[], right: T[]) {

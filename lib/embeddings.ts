@@ -1,6 +1,12 @@
 import { createGeminiEmbedding, geminiConfigured } from "./gemini-provider.ts";
 import { matchDebug, matchDebugWarn } from "./match-debug.ts";
-import { createOpenAiClient, openAiConfigured, openAiEmbeddingDimensions, openAiEmbeddingModel } from "./openai-provider.ts";
+import {
+  createOpenAiClient,
+  openAiChatTimeout,
+  openAiConfigured,
+  openAiEmbeddingDimensions,
+  openAiEmbeddingModel
+} from "./openai-provider.ts";
 
 export type EmbeddingInputKind = "query" | "document";
 export type EmbeddingProvider = "openai" | "gemini";
@@ -91,7 +97,7 @@ async function createOpenAiEmbedding(input: string): Promise<number[] | null> {
         input,
         dimensions: embeddingDimensions()
       },
-      { timeout: 5000 }
+      { timeout: openAiChatTimeout("embeddings") }
     );
     return normalizeEmbedding(response.data[0]?.embedding);
   } catch {

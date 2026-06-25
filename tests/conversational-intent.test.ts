@@ -1,18 +1,32 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import { fallbackCapabilityMessage, fallbackChatGreeting } from "../lib/assistant-messages.ts";
 import {
   classifyConversationTurn,
+  detectPatternTriggers,
   isAssistantMetaQuestion,
   isCasualSmallTalk,
+  isExplicitShowMatches,
   looksLikeEvQuestion,
   mergeConversationTurnClassification,
+  parseTriggerJson,
   parseTurnKindJson
 } from "../lib/conversational-intent.ts";
+import { looksLikeBrandFocusQuestion, extractCriteria } from "../lib/criteria.ts";
+import { getSupabaseRestConfig } from "../lib/repositories/supabase-rest.ts";
 import { runMatchRequest } from "../lib/match-service.ts";
+
+for (const [key, value] of Object.entries(loadEnv(path.join(process.cwd(), ".env.local")))) {
+  if (typeof value === "string") process.env[key] = value;
+}
 
 process.env.FLOWRYD_DISABLE_LLM = "1";
 process.env.FLOWRYD_DISABLE_EMBEDDINGS = "1";
+
+const hasSupabaseInventory = Boolean(getSupabaseRestConfig());
+const matchRoute = hasSupabaseInventory ? test : test.skip;
 
 test("detects assistant capability questions", () => {
   assert.equal(isAssistantMetaQuestion("What can you do?"), true);
@@ -28,8 +42,13 @@ test("detects casual small talk and greetings", () => {
   assert.equal(isCasualSmallTalk("Hey"), true);
   assert.equal(isCasualSmallTalk("how are you"), true);
   assert.equal(isCasualSmallTalk("thanks!"), true);
+  assert.equal(isCasualSmallTalk("Ok can you show them?"), false);
   assert.equal(classifyConversationTurn("Yooo, how are you ?"), "small_talk");
   assert.equal(classifyConversationTurn("What charging options are there?"), "ev_question");
+  assert.equal(classifyConversationTurn("What about Ford?"), "criteria");
+  assert.equal(classifyConversationTurn("Ok can you show them?"), "show_matches");
+  assert.equal(isExplicitShowMatches("Ok can you show them?"), true);
+  assert.equal(looksLikeBrandFocusQuestion("What about Ford?"), true);
   assert.equal(looksLikeEvQuestion("What charging options are there?"), true);
   assert.equal(looksLikeEvQuestion("how are you?"), false);
 });
@@ -46,6 +65,21 @@ test("mergeConversationTurnClassification prefers criteria from the LLM", () => 
   assert.equal(mergeConversationTurnClassification("ev_question", "criteria"), "criteria");
   assert.equal(mergeConversationTurnClassification("criteria", "criteria"), "criteria");
   assert.equal(mergeConversationTurnClassification("criteria", null), "criteria");
+});
+
+test("detectPatternTriggers surfaces likely handlers for follow-up requests", () => {
+  assert.deepEqual(detectPatternTriggers("Ok can you show them?"), ["show_matches"]);
+  assert.ok(detectPatternTriggers("What about Ford?").includes("brand_focus"));
+  assert.ok(detectPatternTriggers("show more").includes("next_batch"));
+});
+
+test("parseTriggerJson accepts trigger routing JSON", () => {
+  assert.deepEqual(parseTriggerJson('{"trigger":"show_matches"}'), { trigger: "show_matches" });
+  assert.deepEqual(parseTriggerJson('{"trigger":"brand_focus","criteriaPatch":{"brandPreferences":["Ford"]}}'), {
+    trigger: "brand_focus",
+    criteriaPatch: { brandPreferences: ["Ford"] }
+  });
+  assert.equal(parseTriggerJson('{"trigger":"invalid"}'), null);
 });
 
 test("parseTurnKindJson accepts classifier JSON", () => {
@@ -91,6 +125,46 @@ test("match request keeps capability answers during an active clarification flow
   assert.equal(second.criteria.budgetMaxEUR, 40000);
 });
 
+test("brand focus narrows brand preferences", () => {
+  const first = extractCriteria("American car like Ford or Tesla around 35k EUR with good range for trips");
+  const second = extractCriteria("What about Ford?", first);
+
+  assert.deepEqual(second.brandPreferences, ["Ford"]);
+});
+
+matchRoute("match request re-runs inventory after a brand focus follow-up", async () => {
+  const first = await runMatchRequest({
+    message: "American car like Ford or Tesla around 35k EUR with good range for trips"
+  });
+  assert.equal(first.type, "matches");
+
+  const second = await runMatchRequest({
+    message: "What about Ford?",
+    sessionId: first.sessionId,
+    previousCriteria: first.criteria
+  });
+
+  assert.notEqual(second.type, "chat");
+  assert.deepEqual(second.criteria.brandPreferences, ["Ford"]);
+  assert.ok(second.recommendations.some((match) => match.vehicle.make === "Ford"));
+});
+
+matchRoute("match request shows listings when user asks to show them", async () => {
+  const first = await runMatchRequest({
+    message: "American car like Ford or Tesla around 35k EUR with good range for trips"
+  });
+  assert.equal(first.type, "matches");
+
+  const second = await runMatchRequest({
+    message: "Ok can you show them?",
+    sessionId: first.sessionId,
+    previousCriteria: first.criteria
+  });
+
+  assert.equal(second.type, "matches");
+  assert.ok(second.recommendations.length > 0);
+});
+
 test("capability and greeting fallbacks are available in German", () => {
   assert.match(fallbackCapabilityMessage({ language: "de" } as never), /FlowRyd/);
   assert.match(fallbackCapabilityMessage({ language: "de" } as never), /E-Auto/);
@@ -100,3 +174,16 @@ test("capability and greeting fallbacks are available in German", () => {
     /FlowRyd/
   );
 });
+
+function loadEnv(filePath: string) {
+  if (!fs.existsSync(filePath)) return {};
+  const values: Record<string, string> = {};
+  for (const line of fs.readFileSync(filePath, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separator = trimmed.indexOf("=");
+    if (separator === -1) continue;
+    values[trimmed.slice(0, separator)] = trimmed.slice(separator + 1);
+  }
+  return values;
+}

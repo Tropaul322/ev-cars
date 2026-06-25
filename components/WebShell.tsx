@@ -60,9 +60,9 @@ export function WebShell({
       <header
         className={cn(
           "sticky top-0 z-30 transition-[background-color,backdrop-filter,border-color] duration-300",
-          scrolled || !transparentHeader
-            ? "bg-background/85 backdrop-blur border-b border-border"
-            : "bg-transparent border-b border-transparent",
+          heroHeader
+            ? "bg-transparent"
+            : "bg-background/85 backdrop-blur border-b border-border",
         )}
       >
         <div className="mx-auto max-w-7xl px-6 lg:px-10 h-16 flex items-center justify-between">
@@ -109,10 +109,10 @@ export function WebShell({
 
         <nav
           className={cn(
-            "md:hidden flex justify-around border-t transition-colors duration-300",
-            scrolled || !transparentHeader
-              ? "border-border bg-background"
-              : "border-white/15 bg-background/70 backdrop-blur",
+            "md:hidden flex justify-around transition-colors duration-300",
+            heroHeader
+              ? "border-t border-white/15 bg-transparent"
+              : "border-t border-border bg-background",
           )}
           aria-label="Primary mobile"
         >

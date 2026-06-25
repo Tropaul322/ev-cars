@@ -8,7 +8,7 @@ import {
   normalizeCriteriaShape
 } from "./criteria.ts";
 import { buildLlmMessages, type LlmConversationTurn } from "./llm-conversation.ts";
-import { createOpenAiChatCompletion, openAiConfigured, openAiModel } from "./openai-provider.ts";
+import { createOpenAiChatCompletion, openAiChatTimeout, openAiConfigured, openAiModel } from "./openai-provider.ts";
 import type {
   BrandOrigin,
   BodyType,
@@ -265,7 +265,7 @@ async function generateOpenAiCriteriaPatch(
           JSON.stringify(buildNormalizerInput(message, previousCriteria))
         )
       },
-      { timeout: 1600 }
+      { timeout: openAiChatTimeout("criteria-normalizer") }
     );
     return parseCriteriaPatch(response.choices[0]?.message?.content ?? "");
   } catch {
@@ -338,7 +338,11 @@ export function parseCriteriaPatch(content: string): CriteriaPatch | null {
   if (!content.trim()) return null;
   const parsed = JSON.parse(stripJsonFence(content)) as { criteriaPatch?: unknown; confidence?: unknown };
   if (!parsed.criteriaPatch || typeof parsed.criteriaPatch !== "object") return null;
-  return cleanPatch(parsed.criteriaPatch as CriteriaPatch);
+  return sanitizeCriteriaPatch(parsed.criteriaPatch as CriteriaPatch);
+}
+
+export function sanitizeCriteriaPatch(patch: CriteriaPatch): CriteriaPatch {
+  return cleanPatch(patch);
 }
 
 function cleanPatch(patch: CriteriaPatch): CriteriaPatch {

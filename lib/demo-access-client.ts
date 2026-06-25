@@ -2,6 +2,7 @@
 
 export type DemoRegistrationStatus = {
   registered: boolean;
+  deletionRequested?: boolean;
   tester?: {
     name: string;
     email: string;

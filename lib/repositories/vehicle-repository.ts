@@ -2,9 +2,15 @@ import { allVehicles } from "../data/all-vehicles.ts";
 import { VEHICLE_REVALIDATE_SECONDS } from "../cache.ts";
 import { createEmbeddingWithProvider } from "../embeddings.ts";
 import { normalizeVehicleFeatures } from "../feature-normalization.ts";
+import { normalizeLocationSearchTerm } from "../location-search.ts";
 import { matchDebug, matchDebugWarn } from "../match-debug.ts";
 import { estimateMonthlyVehiclePayment } from "../tco.ts";
 import type { UserCriteria, Vehicle } from "../types.ts";
+import {
+  inferSearchRangeFloorKm,
+  isPlausiblePurchasePrice,
+  resolveVehicleSearchOrder
+} from "../vehicle-search-helpers.ts";
 import {
   vehicleEmbeddingMinSimilarity,
   vehicleEmbeddingSearchEnabled,
@@ -321,17 +327,18 @@ export function buildVehicleSearchParams(criteria: UserCriteria, offset = 0) {
     select: VEHICLE_SELECT,
     market: "eq.AT",
     available: "eq.true",
-    order: "price_eur.asc,range_km.desc",
+    order: resolveVehicleSearchOrder(criteria),
     limit: SUPABASE_VEHICLE_LIMIT
   });
   if (offset > 0) params.set("offset", String(offset));
 
   const orGroups: string[][] = [];
+  const searchRangeFloorKm = inferSearchRangeFloorKm(criteria);
 
   if (criteria.budgetMinEUR) params.append("price_eur", `gte.${criteria.budgetMinEUR}`);
   if (criteria.budgetMaxEUR) params.append("price_eur", `lte.${criteria.budgetMaxEUR}`);
   if (criteria.preferredCondition !== "any") params.set("condition", `eq.${criteria.preferredCondition}`);
-  if (criteria.rangeFloorKm) params.set("range_km", `gte.${criteria.rangeFloorKm}`);
+  if (searchRangeFloorKm) params.set("range_km", `gte.${searchRangeFloorKm}`);
   if (criteria.bodyTypes.length) params.set("body_type", `in.(${criteria.bodyTypes.join(",")})`);
   if (criteria.passengers) params.set("seats", `gte.${criteria.passengers}`);
   if (criteria.mileageMaxKm) params.set("mileage_km", `lte.${criteria.mileageMaxKm}`);
@@ -339,7 +346,10 @@ export function buildVehicleSearchParams(criteria: UserCriteria, offset = 0) {
     params.set("battery_soh", `gte.${criteria.batterySoHMin}`);
   }
   if (criteria.location) {
-    params.set("location", `ilike.${buildPostgrestIlikePattern(criteria.location)}`);
+    params.set(
+      "location",
+      `ilike.${buildPostgrestIlikePattern(normalizeLocationSearchTerm(criteria.location))}`
+    );
   }
 
   if (criteria.brandPreferences.length) {
@@ -436,7 +446,7 @@ function summarizeVehicleSearchFilters(criteria: UserCriteria) {
     budgetMaxEUR: criteria.budgetMaxEUR,
     monthlyBudgetEUR: criteria.monthlyBudgetEUR,
     preferredCondition: criteria.preferredCondition,
-    rangeFloorKm: criteria.rangeFloorKm,
+    rangeFloorKm: criteria.rangeFloorKm ?? inferSearchRangeFloorKm(criteria),
     mileageMaxKm: criteria.mileageMaxKm,
     batterySoHMin: criteria.batteryHealthRequired ? criteria.batterySoHMin : null,
     bodyTypes: criteria.bodyTypes,
@@ -479,16 +489,18 @@ function isVehicle(value: unknown): value is Vehicle {
 }
 
 function filterVehiclesForSearch(vehicles: Vehicle[], criteria: UserCriteria) {
+  const searchRangeFloorKm = inferSearchRangeFloorKm(criteria);
   return vehicles.filter((vehicle) => {
     if (vehicle.market !== "AT") return false;
     if (!vehicle.available) return false;
+    if (!isPlausiblePurchasePrice(vehicle.priceEUR, vehicle.monthlyLeaseEUR)) return false;
     if (criteria.budgetMinEUR && vehicle.priceEUR < criteria.budgetMinEUR) return false;
     if (criteria.budgetMaxEUR && vehicle.priceEUR > criteria.budgetMaxEUR) return false;
     if (criteria.monthlyBudgetEUR && estimateMonthlyVehiclePayment(vehicle) > criteria.monthlyBudgetEUR) {
       return false;
     }
     if (criteria.preferredCondition !== "any" && vehicle.condition !== criteria.preferredCondition) return false;
-    if (criteria.rangeFloorKm && vehicle.rangeKm < criteria.rangeFloorKm) return false;
+    if (searchRangeFloorKm && vehicle.rangeKm < searchRangeFloorKm) return false;
     if (criteria.mileageMaxKm && vehicle.mileageKm !== null && vehicle.mileageKm > criteria.mileageMaxKm) return false;
     if (criteria.mileageMaxKm && vehicle.condition === "used" && vehicle.mileageKm === null) return false;
     if (criteria.bodyTypes.length && !criteria.bodyTypes.includes(vehicle.bodyType)) return false;
@@ -497,6 +509,10 @@ function filterVehiclesForSearch(vehicles: Vehicle[], criteria: UserCriteria) {
     if (!vehicleMatchesModelPreferences(vehicle, criteria.modelPreferences)) return false;
     if (criteria.passengers && vehicle.seats < criteria.passengers) return false;
     if (criteria.avoidedBrands.some((brand) => sameBrand(brand, vehicle.make))) return false;
+    if (criteria.mustHaveFeatures.length) {
+      const normalizedFeatures = normalizeVehicleFeatures(vehicle.features, vehicle);
+      if (!criteria.mustHaveFeatures.every((feature) => normalizedFeatures.includes(feature))) return false;
+    }
     return true;
   });
 }

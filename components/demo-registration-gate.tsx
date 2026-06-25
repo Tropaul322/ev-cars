@@ -80,14 +80,12 @@ export function DemoRegistrationGate() {
     setError(null);
 
     try {
-      await fetch("/api/demo-registration", { method: "DELETE" });
-      setStatus(initialStatus);
-      setName("");
-      setEmail("");
-      setLocation("");
-      setConsent(false);
-      setVisible(true);
-      notifyDemoRegistrationChanged(initialStatus);
+      const response = await fetch("/api/demo-registration", { method: "DELETE" });
+      const data = (await response.json()) as RegistrationStatus & { error?: string };
+      if (!response.ok) throw new Error(data.error ?? "Deletion request failed.");
+      setStatus(data);
+      setVisible(false);
+      notifyDemoRegistrationChanged(data);
     } catch {
       setError("Deletion request could not be recorded.");
     } finally {
@@ -125,21 +123,29 @@ export function DemoRegistrationGate() {
             </span>
             <div>
               <h2 id="demo-gate-title" className="m-0 text-[1.45rem] leading-[1.12]">
-                Demo access active
+                {status.deletionRequested ? "Deletion requested" : "Demo access active"}
               </h2>
               <p className="mt-2 text-muted-foreground leading-normal">
                 {status.tester.name} - {status.tester.email} - {status.tester.location}
               </p>
+              {status.deletionRequested ? (
+                <p className="mt-2 text-sm text-muted-foreground leading-normal">
+                  Your deletion request is recorded. You can keep using the demo until an admin
+                  removes your account.
+                </p>
+              ) : null}
             </div>
             {error ? <p className="text-red-600">{error}</p> : null}
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="secondary" onClick={() => setVisible(false)}>
                 Continue
               </Button>
-              <Button type="button" variant="destructive" onClick={requestDeletion} disabled={submitting}>
-                <Trash2 size={16} aria-hidden="true" />
-                Request deletion
-              </Button>
+              {!status.deletionRequested ? (
+                <Button type="button" variant="destructive" onClick={requestDeletion} disabled={submitting}>
+                  <Trash2 size={16} aria-hidden="true" />
+                  Request deletion
+                </Button>
+              ) : null}
             </div>
           </div>
         ) : (

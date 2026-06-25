@@ -753,7 +753,7 @@ matchRoute("match route next batch still uses session exclusions when previousCr
 
 matchRoute("match route explains the blocker for explicit model searches", async () => {
   const data = await runMatchRequest({
-    message: "Kia EV6 under 30k for road trips, 450 km range, fast charging and CarPlay."
+    message: "Kia EV6 under 15k for road trips, 450 km range, fast charging and CarPlay."
   });
 
   assert.equal(data.type, "no_matches");

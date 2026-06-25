@@ -203,7 +203,11 @@ export async function requestDemoRegistrationDeletion(id: string | undefined): P
 }
 
 export function isActiveDemoRegistration(registration: DemoRegistration | null) {
-  return Boolean(registration?.consentAt && !registration.deletionRequestedAt);
+  return Boolean(registration?.consentAt);
+}
+
+export function hasDeletionRequest(registration: DemoRegistration | null) {
+  return Boolean(registration?.deletionRequestedAt);
 }
 
 function rowToRegistration(row: RegistrationRow | undefined): DemoRegistration | null {
