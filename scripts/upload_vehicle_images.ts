@@ -251,6 +251,7 @@ function loadCatalogVehicles(catalogCsv: string): VehicleRow[] {
         id: columns[idIndex] ?? "",
         make: columns[makeIndex] ?? null,
         model: columns[modelIndex] ?? null,
+        // Dry-run catalog stubs only need id/make/model for matching; live uploads use full DB payloads.
         payload: {
           id: columns[idIndex] ?? "",
           make: columns[makeIndex] ?? "",
@@ -261,7 +262,7 @@ function loadCatalogVehicles(catalogCsv: string): VehicleRow[] {
           available: true,
           features: [],
           images: []
-        } as Vehicle
+        } as unknown as Vehicle
       };
     })
     .filter((row) => row.id);
