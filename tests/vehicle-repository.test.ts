@@ -27,6 +27,7 @@ test("vehicle search pushes generated-column criteria into the Supabase request"
   assert.equal(params.get("brand"), "in.(Kia)");
   assert.equal(params.get("seats"), "gte.5");
   assert.equal(params.get("mileage_km"), "lte.30000");
+  assert.equal(params.get("limit"), "120");
   assert.equal(
     params.get("and"),
     "(or(brand_origin.in.(korea),manufacturer_country_code.in.(KR)),or(monthly_lease_eur.is.null,monthly_lease_eur.lte.650),or(model.ilike.*EV6*,title.ilike.*EV6*))"
@@ -61,6 +62,19 @@ test("vehicle search expands Vienna to Wien for location lookup", () => {
   });
 
   assert.equal(params.get("location"), "ilike.*Wien*");
+});
+
+test("vehicle search ignores postal codes as hard location filters", () => {
+  const params = buildVehicleSearchParams({
+    ...emptyCriteria("Budget EV near me"),
+    location: "1010",
+    budgetMaxEUR: 30000,
+    rangeFloorKm: 400
+  });
+
+  assert.equal(params.get("location"), null);
+  assert.equal(params.get("price_eur"), "lte.30000");
+  assert.equal(params.get("range_km"), "gte.400");
 });
 
 test("vehicle search applies location and origin fallbacks", () => {

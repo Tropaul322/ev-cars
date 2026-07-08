@@ -12,11 +12,11 @@ export const defaultOpenAiEmbeddingDimensions = 1536;
 
 const defaultOpenAiChatTimeoutsMs: Record<string, number> = {
   "criteria-normalizer": 2500,
-  "turn-classifier": 4000,
-  "match-scoring": 8000,
-  "match-explanation": 12000,
-  "assistant-message": 8000,
-  embeddings: 8000
+  "turn-classifier": 2500,
+  "match-scoring": 4500,
+  "match-explanation": 6000,
+  "assistant-message": 4500,
+  embeddings: 4000
 };
 
 export function openAiChatTimeout(stage: string, fallback = 5000) {

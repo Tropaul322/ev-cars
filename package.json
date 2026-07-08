@@ -24,6 +24,7 @@
     "supabase:upload-willhaben": "node --experimental-strip-types scripts/upload_willhaben_inventory.ts",
     "supabase:upload-autoscout24": "node --experimental-strip-types scripts/upload_autoscout24_inventory.ts",
     "supabase:convert-vehicles-sheet": "node --experimental-strip-types scripts/convert_vehicles_sheet_to_supabase_csv.ts",
+    "supabase:upload-vehicle-images": "node --experimental-strip-types scripts/upload_vehicle_images.ts",
     "admin:create": "node --experimental-strip-types scripts/create-admin-user.ts",
     "inspect:ai-context": "node --experimental-strip-types scripts/inspect_ai_context.ts",
     "ci": "npm run typecheck && npm run test && npm run eval && npm run build"

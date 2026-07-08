@@ -44,16 +44,20 @@ export async function attachExplanations(
   matches: MatchResult[],
   criteria: UserCriteria
 ): Promise<MatchResult[]> {
-  const generated = await generateWithLlm(matches, criteria);
-  const byVehicle = await fillMissingExplanations(
-    matches,
-    criteria,
-    new Map(generated.explanations.map((item) => [item.vehicleId, item.explanation]))
-  );
-
-  return matches.map((match) => ({
+  const withFallback = matches.map((match) => ({
     ...match,
-    explanation: byVehicle.get(match.vehicle.id) ?? fallbackExplanation(match, criteria)
+    explanation: fallbackExplanation(match, criteria)
+  }));
+
+  if (!llmExplanationsEnabled()) return withFallback;
+
+  const generated = await generateWithLlm(matches, criteria);
+  if (!generated.explanations.length) return withFallback;
+
+  const byVehicle = new Map(generated.explanations.map((item) => [item.vehicleId, item.explanation]));
+  return withFallback.map((match) => ({
+    ...match,
+    explanation: byVehicle.get(match.vehicle.id) ?? match.explanation
   }));
 }
 
@@ -68,31 +72,44 @@ export async function selectAndExplainMatches(
 ): Promise<FinalRecommendationSelection> {
   const maxRecommendations = options.maxRecommendations ?? 8;
   const selected = matches.slice(0, maxRecommendations);
-  const generated = await generateWithLlm(selected.slice(0, 8), criteria, options.rejectedSummary ?? []);
-  const byVehicle = await fillMissingExplanations(
-    selected,
-    criteria,
-    new Map(generated.explanations.map((item) => [item.vehicleId, item.explanation])),
-    options.rejectedSummary ?? []
-  );
+  // Deterministic explanations keep matching fast; LLM rewrite is opt-in.
   const recommendations = selected.map((match) => ({
     ...match,
-    explanation: byVehicle.get(match.vehicle.id) ?? fallbackExplanation(match, criteria)
+    explanation: fallbackExplanation(match, criteria)
   }));
 
-  const assistantMessage =
-    generated.assistantMessage ??
-    (await generateMatchIntroMessage({
-      criteria,
-      recommendationCount: recommendations.length,
-      lowConfidenceQuestion: options.lowConfidenceQuestion,
-      rejectedSummary: options.rejectedSummary
-    }));
+  if (llmExplanationsEnabled()) {
+    const generated = await generateWithLlm(selected.slice(0, 5), criteria, options.rejectedSummary ?? []);
+    if (generated.explanations.length) {
+      const byVehicle = new Map(generated.explanations.map((item) => [item.vehicleId, item.explanation]));
+      for (const match of recommendations) {
+        const rewritten = byVehicle.get(match.vehicle.id);
+        if (rewritten) match.explanation = rewritten;
+      }
+      if (generated.assistantMessage) {
+        return {
+          assistantMessage: generated.assistantMessage,
+          recommendations
+        };
+      }
+    }
+  }
+
+  const assistantMessage = await generateMatchIntroMessage({
+    criteria,
+    recommendationCount: recommendations.length,
+    lowConfidenceQuestion: options.lowConfidenceQuestion,
+    rejectedSummary: options.rejectedSummary
+  });
 
   return {
     assistantMessage,
     recommendations
   };
+}
+
+function llmExplanationsEnabled() {
+  return process.env.FLOWRYD_ENABLE_LLM_EXPLANATIONS === "1" && llmEnabled();
 }
 
 function fallbackExplanation(match: MatchResult, criteria: UserCriteria) {
@@ -210,33 +227,8 @@ async function generateWithLlm(
   rejectedSummary: RejectedSummary[] = []
 ): Promise<LlmSelection> {
   if (!llmEnabled()) return { explanations: [] };
-
-  const first = await generateWithLlmOnce(matches, criteria, rejectedSummary);
-  if (hasUsableLlmSelection(first)) return first;
-
-  const retry = await generateWithLlmOnce(matches, criteria, rejectedSummary);
-  return hasUsableLlmSelection(retry) ? retry : first.explanations.length ? first : retry;
-}
-
-function hasUsableLlmSelection(selection: LlmSelection) {
-  return selection.explanations.length > 0 || Boolean(selection.assistantMessage);
-}
-
-async function fillMissingExplanations(
-  matches: MatchResult[],
-  criteria: UserCriteria,
-  byVehicle: Map<string, string>,
-  rejectedSummary: RejectedSummary[] = []
-) {
-  const missing = matches.filter((match) => !byVehicle.has(match.vehicle.id));
-  if (!missing.length || !llmEnabled()) return byVehicle;
-
-  const retry = await generateWithLlm(missing.slice(0, 5), criteria, rejectedSummary);
-  for (const item of retry.explanations) {
-    byVehicle.set(item.vehicleId, item.explanation);
-  }
-
-  return byVehicle;
+  // Single attempt — retries on timeout are the main latency spike.
+  return generateWithLlmOnce(matches, criteria, rejectedSummary);
 }
 
 async function generateWithLlmOnce(
@@ -260,6 +252,7 @@ async function generateWithOpenAi(
       {
         model: openAiModel(),
         temperature: 0.2,
+        max_tokens: 1400,
         response_format: { type: "json_object" },
         messages: [
           {
@@ -291,44 +284,43 @@ export function buildExplanationInput(
     language: criteria.language,
     requiredResponseLanguage: languageLabel(criteria.language),
     responseLanguageInstruction: languageReplyInstruction(criteria.language),
-    criteria,
-    rejectedSummary,
+    criteriaSummary: [
+      criteria.budgetMaxEUR ? `budgetMaxEUR=${criteria.budgetMaxEUR}` : null,
+      criteria.budgetMinEUR ? `budgetMinEUR=${criteria.budgetMinEUR}` : null,
+      criteria.rangeFloorKm ? `rangeFloorKm=${criteria.rangeFloorKm}` : null,
+      criteria.bodyTypes.length ? `bodyTypes=${criteria.bodyTypes.join(",")}` : null,
+      criteria.brandPreferences.length ? `brands=${criteria.brandPreferences.join(",")}` : null,
+      criteria.modelPreferences.length ? `models=${criteria.modelPreferences.join(",")}` : null,
+      criteria.tripNeeds.length ? `tripNeeds=${criteria.tripNeeds.join(",")}` : null,
+      criteria.mustHaveFeatures.length ? `features=${criteria.mustHaveFeatures.join(",")}` : null
+    ].filter(Boolean),
+    rejectedSummary: rejectedSummary.slice(0, 3),
     matches: matches.slice(0, 5).map((match) => ({
       vehicleId: match.vehicle.id,
       vehicle: {
         make: match.vehicle.make,
         model: match.vehicle.model,
-        trim: match.vehicle.trim,
         year: match.vehicle.year,
         condition: match.vehicle.condition,
         bodyType: match.vehicle.bodyType,
         priceEUR: match.vehicle.priceEUR,
         monthlyLeaseEUR: match.vehicle.monthlyLeaseEUR,
         rangeKm: match.vehicle.rangeKm,
-        efficiencyKwhPer100Km: match.vehicle.efficiencyKwhPer100Km,
-        batteryKwh: match.vehicle.batteryKwh,
-        batterySoH: match.vehicle.batterySoH,
+        mileageKm: match.vehicle.mileageKm,
         drivetrain: match.vehicle.drivetrain,
         seats: match.vehicle.seats,
         cargoLiters: match.vehicle.cargoLiters,
-        features: match.vehicle.features,
-        warranty: match.vehicle.warranty,
+        features: match.vehicle.features.slice(0, 6),
         location: match.vehicle.location,
-        available: match.vehicle.available,
-        notes: match.vehicle.notes
+        available: match.vehicle.available
       },
       score: match.score,
-      ragScore: match.ragScore,
-      scoringBreakdown: match.scoringBreakdown,
-      tradeoffs: match.ruledOutReasons,
-      retrievedEvidence: match.ragEvidence.slice(0, 2).map((evidence, evidenceIndex) => ({
+      tradeoffs: match.ruledOutReasons.slice(0, 2),
+      retrievedEvidence: match.ragEvidence.slice(0, 1).map((evidence, evidenceIndex) => ({
         evidenceId: `E${evidenceIndex + 1}`,
-        sourceType: evidence.sourceType,
-        sourceId: evidence.sourceId,
         title: evidence.title,
-        sourceUrl: evidence.sourceUrl,
         topic: evidence.topic,
-        excerpt: evidence.excerpt,
+        excerpt: evidence.excerpt.slice(0, 140),
         score: evidence.score
       }))
     }))

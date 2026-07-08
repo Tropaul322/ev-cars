@@ -43,7 +43,9 @@ test("detects casual small talk and greetings", () => {
   assert.equal(isCasualSmallTalk("how are you"), true);
   assert.equal(isCasualSmallTalk("thanks!"), true);
   assert.equal(isCasualSmallTalk("Ok can you show them?"), false);
+  assert.equal(isCasualSmallTalk("Hey, can you find me a Chinese EV?"), false);
   assert.equal(classifyConversationTurn("Yooo, how are you ?"), "small_talk");
+  assert.equal(classifyConversationTurn("Hey, can you find me a Chinese EV?"), "criteria");
   assert.equal(classifyConversationTurn("What charging options are there?"), "ev_question");
   assert.equal(classifyConversationTurn("What about Ford?"), "criteria");
   assert.equal(classifyConversationTurn("Ok can you show them?"), "show_matches");

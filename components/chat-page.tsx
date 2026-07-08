@@ -1002,7 +1002,8 @@ function hydrateStoredChat(chat: StoredChat): {
     }
   }
 
-  return { messages, criteria, activePrompt };
+  // Welcome bubble is client-only and never persisted; keep it at the top of every thread.
+  return { messages: [...initialMessages, ...messages], criteria, activePrompt };
 }
 
 function extractStoredMatchResponse(

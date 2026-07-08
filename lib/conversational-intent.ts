@@ -117,6 +117,10 @@ export function isCasualSmallTalk(message: string) {
   if (!text) return false;
   if (text.length <= 3) return true;
   if (isExplicitShowMatches(text) || looksLikeBrandFocusQuestion(text)) return false;
+  // Greeting + shopping intent should go to criteria, not small-talk.
+  if (/\b(find|show|need|looking|search|budget|range|reichweite|preis|suche|zeig|brauch)\b/i.test(text)) {
+    return false;
+  }
   if (
     /^(thanks|thank you|danke|thx|ok|okay|cool|great|got it|understood|perfect|nice|cheers|sounds good|alright)([.!,\s]+(thanks|thank you|danke|thx|cool|great|perfect|nice|cheers))?[!?. ]*$/i.test(
       text
@@ -143,6 +147,7 @@ export function looksLikeEvQuestion(message: string) {
   const trimmed = message.trim();
   if (!trimmed) return false;
   if (isCasualSmallTalk(trimmed) || isAssistantMetaQuestion(trimmed)) return false;
+  if (looksLikeShoppingIntent(trimmed)) return false;
 
   const isQuestion =
     trimmed.endsWith("?") ||
@@ -152,6 +157,12 @@ export function looksLikeEvQuestion(message: string) {
 
   if (!isQuestion) return false;
   return evTopicPatterns.some((pattern) => pattern.test(trimmed));
+}
+
+function looksLikeShoppingIntent(message: string) {
+  return /\b(find( me)?|show( me)?|looking for|need|search|suche|zeig( mir)?|brauch(e)?|findest du|kannst du .*finden)\b/i.test(
+    message
+  );
 }
 
 export function detectPatternTriggers(message: string, currentPromptKey?: string | null): ConversationTrigger[] {
@@ -184,6 +195,7 @@ export function classifyConversationTurn(message: string): ConversationTurnKind 
   if (isAssistantMetaQuestion(text)) return "meta";
   if (isExplicitShowMatches(text) || looksLikeNextBatchRequest(text)) return "show_matches";
   if (looksLikeBrandFocusQuestion(text)) return "criteria";
+  if (looksLikeShoppingIntent(text)) return "criteria";
   if (isCasualSmallTalk(text)) return "small_talk";
   if (looksLikeEvQuestion(text)) return "ev_question";
   return "criteria";
@@ -283,6 +295,17 @@ async function classifyTriggerWithLlm(
 ): Promise<{ trigger: ConversationTrigger; criteriaPatch?: CriteriaPatch } | null> {
   if (!llmClassifierEnabled()) return null;
 
+  // Clear shopping criteria can skip the classifier — saves a serial LLM round-trip.
+  if (
+    patternHint === "criteria" &&
+    patternTriggers.includes("update_criteria") &&
+    !patternTriggers.includes("small_talk") &&
+    !patternTriggers.includes("meta") &&
+    !input.currentPromptKey
+  ) {
+    return null;
+  }
+
   const { createOpenAiChatCompletion, openAiChatTimeout, openAiConfigured, openAiModel } = await import("./openai-provider.ts");
   if (!openAiConfigured()) return null;
 
@@ -294,6 +317,7 @@ async function classifyTriggerWithLlm(
       {
         model: openAiModel(),
         temperature: 0,
+        max_tokens: 180,
         response_format: { type: "json_object" },
         messages: buildLlmMessages(
           triggerClassifierPrompt,
@@ -344,8 +368,8 @@ function pickPrimaryPatternTrigger(
     "brand_focus",
     "meta",
     "small_talk",
-    "clarify",
     "ev_question",
+    "clarify",
     "update_criteria"
   ];
 

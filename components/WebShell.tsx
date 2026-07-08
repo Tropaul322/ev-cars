@@ -23,6 +23,15 @@ function isNavActive(
   return pathname === href;
 }
 
+function getActiveNavHref(pathname: string) {
+  return (
+    navItems.find((item) => {
+      const matchPrefix = "matchPrefix" in item ? item.matchPrefix : undefined;
+      return isNavActive(pathname, item.href, matchPrefix);
+    })?.href ?? "/"
+  );
+}
+
 export function WebShell({
   children,
   transparentHeader = false,
@@ -37,6 +46,7 @@ export function WebShell({
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const heroHeader = transparentHeader && !scrolled;
+  const activeNavHref = getActiveNavHref(pathname);
 
   useEffect(() => {
     function onScroll() {
@@ -80,16 +90,18 @@ export function WebShell({
           <nav className="hidden md:flex items-center gap-1" aria-label="Primary">
             {navItems.map((item) => {
               const { href, label, icon: Icon } = item;
-              const matchPrefix = "matchPrefix" in item ? item.matchPrefix : undefined;
-              const active = isNavActive(pathname, href, matchPrefix);
+              const active = href === activeNavHref;
               return (
                 <Link
                   key={href}
                   href={href}
+                  aria-current={active ? "page" : undefined}
                   className={cn(
                     "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-colors duration-300",
                     active
-                      ? "bg-accent text-accent-foreground"
+                      ? heroHeader
+                        ? "bg-white/25 text-white shadow-sm"
+                        : "bg-accent text-accent-foreground"
                       : heroHeader
                         ? "text-white/90 hover:bg-white/15"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -118,15 +130,22 @@ export function WebShell({
         >
           {navItems.map((item) => {
             const { href, label, icon: Icon } = item;
-            const matchPrefix = "matchPrefix" in item ? item.matchPrefix : undefined;
-            const active = isNavActive(pathname, href, matchPrefix);
+            const active = href === activeNavHref;
             return (
               <Link
                 key={href}
                 href={href}
-                className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium ${
-                  active ? "text-primary" : "text-muted-foreground"
-                }`}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium",
+                  active
+                    ? heroHeader
+                      ? "text-white"
+                      : "text-primary"
+                    : heroHeader
+                      ? "text-white/70"
+                      : "text-muted-foreground",
+                )}
               >
                 <Icon className="size-5" strokeWidth={active ? 2.5 : 2} aria-hidden="true" />
                 {label}

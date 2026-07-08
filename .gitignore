@@ -8,6 +8,9 @@ coverage/
 *.tsbuildinfo
 dist/
 inventory-scraping/
+data/1
+data/imports
+
 # inventory-scraping/cache/
 # inventory-scraping/output/
 # inventory-scraping/crawl4ai/.venv/

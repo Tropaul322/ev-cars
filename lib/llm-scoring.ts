@@ -1,5 +1,4 @@
 import { criteriaSummary, languageLabel, languageReplyInstruction } from "./criteria.ts";
-import { llmDebug } from "./llm-debug.ts";
 import {
   createOpenAiChatCompletion,
   openAiChatTimeout,
@@ -19,11 +18,14 @@ export type LlmScoringResult = {
   usedLlm: boolean;
 };
 
+/** Keep the prompt small enough to finish inside the match-scoring timeout. */
+export const LLM_SCORING_CANDIDATE_LIMIT = 8;
+
 export const llmScoringSystemPrompt =
   "You are FlowRyd's EV fit-scoring engine for the Austrian market. " +
   "Each candidate vehicle already passed hard filters (budget ceiling, body type, brand, mileage, etc.). " +
   "Your job is to assign an overall fit score from 0 to 100 for how well each vehicle matches the shopper's intent. " +
-  "Use only the provided userMessage, criteria, vehicle facts, ruleScore hints, and retrievedEvidence. " +
+  "Use only the provided userMessage, criteriaSummary, vehicle facts, ruleScore hints, and retrievedEvidence. " +
   "Never invent specs, prices, range, or availability. " +
   "Scoring guidance: " +
   "90-100 excellent fit across budget, range, brand/model intent, use case, and features; " +
@@ -40,7 +42,13 @@ export const llmScoringSystemPrompt =
   "Every provided vehicleId must appear exactly once.";
 
 export function llmScoringEnabled() {
-  return process.env.FLOWRYD_DISABLE_LLM !== "1" && process.env.FLOWRYD_DISABLE_LLM_SCORING !== "1" && openAiConfigured();
+  // Opt-in only: scoring is too slow/timeout-prone on the match hot path.
+  return (
+    process.env.FLOWRYD_ENABLE_LLM_SCORING === "1" &&
+    process.env.FLOWRYD_DISABLE_LLM !== "1" &&
+    process.env.FLOWRYD_DISABLE_LLM_SCORING !== "1" &&
+    openAiConfigured()
+  );
 }
 
 export async function rankRecommendationsWithLlm(
@@ -53,7 +61,7 @@ export async function rankRecommendationsWithLlm(
     return { rankings: [], usedLlm: false };
   }
 
-  const candidates = matches.slice(0, 20);
+  const candidates = matches.slice(0, LLM_SCORING_CANDIDATE_LIMIT);
   const llmRankings = await scoreVehiclesWithLlm(candidates, criteria, message, ragContext);
   if (!llmRankings.length) {
     return { rankings: [], usedLlm: false };
@@ -98,17 +106,8 @@ async function scoreVehiclesWithLlm(
   message: string,
   ragContext?: RagContext
 ) {
-  const first = await scoreVehiclesWithLlmOnce(matches, criteria, message, ragContext);
-  if (hasUsableLlmRankings(first, matches)) return first;
-
-  const retry = await scoreVehiclesWithLlmOnce(matches, criteria, message, ragContext);
-  return hasUsableLlmRankings(retry, matches) ? retry : first.length ? first : retry;
-}
-
-function hasUsableLlmRankings(rankings: LlmVehicleRanking[], matches: MatchResult[]) {
-  if (rankings.length < Math.min(2, matches.length)) return false;
-  const validIds = new Set(matches.map((match) => match.vehicle.id));
-  return rankings.every((ranking) => validIds.has(ranking.vehicleId));
+  // Single attempt: retries double latency when the usual failure mode is timeout.
+  return scoreVehiclesWithLlmOnce(matches, criteria, message, ragContext);
 }
 
 async function scoreVehiclesWithLlmOnce(
@@ -125,6 +124,7 @@ async function scoreVehiclesWithLlmOnce(
       {
         model: openAiModel(),
         temperature: 0.1,
+        max_tokens: 700,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: llmScoringSystemPrompt },
@@ -138,14 +138,18 @@ async function scoreVehiclesWithLlmOnce(
     );
     const content = response.choices[0]?.message?.content;
     if (!content) return [];
-    return parseLlmScoringJson(content);
-  } catch (error) {
-    llmDebug("match-scoring", {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error)
-    });
+    const rankings = parseLlmScoringJson(content);
+    return hasUsableLlmRankings(rankings, matches) ? rankings : [];
+  } catch {
+    // createOpenAiChatCompletion already logs the timeout/error.
     return [];
   }
+}
+
+function hasUsableLlmRankings(rankings: LlmVehicleRanking[], matches: MatchResult[]) {
+  if (rankings.length < Math.min(2, matches.length)) return false;
+  const validIds = new Set(matches.map((match) => match.vehicle.id));
+  return rankings.every((ranking) => validIds.has(ranking.vehicleId));
 }
 
 export function buildLlmScoringInput(
@@ -160,14 +164,12 @@ export function buildLlmScoringInput(
     requiredResponseLanguage: languageLabel(criteria.language),
     responseLanguageInstruction: languageReplyInstruction(criteria.language),
     criteriaSummary: criteriaSummary(criteria),
-    criteria,
     ragTopicAffinity: ragContext?.topicAffinity ?? {},
-    vehicles: matches.map((match) => ({
+    vehicles: matches.slice(0, LLM_SCORING_CANDIDATE_LIMIT).map((match) => ({
       vehicleId: match.vehicle.id,
       vehicle: {
         make: match.vehicle.make,
         model: match.vehicle.model,
-        trim: match.vehicle.trim,
         year: match.vehicle.year,
         condition: match.vehicle.condition,
         bodyType: match.vehicle.bodyType,
@@ -175,28 +177,20 @@ export function buildLlmScoringInput(
         priceEUR: match.vehicle.priceEUR,
         monthlyLeaseEUR: match.vehicle.monthlyLeaseEUR,
         rangeKm: match.vehicle.rangeKm,
-        efficiencyKwhPer100Km: match.vehicle.efficiencyKwhPer100Km,
-        batteryKwh: match.vehicle.batteryKwh,
         batterySoH: match.vehicle.batterySoH,
         mileageKm: match.vehicle.mileageKm,
         drivetrain: match.vehicle.drivetrain,
         seats: match.vehicle.seats,
         cargoLiters: match.vehicle.cargoLiters,
-        features: match.vehicle.features,
-        location: match.vehicle.location,
-        available: match.vehicle.available,
-        notes: match.vehicle.notes,
-        reviewTags: match.vehicle.reviewTags
+        features: match.vehicle.features.slice(0, 8),
+        available: match.vehicle.available
       },
       ruleScore: match.score,
-      scoringBreakdown: match.scoringBreakdown,
-      tradeoffs: match.ruledOutReasons,
-      retrievedEvidence: match.ragEvidence.slice(0, 2).map((evidence, evidenceIndex) => ({
+      tradeoffs: match.ruledOutReasons.slice(0, 2),
+      retrievedEvidence: match.ragEvidence.slice(0, 1).map((evidence, evidenceIndex) => ({
         evidenceId: `E${evidenceIndex + 1}`,
-        sourceType: evidence.sourceType,
-        title: evidence.title,
         topic: evidence.topic,
-        excerpt: evidence.excerpt,
+        excerpt: evidence.excerpt.slice(0, 160),
         score: evidence.score
       }))
     }))

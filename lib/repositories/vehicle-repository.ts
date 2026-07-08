@@ -2,7 +2,7 @@ import { allVehicles } from "../data/all-vehicles.ts";
 import { VEHICLE_REVALIDATE_SECONDS } from "../cache.ts";
 import { createEmbeddingWithProvider } from "../embeddings.ts";
 import { normalizeVehicleFeatures } from "../feature-normalization.ts";
-import { normalizeLocationSearchTerm } from "../location-search.ts";
+import { resolveInventoryLocationFilter } from "../location-search.ts";
 import { matchDebug, matchDebugWarn } from "../match-debug.ts";
 import { estimateMonthlyVehiclePayment } from "../tco.ts";
 import type { UserCriteria, Vehicle } from "../types.ts";
@@ -32,7 +32,7 @@ type SupabaseVehicleRow = {
   similarity?: number;
 };
 
-const SUPABASE_VEHICLE_LIMIT = "500";
+const SUPABASE_VEHICLE_LIMIT = "120";
 const VEHICLE_SELECT = "id,payload";
 
 export async function listVehicles(): Promise<Vehicle[]> {
@@ -309,7 +309,7 @@ function buildVehicleEmbeddingQuery(criteria: UserCriteria, message: string) {
     criteria.brandPreferences.join(" "),
     criteria.modelPreferences.join(" "),
     criteria.chargingAccess,
-    criteria.location,
+    resolveInventoryLocationFilter(criteria.location),
     criteria.cargoNeeds,
     criteria.preferredCondition,
     criteria.rangeFloorKm ? `${criteria.rangeFloorKm} km range reichweite` : null,
@@ -345,11 +345,9 @@ export function buildVehicleSearchParams(criteria: UserCriteria, offset = 0) {
   if (criteria.batteryHealthRequired && criteria.batterySoHMin) {
     params.set("battery_soh", `gte.${criteria.batterySoHMin}`);
   }
-  if (criteria.location) {
-    params.set(
-      "location",
-      `ilike.${buildPostgrestIlikePattern(normalizeLocationSearchTerm(criteria.location))}`
-    );
+  const locationFilter = resolveInventoryLocationFilter(criteria.location);
+  if (locationFilter) {
+    params.set("location", `ilike.${buildPostgrestIlikePattern(locationFilter)}`);
   }
 
   if (criteria.brandPreferences.length) {
@@ -455,7 +453,7 @@ function summarizeVehicleSearchFilters(criteria: UserCriteria) {
     brandPreferences: criteria.brandPreferences,
     modelPreferences: criteria.modelPreferences,
     avoidedBrands: criteria.avoidedBrands,
-    location: criteria.location,
+    location: resolveInventoryLocationFilter(criteria.location),
     mustHaveFeatures: criteria.mustHaveFeatures
   };
 }

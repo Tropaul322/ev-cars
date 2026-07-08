@@ -34,8 +34,9 @@ import {
   vehiclePrimaryMatchKey
 } from "./match-diagnostics.ts";
 import { matchDebug } from "./match-debug.ts";
-import { retrieveRagContext } from "./rag.ts";
+import { buildRagContext, retrieveRagContext } from "./rag.ts";
 import { recoverShownVehicleKeysFromChat, listChatMessages } from "./repositories/chat-repository.ts";
+import { listKnowledgeDocuments } from "./repositories/knowledge-repository.ts";
 import {
   getMatchSession,
   saveMatchSession
@@ -297,7 +298,9 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
   }
 
   const candidateVehicles = await searchVehicles(criteria, body.message, { offset: searchOffset });
-  const scoringVehicles = dedupeVehiclesForMatching(candidateVehicles.length ? candidateVehicles : await listVehicles());
+  const scoringVehicles = dedupeVehiclesForMatching(
+    candidateVehicles.length ? candidateVehicles : await listVehicles()
+  );
   const structuredHits = candidateVehicles.length;
   const embeddingHits = candidateVehicles.filter((vehicle) => (vehicle.embeddingSimilarity ?? 0) > 0).length;
   matchDebug("candidate-pool", {
@@ -319,7 +322,14 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     matchingCandidates: matchingCandidates.length,
     modelBuckets: new Set(matchingCandidates.map(vehicleModelKey)).size
   });
-  const ragContext = await retrieveRagContext(body.message, criteria, matchingCandidates);
+  // Keyword RAG only on the match hot path — search already paid for an embedding.
+  const knowledgeDocuments = await listKnowledgeDocuments();
+  const ragContext = buildRagContext({
+    message: body.message,
+    criteria,
+    vehicles: matchingCandidates,
+    documents: knowledgeDocuments
+  });
   const recommendationLimit = resolveRecommendationLimit(criteria);
   const result = matchVehicles(matchingCandidates, criteria, MATCH_CANDIDATE_LIMIT, { ragContext });
   const llmScoring = await rankRecommendationsWithLlm(
@@ -412,17 +422,26 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     };
   }
 
-  const finalSelection = await selectAndExplainMatches(diversifiedRecommendations, criteria, {
-    maxRecommendations: recommendationLimit,
-    rejectedSummary,
-    lowConfidenceQuestion:
-      confidence < 0.72 && missingCriteria.includes("use_case")
-        ? await generateLowConfidenceQuestion(criteria, conversationHistory)
-        : null
-  });
+  const needsLowConfidenceQuestion = confidence < 0.72 && missingCriteria.includes("use_case");
+  const [lowConfidenceQuestion, finalSelection] = await Promise.all([
+    needsLowConfidenceQuestion
+      ? generateLowConfidenceQuestion(criteria, conversationHistory)
+      : Promise.resolve(null),
+    selectAndExplainMatches(diversifiedRecommendations, criteria, {
+      maxRecommendations: recommendationLimit,
+      rejectedSummary
+    })
+  ]);
+
+  const recommendations = finalSelection.recommendations;
+  const assistantMessage =
+    lowConfidenceQuestion && !finalSelection.assistantMessage.includes(lowConfidenceQuestion)
+      ? `${finalSelection.assistantMessage}\n\n${lowConfidenceQuestion}`
+      : finalSelection.assistantMessage;
+
   nextSelectedVehicleIds = new Set([
     ...(!isNextBatch || body.criteriaOverride ? [] : shownVehicleIds),
-    ...finalSelection.recommendations.flatMap((match) => vehicleExclusionKeys(match.vehicle))
+    ...recommendations.flatMap((match) => vehicleExclusionKeys(match.vehicle))
   ]);
 
   await saveMatchSession({
@@ -436,11 +455,11 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     {
       type: "matches",
       sessionId,
-      assistantMessage: finalSelection.assistantMessage,
-      message: finalSelection.assistantMessage,
+      assistantMessage,
+      message: assistantMessage,
       criteria,
       missingCriteria,
-      recommendations: finalSelection.recommendations,
+      recommendations,
       ragCitations: ragContext.documents,
       rejectedSummary
     },
