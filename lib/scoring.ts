@@ -16,6 +16,7 @@ import type {
   Vehicle
 } from "./types.ts";
 import { getRagEvidenceForVehicle } from "./rag.ts";
+import { buildRecommendationReasonLedger } from "./recommendation-reasons.ts";
 import { blendSemanticSignals, scoreVehicleTopicAffinity } from "./semantic-scoring.ts";
 import { calculateTco, estimateMonthlyVehiclePayment } from "./tco.ts";
 import {
@@ -102,7 +103,7 @@ export function matchVehicles(
     const ragScore = getRagScore(vehicle, options.ragContext);
     const ruleScore = applySemanticScoreBlend(baseScore, vehicle, criteria, options.ragContext);
 
-    passed.push({
+    const match = {
       vehicle,
       score: ruleScore,
       ruleScore,
@@ -114,6 +115,10 @@ export function matchVehicles(
       explanation: "",
       ruledOutReasons: summarizeTradeoffs(vehicle, criteria, scoringBreakdown),
       tco
+    } satisfies Omit<MatchResult, "reasonLedger">;
+    passed.push({
+      ...match,
+      reasonLedger: buildRecommendationReasonLedger(match, criteria)
     });
   }
 

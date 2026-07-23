@@ -214,6 +214,20 @@ export type ScoringBreakdown = {
   featureFit: number;
 };
 
+export type RecommendationReason = {
+  field: keyof Vehicle;
+  label: string;
+  value: string | number | boolean;
+};
+
+export type RecommendationReasonLedger = {
+  positiveReasons: RecommendationReason[];
+  tradeoffs: string[];
+  passedHardFilters: string[];
+  factorContributions: Partial<ScoringBreakdown>;
+  evidenceIds: string[];
+};
+
 export type TcoBreakdown = {
   purchasePriceWithVAT: number;
   incentivesApplied: number;
@@ -257,6 +271,7 @@ export type MatchResult = {
   ragEvidence: RagEvidence[];
   hardFilterStatus: "passed";
   scoringBreakdown: ScoringBreakdown;
+  reasonLedger: RecommendationReasonLedger;
   explanation: string;
   ruledOutReasons: string[];
   tco: TcoBreakdown;

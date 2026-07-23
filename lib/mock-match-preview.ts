@@ -83,6 +83,13 @@ function demoCarToMatchResult(car: DemoCar, listingIndex: number): MatchResult {
     ragEvidence: [],
     hardFilterStatus: "passed",
     scoringBreakdown: previewScoring,
+    reasonLedger: {
+      positiveReasons: [],
+      tradeoffs: [],
+      passedHardFilters: ["market", "availability"],
+      factorContributions: previewScoring,
+      evidenceIds: [],
+    },
     explanation: demoSummaries[car.id] ?? "Strong match for your daily driving needs.",
     ruledOutReasons: [],
     tco: {
