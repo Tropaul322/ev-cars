@@ -13,7 +13,6 @@ import { filterVehiclesWithSanityChecks, runMatchRequest, withPipelineFallback }
 import { detectPromptInjection, promptInjectionResponse } from "../lib/prompt-guard.ts";
 import { saveMatchSession } from "../lib/repositories/match-session-repository.ts";
 import { buildRagContext } from "../lib/rag.ts";
-import { buildRecommendationReasonLedger } from "../lib/recommendation-reasons.ts";
 import { getSupabaseRestConfig } from "../lib/repositories/supabase-rest.ts";
 import { deriveWeights, getHardFilterReasons, matchVehicles, scorePrice, scoreVehicle } from "../lib/scoring.ts";
 import { calculateTco } from "../lib/tco.ts";
@@ -524,7 +523,7 @@ test("hard filters keep recommendations inside purchase budget", () => {
 test("reason ledger uses vehicle fields and exposes one trade-off", () => {
   const criteria = extractCriteria("SUV under 50000 EUR for family trips, at least 400 km range");
   const match = matchVehicles(seedVehicles, criteria).recommendations[0]!;
-  const ledger = buildRecommendationReasonLedger(match, criteria);
+  const ledger = match.reasonLedger;
 
   assert.ok(ledger.positiveReasons.every((reason) => reason.field in match.vehicle));
   assert.ok(ledger.passedHardFilters.includes("budget"));
