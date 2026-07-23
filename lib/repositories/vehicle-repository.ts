@@ -19,6 +19,7 @@ import {
   isPlausiblePurchasePrice,
   resolveVehicleSearchOrder
 } from "../vehicle-search-helpers.ts";
+import { expandVehicleSearchLexicon } from "../vehicle-search-lexicon.ts";
 import {
   vehicleEmbeddingMinSimilarity,
   vehicleEmbeddingSearchEnabled,
@@ -83,13 +84,14 @@ export async function searchVehicles(
     return [];
   }
 
-  const queryText = buildVehicleEmbeddingQuery(criteria, message);
+  const embeddingQuery = buildVehicleEmbeddingQuery(criteria, message);
+  const ftsQuery = buildVehicleFtsQuery(criteria, message);
   let queryEmbedding: string | null = null;
   let embeddingQueryStatus: "ok" | "disabled" | "unavailable" = "disabled";
   let embeddingProvider: string | undefined;
 
   if (embeddingEnabled) {
-    const embeddingResult = await createEmbeddingWithProvider(queryText, "query");
+    const embeddingResult = await createEmbeddingWithProvider(embeddingQuery, "query");
     embeddingQueryStatus = embeddingResult.status;
     embeddingProvider = "provider" in embeddingResult ? embeddingResult.provider : undefined;
     if (embeddingResult.embedding) {
@@ -102,7 +104,9 @@ export async function searchVehicles(
           embeddingResult.status === "disabled"
             ? "FLOWRYD_DISABLE_EMBEDDINGS=1"
             : "No query embedding provider succeeded; hybrid text search only",
-        queryPreview: queryText.slice(0, 160)
+        queryPreview: embeddingQuery.slice(0, 160),
+        ftsQueryPreview: ftsQuery.slice(0, 160),
+        embeddingQueryPreview: embeddingQuery.slice(0, 160)
       });
     }
   }
@@ -112,7 +116,7 @@ export async function searchVehicles(
       method: "POST",
       headers: supabase.headers,
       body: JSON.stringify({
-        query_text: queryText,
+        query_text: ftsQuery,
         query_embedding: queryEmbedding,
         filters: buildHybridSearchFilters(criteria),
         match_count: vehicleEmbeddingSearchLimit(),
@@ -147,6 +151,8 @@ export async function searchVehicles(
       searchOffset: offset,
       filteredVehicles: filtered.length,
       returnedVehicles: paged.length,
+      ftsQueryPreview: ftsQuery.slice(0, 160),
+      embeddingQueryPreview: embeddingQuery.slice(0, 160),
       queryFilters: summarizeVehicleSearchFilters(criteria),
       brandPreferences: criteria.brandPreferences,
       modelPreferences: criteria.modelPreferences
@@ -258,10 +264,18 @@ function normalizeSupabaseVehicles(vehicles: Vehicle[]) {
   return withListingImages.length ? withListingImages : vehicles;
 }
 
-function buildVehicleEmbeddingQuery(criteria: UserCriteria, message: string) {
+export function buildVehicleFtsQuery(criteria: UserCriteria, message: string) {
+  const lexicon = expandVehicleSearchLexicon(criteria, message);
+  // websearch_to_tsquery treats spaces as AND; OR so any document-aligned token can hit.
+  return lexicon.ftsTokens.join(" or ").trim();
+}
+
+export function buildVehicleEmbeddingQuery(criteria: UserCriteria, message: string) {
+  const lexicon = expandVehicleSearchLexicon(criteria, message);
   return [
     message,
     criteria.rawPrompt,
+    ...lexicon.embeddingPhrases,
     criteria.bodyTypes.join(" "),
     criteria.tripNeeds.join(" "),
     criteria.mustHaveFeatures.join(" "),

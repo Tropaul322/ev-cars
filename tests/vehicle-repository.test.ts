@@ -4,6 +4,8 @@ import { emptyCriteria } from "../lib/criteria.ts";
 import { seedVehicles } from "../lib/data/seed-vehicles.ts";
 import {
   buildHybridSearchFilters,
+  buildVehicleEmbeddingQuery,
+  buildVehicleFtsQuery,
   buildVehicleSearchParams,
   filterVehiclesForSearch,
   searchVehicles
@@ -206,4 +208,66 @@ test("vehicle search applies location and origin fallbacks", () => {
     params.get("or"),
     "(brand_origin.in.(korea),manufacturer_country_code.in.(KR))"
   );
+});
+
+test("FTS query is lexical and shorter than embedding query for style asks", () => {
+  const criteria = {
+    ...emptyCriteria("any sporty 2 seater car"),
+    optimizationDirective: "performance" as const,
+    passengers: 2,
+    budgetMaxEUR: 80000
+  };
+  const message = "any sporty 2 seater car";
+  const fts = buildVehicleFtsQuery(criteria, message);
+  const emb = buildVehicleEmbeddingQuery(criteria, message);
+  assert.ok(fts.length > 0);
+  assert.ok(emb.length > fts.length);
+  assert.ok(/ or /i.test(fts), "lexicon tokens must use websearch OR semantics");
+  assert.ok(/2-seater|zweisitzer/i.test(fts));
+  assert.ok(/sporty|sportlich/i.test(emb), "embedding keeps style phrases");
+  assert.ok(!/80000/.test(fts), "budget numbers should not dilute FTS");
+  assert.ok(/80000|budget/i.test(emb));
+});
+
+test("hybrid RPC receives ftsQuery as query_text", async () => {
+  const criteria = {
+    ...emptyCriteria("sporty 2 seater"),
+    optimizationDirective: "performance" as const,
+    passengers: 2
+  };
+  let posted: Record<string, unknown> | null = null;
+  const originalFetch = globalThis.fetch;
+  const originalUrl = process.env.SUPABASE_URL;
+  const originalKey = process.env.SUPABASE_ANON_KEY;
+  process.env.SUPABASE_URL = "https://example.supabase.co";
+  process.env.SUPABASE_ANON_KEY = "test-anon-key";
+  process.env.FLOWRYD_VEHICLE_STRUCTURED_SEARCH = "1";
+  process.env.FLOWRYD_DISABLE_EMBEDDINGS = "1";
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/rest/v1/rpc/search_vehicles_hybrid") && init?.method === "POST") {
+      posted = JSON.parse(String(init.body));
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    return originalFetch(input, init);
+  };
+
+  try {
+    await searchVehicles(criteria, "sporty 2 seater");
+    assert.ok(posted);
+    const expectedFts = buildVehicleFtsQuery(criteria, "sporty 2 seater");
+    assert.equal(posted.query_text, expectedFts);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalUrl === undefined) delete process.env.SUPABASE_URL;
+    else process.env.SUPABASE_URL = originalUrl;
+    if (originalKey === undefined) delete process.env.SUPABASE_ANON_KEY;
+    else process.env.SUPABASE_ANON_KEY = originalKey;
+    delete process.env.FLOWRYD_VEHICLE_STRUCTURED_SEARCH;
+    delete process.env.FLOWRYD_DISABLE_EMBEDDINGS;
+  }
 });
