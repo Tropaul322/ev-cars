@@ -5,6 +5,7 @@ import {
   getCriteriaConfidence,
   getMissingCriteria,
   hasReplaceIntent,
+  looksLikeBrandWidenRequest,
   normalizeCriteriaShape
 } from "./criteria.ts";
 import { buildLlmMessages, type LlmConversationTurn } from "./llm-conversation.ts";
@@ -82,6 +83,9 @@ Core rules:
 6. Capture optimization intent in criteriaPatch.optimizationDirective:
    best_value, maximum_range, most_reliable, fastest_charging, lowest_running_cost, best_family_fit, or performance.
 7. When the latest message is a true pivot ("forget that", "actually show me X instead", switching from family SUV to sports 2-seater), only return fields implied by the new request. The server resets old topic filters before applying your patch.
+8. Brand-only previousCriteria + new seats/body/sport/family profile without naming that brand → treat as pivot: do not keep brandPreferences/modelPreferences; server also resets topic filters.
+9. Mild refinements (budget, features, charging only) keep prior brandPreferences.
+10. "other brands" / "any brand" / "andere Marken" → criteriaPatch.remove: ["brand","model"] (and empty brand/model lists). Do NOT invent bodyTypes, tripNeeds, passengers, or optimizationDirective on brand-widen — only clear brand/model.
 
 Modification modes:
 - ADD (default): append to list fields or update scalars without dropping unrelated prior values.
@@ -115,21 +119,41 @@ export async function normalizeCriteria({
     return await buildNormalization(message, normalizeCriteriaShape(criteriaOverride), {}, conversationHistory);
   }
 
+  const widen = looksLikeBrandWidenRequest(message);
   const mergeBase =
     previousCriteria && isTopicPivot(message, previousCriteria)
       ? buildPivotBase(previousCriteria)
-      : previousCriteria;
+      : previousCriteria && widen
+        ? normalizeCriteriaShape({
+            ...normalizeCriteriaShape(previousCriteria),
+            brandPreferences: [],
+            modelPreferences: []
+          })
+        : previousCriteria;
 
   const fallbackCriteria = extractCriteria(message, mergeBase ?? undefined);
   const fallbackPatch = diffCriteria(previousCriteria, fallbackCriteria);
 
   const llmPatch = await generateCriteriaPatch(message, mergeBase ?? null, conversationHistory);
   if (!llmPatch) {
-    return await buildNormalization(message, fallbackCriteria, fallbackPatch, conversationHistory);
+    const criteria = enforcePivotBrandClears(message, previousCriteria, fallbackCriteria);
+    return await buildNormalization(message, criteria, fallbackPatch, conversationHistory);
   }
 
-  const criteria = applyCriteriaPatch(mergeBase ?? fallbackCriteria, llmPatch, message, Boolean(mergeBase));
-  return await buildNormalization(message, criteria, llmPatch, conversationHistory);
+  const patch = widen ? sanitizeBrandWidenPatch(llmPatch) : llmPatch;
+  let criteria = applyCriteriaPatch(mergeBase ?? fallbackCriteria, patch, message, Boolean(mergeBase));
+  criteria = enforcePivotBrandClears(message, previousCriteria, criteria);
+  return await buildNormalization(message, criteria, patch, conversationHistory);
+}
+
+/** Brand-widen turns must only clear brand/model — drop speculative LLM field dumps. */
+export function sanitizeBrandWidenPatch(patch: CriteriaPatch): CriteriaPatch {
+  return {
+    remove: mergeUnique(patch.remove ?? [], ["brand", "model"]),
+    brandPreferences: [],
+    modelPreferences: [],
+    ...(patch.language ? { language: patch.language } : {})
+  };
 }
 
 export function applyCriteriaPatch(
@@ -570,7 +594,68 @@ function hasTopicConflict(message: string, previousCriteria: UserCriteria, extra
     if (!overlap) return true;
   }
 
+  if (isBrandOnlyProfilePivot(previousCriteria, extracted, message)) return true;
+
   return false;
+}
+
+function introducesVehicleProfile(extracted: UserCriteria, message: string) {
+  return Boolean(
+    extracted.passengers ||
+      extracted.bodyTypes.length ||
+      extracted.tripNeeds.length ||
+      extracted.optimizationDirective === "performance" ||
+      /(?:\b(?:2|two)[-\s]?(?:seater|sitzer)\b|\bsports?\b|\bcoupe\b|\broadster\b|\bsportlich\b|\bperformance\b|\bfamily\b|\bfamilie\b|\bsuv\b)/i.test(
+        message
+      )
+  );
+}
+
+function messageRestatesPriorBrands(message: string, previousCriteria: UserCriteria) {
+  return previousCriteria.brandPreferences.some((brand) =>
+    new RegExp(`\\b${brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(message)
+  );
+}
+
+/** Brand-only (or brand without prior seats/body/trip/performance) → new vehicle profile without restating brand. */
+function isBrandOnlyProfilePivot(
+  previousCriteria: UserCriteria,
+  extracted: UserCriteria,
+  message: string
+) {
+  if (!previousCriteria.brandPreferences.length) return false;
+  if (messageRestatesPriorBrands(message, previousCriteria)) return false;
+  if (!introducesVehicleProfile(extracted, message)) return false;
+
+  const priorHadProfile = Boolean(
+    previousCriteria.passengers ||
+      previousCriteria.bodyTypes.length ||
+      previousCriteria.tripNeeds.length ||
+      previousCriteria.optimizationDirective === "performance"
+  );
+  return !priorHadProfile;
+}
+
+function enforcePivotBrandClears(
+  message: string,
+  previousCriteria: UserCriteria | null | undefined,
+  criteria: UserCriteria
+): UserCriteria {
+  if (!previousCriteria) return criteria;
+  const widen = looksLikeBrandWidenRequest(message);
+  const pivoted = isTopicPivot(message, previousCriteria);
+  if (!widen && !pivoted) return criteria;
+  if (!widen && messageRestatesPriorBrands(message, previousCriteria)) return criteria;
+  if (!criteria.brandPreferences.length && !criteria.modelPreferences.length) return criteria;
+  return normalizeCriteriaShape({
+    ...criteria,
+    brandPreferences: widen || !messageRestatesPriorBrands(message, previousCriteria)
+      ? []
+      : criteria.brandPreferences,
+    modelPreferences: widen || !messageRestatesPriorBrands(message, previousCriteria)
+      ? []
+      : criteria.modelPreferences
+  });
 }
 
 function buildPivotBase(previousCriteria: UserCriteria): UserCriteria {

@@ -8,6 +8,7 @@ import { detectLanguage, emptyCriteria, extractCriteria, hasHardPassengerConstra
 import { applyChipPatch, applyCriteriaPatch, isTopicPivot, normalizeCriteria } from "../lib/criteria-normalizer.ts";
 import type { MissingCriteria, OptimizationDirective, Vehicle } from "../lib/types.ts";
 import { seedVehicles } from "../lib/data/seed-vehicles.ts";
+import { fallbackMatchIntroMessage } from "../lib/assistant-messages.ts";
 import { parseLlmExplanationJson } from "../lib/explanations.ts";
 import { filterVehiclesWithSanityChecks, runMatchRequest, withPipelineFallback } from "../lib/match-service.ts";
 import { detectPromptInjection, promptInjectionResponse } from "../lib/prompt-guard.ts";
@@ -378,6 +379,145 @@ test("non-pivot refinements preserve compatible prior criteria", async () => {
   assert.deepEqual(normalized.criteria.tripNeeds, previous.tripNeeds);
   assert.equal(normalized.criteria.cargoNeeds, previous.cargoNeeds);
   assert.equal(normalized.criteria.passengers, previous.passengers);
+});
+
+test("brand-only prior pivots to sporty 2-seater and clears brand", async () => {
+  const previous = extractCriteria("Ford cars under 40000 EUR");
+  assert.ok(previous.brandPreferences.some((b) => /ford/i.test(b)));
+  assert.equal(isTopicPivot("any sporty 2 seater car", previous), true);
+
+  const normalized = await normalizeCriteria({
+    message: "any sporty 2 seater car",
+    previousCriteria: previous
+  });
+
+  assert.equal(normalized.criteria.budgetMaxEUR, 40000);
+  assert.deepEqual(normalized.criteria.brandPreferences, []);
+  assert.deepEqual(normalized.criteria.modelPreferences, []);
+  assert.equal(normalized.criteria.passengers, 2);
+});
+
+test("brand focus survives mild budget refinement", async () => {
+  const previous = extractCriteria("Family SUV Ford under 60000 EUR with big cargo");
+  assert.equal(isTopicPivot("make it under 45k", previous), false);
+
+  const normalized = await normalizeCriteria({
+    message: "make it under 45k",
+    previousCriteria: previous
+  });
+
+  assert.equal(normalized.criteria.budgetMaxEUR, 45000);
+  assert.ok(normalized.criteria.brandPreferences.some((b) => /ford/i.test(b)));
+});
+
+test("restating the brand during a profile ask keeps that brand", async () => {
+  const previous = extractCriteria("Ford cars under 40000 EUR");
+  assert.equal(isTopicPivot("sporty Ford 2-seater", previous), false);
+
+  const normalized = await normalizeCriteria({
+    message: "sporty Ford 2-seater",
+    previousCriteria: previous
+  });
+
+  assert.ok(normalized.criteria.brandPreferences.some((b) => /ford/i.test(b)));
+  assert.equal(normalized.criteria.passengers, 2);
+});
+
+test("brand-widen with empty brands does not use alternatives cache", async () => {
+  const previous = extractCriteria(
+    "Family SUV under 60000 EUR for 5 passengers, public charging, 420 km range."
+  );
+  assert.deepEqual(previous.brandPreferences, []);
+
+  const scored = matchVehicles(seedVehicles, previous).recommendations.slice(0, 3);
+  assert.ok(scored.length >= 3);
+
+  const response = await runMatchRequest({
+    message: "What other car brands can you suggest?",
+    previousCriteria: previous,
+    cachedRecommendations: scored
+  });
+
+  assert.notEqual(response.type, "chat");
+  assert.ok(response.type === "matches" || response.type === "no_matches");
+  if (response.type === "matches") {
+    assert.equal(response.responseMode, "primary");
+    assert.doesNotMatch(response.assistantMessage, /prepared alternatives/i);
+  }
+});
+
+test("brand-widen clears brands and grounds intro in match makes", async () => {
+  const previous = extractCriteria(
+    "Ford sporty 2-seater under 40000 EUR, public charging, best value."
+  );
+  assert.ok(previous.brandPreferences.length);
+
+  const data = await runMatchRequest({
+    message: "What other car brands can you suggest?",
+    previousCriteria: previous,
+    intent: "show_matches"
+  });
+
+  assert.deepEqual(data.criteria.brandPreferences, []);
+  assert.ok(data.type === "matches" || data.type === "no_matches");
+
+  if (data.type === "matches") {
+    const makes = [...new Set(data.recommendations.map((r) => r.vehicle.make))];
+    assert.equal(data.criteria.brandPreferences.includes("Ford"), false);
+    if (makes.length) {
+      assert.ok(
+        makes.some((make) => data.assistantMessage.toLowerCase().includes(make.toLowerCase())),
+        `expected intro to mention one of ${makes.join(", ")}`
+      );
+    }
+  }
+});
+
+test("fallbackMatchIntroMessage lists inventory brands when provided", () => {
+  const criteria = emptyCriteria("x", "en");
+  const msg = fallbackMatchIntroMessage(criteria, 3, null, ["Mazda", "BMW"]);
+  assert.match(msg, /Mazda/);
+  assert.match(msg, /BMW/);
+  assert.doesNotMatch(msg, /Toyota/);
+});
+
+test("isMatchIntroGrounded rejects encyclopedia brands and sticky preference framing", async () => {
+  const { isMatchIntroGrounded } = await import("../lib/assistant-messages.ts");
+  assert.equal(
+    isMatchIntroGrounded("Other brands in these results: Ford, AION.", ["Ford", "AION"], {
+      brandPreferences: []
+    }),
+    true
+  );
+  assert.equal(
+    isMatchIntroGrounded("Try Mazda, Toyota, or BMW for sporty cars.", ["Ford"], {
+      brandPreferences: [],
+      brandWiden: true
+    }),
+    false
+  );
+  assert.equal(
+    isMatchIntroGrounded("I've found some sporty 2-seater Ford cars for you.", ["Ford"], {
+      brandPreferences: []
+    }),
+    false
+  );
+});
+
+test("sanitizeBrandWidenPatch drops speculative bodyTypes", async () => {
+  const { sanitizeBrandWidenPatch } = await import("../lib/criteria-normalizer.ts");
+  const clean = sanitizeBrandWidenPatch({
+    remove: ["brand"],
+    bodyTypes: ["compact", "hatchback", "sedan", "suv", "crossover", "wagon", "van", "other", "minibus"],
+    optimizationDirective: "performance",
+    language: "en"
+  });
+  assert.deepEqual(clean.remove?.sort(), ["brand", "model"].sort());
+  assert.deepEqual(clean.brandPreferences, []);
+  assert.deepEqual(clean.modelPreferences, []);
+  assert.equal(clean.language, "en");
+  assert.equal("bodyTypes" in clean, false);
+  assert.equal("optimizationDirective" in clean, false);
 });
 
 test("scores in-range prices near the top of the budget band", () => {

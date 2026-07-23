@@ -13,9 +13,10 @@ import {
   mergeConversationTurnClassification,
   parseTriggerJson,
   parseTurnKindJson,
-  resolveConversationTurn
+  resolveConversationTurn,
+  resolveConversationTurnPatternOnly
 } from "../lib/conversational-intent.ts";
-import { looksLikeBrandFocusQuestion, extractCriteria } from "../lib/criteria.ts";
+import { looksLikeBrandFocusQuestion, looksLikeBrandWidenRequest, extractCriteria } from "../lib/criteria.ts";
 import { getSupabaseRestConfig } from "../lib/repositories/supabase-rest.ts";
 import { runMatchRequest } from "../lib/match-service.ts";
 
@@ -74,6 +75,32 @@ test("detectPatternTriggers surfaces likely handlers for follow-up requests", ()
   assert.deepEqual(detectPatternTriggers("Ok can you show them?"), ["show_matches"]);
   assert.ok(detectPatternTriggers("What about Ford?").includes("brand_focus"));
   assert.ok(detectPatternTriggers("show more").includes("next_batch"));
+});
+
+test("detects brand-widen requests in EN and DE", () => {
+  assert.equal(looksLikeBrandWidenRequest("What other car brands you can suggest?"), true);
+  assert.equal(looksLikeBrandWidenRequest("What other brands can you suggest?"), true);
+  assert.equal(looksLikeBrandWidenRequest("any brand is fine"), true);
+  assert.equal(looksLikeBrandWidenRequest("welche Marken kannst du vorschlagen?"), true);
+  assert.equal(looksLikeBrandWidenRequest("andere Marken bitte"), true);
+  assert.equal(looksLikeBrandWidenRequest("egal welche Marke"), true);
+  assert.equal(looksLikeBrandWidenRequest("What about Ford?"), false);
+  assert.equal(looksLikeBrandWidenRequest("show me sporty 2-seaters"), false);
+});
+
+test("brand-widen patterns prefer update_criteria over ev_question", () => {
+  const triggers = detectPatternTriggers("What other car brands can you suggest?");
+  assert.ok(triggers.includes("update_criteria"));
+  assert.equal(triggers.includes("ev_question"), false);
+  assert.equal(classifyConversationTurn("What other car brands can you suggest?"), "criteria");
+});
+
+test("pattern-only resolution clears brand on brand-widen", () => {
+  const resolved = resolveConversationTurnPatternOnly({
+    message: "What other car brands can you suggest?"
+  });
+  assert.equal(resolved.trigger, "update_criteria");
+  assert.deepEqual(resolved.criteriaPatch?.remove?.slice().sort(), ["brand", "model"]);
 });
 
 test("routes English and German why-recommendation follow-ups to explanation", () => {

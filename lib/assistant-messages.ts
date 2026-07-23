@@ -277,19 +277,87 @@ export async function generateMatchIntroMessage(input: {
   recommendationCount: number;
   lowConfidenceQuestion?: string | null;
   rejectedSummary?: RejectedSummary[];
+  inventoryBrands?: string[];
+  brandWiden?: boolean;
 }): Promise<string> {
+  const brands = [...new Set((input.inventoryBrands ?? []).filter(Boolean))];
   const fallback = () =>
-    fallbackMatchIntroMessage(input.criteria, input.recommendationCount, input.lowConfidenceQuestion);
+    fallbackMatchIntroMessage(
+      input.criteria,
+      input.recommendationCount,
+      input.lowConfidenceQuestion,
+      input.brandWiden ? brands : undefined
+    );
+
+  // Brand-widen intros must stay inventory-grounded; prefer the deterministic sentence.
+  if (input.brandWiden) return fallback();
+
+  const emptyBrandPrefs = !input.criteria.brandPreferences.length;
+  const brandRule = emptyBrandPrefs
+    ? " criteria.brandPreferences is empty — do not frame results as a preferred-brand search (avoid phrases like \"Ford cars for you\"). You may name makes only if they appear in inventoryBrands, as examples from the result set."
+    : "";
+
   const generated = await generateMessage("match_intro", {
-    task: "Briefly introduce the ranked EV listings. Mention that hard limits like budget, availability, and explicit range were respected. Add the lowConfidenceQuestion when provided.",
+    task:
+      "Briefly introduce the ranked EV listings. Mention that hard limits like budget, availability, and explicit range were respected. Add the lowConfidenceQuestion when provided. Never invent car brands that are absent from inventoryBrands." +
+      brandRule,
     language: input.criteria.language,
     recommendationCount: input.recommendationCount,
     lowConfidenceQuestion: input.lowConfidenceQuestion ?? null,
     rejectedSummary: input.rejectedSummary ?? [],
-    criteria: input.criteria
+    criteria: input.criteria,
+    inventoryBrands: brands,
+    brandWiden: false
   });
 
-  return generated ?? fallback();
+  if (!generated) return fallback();
+  if (
+    !isMatchIntroGrounded(generated, brands, {
+      brandPreferences: input.criteria.brandPreferences
+    })
+  ) {
+    return fallback();
+  }
+  return generated;
+}
+
+const MATCH_INTRO_BRAND_GUARD =
+  /\b(?:Mazda|Toyota|BMW|Audi|Mercedes(?:-Benz)?|Volkswagen|VW|Hyundai|Kia|Nissan|Honda|Ford|Tesla|Porsche|Volvo|Peugeot|Renault|Opel|Skoda|Škoda|Cupra|BYD|Polestar|Mini|Fiat|Jeep|Lexus|Seat|Citroën|Citroen|AION|Leapmotor|XPENG|MG|Volvo)\b/gi;
+
+/** Reject LLM intros that invent brands or sticky preferred-brand framing when prefs are empty. */
+export function isMatchIntroGrounded(
+  message: string,
+  inventoryBrands: string[],
+  options: { brandPreferences?: string[]; brandWiden?: boolean } = {}
+): boolean {
+  const allowed = new Set(
+    [...inventoryBrands, ...(options.brandPreferences ?? [])].map((brand) => brand.toLowerCase())
+  );
+  const mentioned = message.match(MATCH_INTRO_BRAND_GUARD) ?? [];
+  for (const brand of mentioned) {
+    if (!allowed.has(brand.toLowerCase())) return false;
+  }
+
+  if (!(options.brandPreferences ?? []).length) {
+    if (/\b[\w.-]+\s+(?:cars?|evs?|listings?)\s+for you\b/i.test(message) && mentioned.length) {
+      return false;
+    }
+    if (/\bsporty\b[\s\w-]*\b(?:Ford|Tesla|BMW|Mazda|Toyota)\s+cars?\b/i.test(message)) {
+      return false;
+    }
+  }
+
+  if (
+    options.brandWiden &&
+    inventoryBrands.length > 1 &&
+    /\b(?:no other brands|don'?t have other brands|do not have other brands|keine anderen Marken)\b/i.test(
+      message
+    )
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 export async function generateLowConfidenceQuestion(
@@ -418,12 +486,20 @@ export function fallbackNoMoreMatchesMessage(criteria: UserCriteria) {
 export function fallbackMatchIntroMessage(
   criteria: UserCriteria,
   recommendationCount: number,
-  lowConfidenceQuestion?: string | null
+  lowConfidenceQuestion?: string | null,
+  inventoryBrands?: string[]
 ) {
+  const brands = [...new Set((inventoryBrands ?? []).filter(Boolean))];
+  const brandSentence =
+    brands.length === 0
+      ? ""
+      : criteria.language === "de"
+        ? ` Andere Marken in diesen Treffern: ${brands.join(", ")}.`
+        : ` Other brands in these results: ${brands.join(", ")}.`;
   const base =
     criteria.language === "de"
-      ? `${recommendationCount} passende E-Auto${recommendationCount === 1 ? "" : "s"} gefunden. Ich habe harte Grenzen wie Budget, Verfuegbarkeit und explizite Reichweite zuerst eingehalten.`
-      : `Found ${recommendationCount} matching EV${recommendationCount === 1 ? "" : "s"}. I kept hard limits like budget, availability, and explicit range first.`;
+      ? `${recommendationCount} passende E-Auto${recommendationCount === 1 ? "" : "s"} gefunden. Ich habe harte Grenzen wie Budget, Verfuegbarkeit und explizite Reichweite zuerst eingehalten.${brandSentence}`
+      : `Found ${recommendationCount} matching EV${recommendationCount === 1 ? "" : "s"}. I kept hard limits like budget, availability, and explicit range first.${brandSentence}`;
   return lowConfidenceQuestion ? `${base} ${lowConfidenceQuestion}` : base;
 }
 

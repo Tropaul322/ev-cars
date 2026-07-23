@@ -25,6 +25,7 @@ import {
   getCriteriaConfidence,
   getCriteriaReadiness,
   getMissingCriteria,
+  looksLikeBrandWidenRequest,
   looksLikeNoBudgetLimit
 } from "./criteria.ts";
 import { applyChipPatch, normalizeCriteria } from "./criteria-normalizer.ts";
@@ -200,10 +201,13 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
   }
   const isNextBatch =
     trigger === "next_batch" || (looksLikeNextBatchRequest(body.message) && Boolean(previousCriteria));
+  const brandWiden = looksLikeBrandWidenRequest(body.message);
   const isShowAlternatives =
     body.intent === "show_alternatives" ||
     trigger === "show_alternatives" ||
-    (looksLikeAlternativesRequest(body.message) && Boolean(previousCriteria));
+    (looksLikeAlternativesRequest(body.message) &&
+      Boolean(previousCriteria) &&
+      !brandWiden);
   let skippedKeys = (body.skippedKeys ?? []).filter(isMissingCriteriaKey);
 
   let criteria: UserCriteria;
@@ -317,7 +321,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     confidence
   });
 
-  if (isShowAlternatives && !criteriaChanged) {
+  if (isShowAlternatives && !brandWiden && !criteriaChanged) {
     const cachedRecommendations = sessionState.cachedRecommendations;
     if (cachedRecommendations.length > VISIBLE_RECOMMENDATION_LIMIT) {
       const recommendations = cachedRecommendations.slice(VISIBLE_RECOMMENDATION_LIMIT, CACHED_RECOMMENDATION_LIMIT);
@@ -413,6 +417,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
 
   const isChatTurn =
     !body.criteriaPatch &&
+    !brandWiden &&
     (trigger === "small_talk" ||
       trigger === "meta" ||
       (trigger === "ev_question" && !criteriaChanged));
@@ -720,9 +725,10 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       () =>
         selectAndExplainMatches(diversifiedRecommendations, criteria, {
           maxRecommendations: explanationLimit,
-          rejectedSummary
+          rejectedSummary,
+          brandWiden
         }),
-      () => fallbackSelection(diversifiedRecommendations, criteria, explanationLimit)
+      () => fallbackSelection(diversifiedRecommendations, criteria, explanationLimit, brandWiden)
     )
   ]);
 
@@ -736,9 +742,12 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     VISIBLE_RECOMMENDATION_LIMIT,
     CACHED_RECOMMENDATION_LIMIT
   );
+  const inventoryBrands = brandWiden
+    ? [...new Set(cachedRecommendations.map((match) => match.vehicle.make).filter(Boolean))]
+    : undefined;
   const assistantMessage = appendLowConfidenceQuestion(
     finalSelection.assistantMessage ||
-      fallbackMatchIntroMessage(criteria, recommendations.length, lowConfidenceQuestion),
+      fallbackMatchIntroMessage(criteria, recommendations.length, lowConfidenceQuestion, inventoryBrands),
     lowConfidenceQuestion
   );
   const responseDiagnostics = buildMatchDiagnostics({
@@ -871,15 +880,24 @@ function isFiniteNumberInRange(value: number, min: number, max: number) {
 function fallbackSelection(
   matches: MatchResult[],
   criteria: UserCriteria,
-  limit: number
+  limit: number,
+  brandWiden = false
 ) {
   const recommendations = matches.slice(0, limit).map((match) => ({
     ...match,
     explanation: match.explanation || fallbackExplanation(match, criteria)
   }));
+  const inventoryBrands = brandWiden
+    ? [...new Set(recommendations.map((match) => match.vehicle.make).filter(Boolean))]
+    : undefined;
 
   return {
-    assistantMessage: fallbackMatchIntroMessage(criteria, recommendations.length),
+    assistantMessage: fallbackMatchIntroMessage(
+      criteria,
+      recommendations.length,
+      null,
+      inventoryBrands
+    ),
     recommendations
   };
 }

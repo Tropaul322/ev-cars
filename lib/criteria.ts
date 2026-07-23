@@ -695,6 +695,19 @@ export function looksLikeBrandFocusQuestion(text: string) {
   return extractBrandPreferences(trimmed).length > 0;
 }
 
+export function looksLikeBrandWidenRequest(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return (
+    /\b((what|which)\s+other\s+(car\s+)?brands?\b|\bother\s+(car\s+)?brands?\b|\bany\s+brand\b|\bany\s+make\b|\bbrand\s+doesn'?t\s+matter\b|\bno\s+brand\s+preference\b)/i.test(
+      trimmed
+    ) ||
+    /\b(andere\s+marken|welche\s+marken|egal\s+welche\s+marke|marke\s+egal|egal\s+welche\s+marke)\b/i.test(
+      trimmed
+    )
+  );
+}
+
 function extractRemovals(text: string) {
   const removals = new Set<CriteriaChipKey>();
   const hasRemoveIntent = /\b(remove|clear|delete|reset|ignore|forget|egal|entferne|loesche|lösche|vergiss)\b/i.test(text);

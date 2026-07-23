@@ -70,6 +70,7 @@ export async function selectAndExplainMatches(
     maxRecommendations?: number;
     lowConfidenceQuestion?: string | null;
     rejectedSummary?: RejectedSummary[];
+    brandWiden?: boolean;
   } = {}
 ): Promise<FinalRecommendationSelection> {
   const maxRecommendations = options.maxRecommendations ?? 8;
@@ -88,7 +89,7 @@ export async function selectAndExplainMatches(
         const rewritten = byVehicle.get(match.vehicle.id);
         if (rewritten) match.explanation = rewritten;
       }
-      if (generated.assistantMessage) {
+      if (generated.assistantMessage && !options.brandWiden) {
         return {
           assistantMessage: generated.assistantMessage,
           recommendations
@@ -101,7 +102,9 @@ export async function selectAndExplainMatches(
     criteria,
     recommendationCount: recommendations.length,
     lowConfidenceQuestion: options.lowConfidenceQuestion,
-    rejectedSummary: options.rejectedSummary
+    rejectedSummary: options.rejectedSummary,
+    inventoryBrands: recommendations.map((m) => m.vehicle.make),
+    brandWiden: Boolean(options.brandWiden)
   });
 
   return {
