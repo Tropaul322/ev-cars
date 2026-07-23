@@ -542,6 +542,11 @@ function mapVehicleRow(row: SupabaseVehicleRow): Vehicle | null {
   const vehicle = sanitizeVehicleImages(row.payload);
   const mapped: Vehicle = {
     ...vehicle,
+    // Marketplace payloads often omit SoH; normalize to null so downstream null-checks work.
+    batterySoH:
+      typeof vehicle.batterySoH === "number" && Number.isFinite(vehicle.batterySoH)
+        ? vehicle.batterySoH
+        : null,
     features: normalizeVehicleFeatures(vehicle.features, vehicle)
   };
   if (typeof row.semantic_similarity === "number" && Number.isFinite(row.semantic_similarity)) {

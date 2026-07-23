@@ -671,6 +671,10 @@ test("retrieve-stage sanity validation drops implausible candidates before scori
   const insaneEfficiency: Vehicle = { ...base, id: "insane-efficiency", efficiencyKwhPer100Km: 900 };
   const insaneSeats: Vehicle = { ...base, id: "insane-seats", seats: 99 };
   const insaneBattery: Vehicle = { ...base, id: "insane-battery", batteryKwh: 5 };
+  const missingSoH = { ...base, id: "missing-soh" } as Vehicle;
+  delete (missingSoH as { batterySoH?: number | null }).batterySoH;
+  const nullSoH: Vehicle = { ...base, id: "null-soh", batterySoH: null };
+  const insaneSoH: Vehicle = { ...base, id: "insane-soh", batterySoH: 12 };
 
   const result = filterVehiclesWithSanityChecks([
     base,
@@ -678,13 +682,16 @@ test("retrieve-stage sanity validation drops implausible candidates before scori
     insanePrice,
     insaneEfficiency,
     insaneSeats,
-    insaneBattery
+    insaneBattery,
+    missingSoH,
+    nullSoH,
+    insaneSoH
   ]);
 
-  assert.equal(result.rejectedCount, 5);
+  assert.equal(result.rejectedCount, 6);
   assert.deepEqual(
     result.vehicles.map((vehicle) => vehicle.id),
-    [base.id]
+    [base.id, missingSoH.id, nullSoH.id]
   );
 });
 

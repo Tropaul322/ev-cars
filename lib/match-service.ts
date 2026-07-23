@@ -563,6 +563,16 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       usedFallbackList: true
     })
   );
+  // Pipeline timeout/error fallback returns an empty scoring pool; load the catalog list so matching
+  // still has candidates (same path as an empty hybrid/structured search).
+  if (!retrieved.scoringVehicles.length) {
+    const listFallback = dedupeVehiclesForMatching(await listVehicles());
+    if (listFallback.length) {
+      retrieved.scoringVehicles = listFallback;
+      retrieved.usedFallbackList = true;
+      if (!pipelineFallbacks.fallbackSource) pipelineFallbacks.fallbackSource = "retrieve_empty";
+    }
+  }
   if (retrieved.usedFallbackList && !pipelineFallbacks.fallbackSource) {
     pipelineFallbacks.fallbackSource = "retrieve_empty";
   }
@@ -877,7 +887,8 @@ function isSaneVehicleForScoring(vehicle: Vehicle) {
     isFiniteNumberInRange(vehicle.seats, 1, 9) &&
     isFiniteNumberInRange(vehicle.cargoLiters, 0, 3_000) &&
     isFiniteNumberInRange(vehicle.powerKw, 20, 1_000) &&
-    (vehicle.batterySoH === null || isFiniteNumberInRange(vehicle.batterySoH, 50, 100))
+    // Missing SoH is common on marketplace payloads (undefined/null) — treat as unknown, not insane.
+    (vehicle.batterySoH == null || isFiniteNumberInRange(vehicle.batterySoH, 50, 100))
   );
 }
 
