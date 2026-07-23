@@ -10,6 +10,7 @@ import {
   extractCriteria,
   getCriteriaConfidence,
   getMissingCriteria,
+  hasExactSeatPreference,
   hasHardPassengerConstraint,
   languageLabel,
   languageReplyInstruction,
@@ -906,6 +907,50 @@ test("family-inferred passengers are soft but explicit seat constraints are hard
     explicitResult.rejected.some(
       (item) => item.vehicle.id === "two-seat-roadster" && item.reasons.some((reason) => reason.includes("only 2 seats"))
     )
+  );
+});
+
+test("2-seater phrasing prioritizes exact seat count over larger cars", () => {
+  const template = seedVehicles[0];
+  assert.ok(template);
+  const twoSeatRoadster: Vehicle = {
+    ...template,
+    id: "exact-two-seater",
+    make: "Test",
+    model: "Roadster",
+    bodyType: "coupe",
+    seats: 2,
+    cargoLiters: 120,
+    priceEUR: 45000,
+    rangeKm: 400,
+    powerKw: 250,
+    features: []
+  };
+  const fiveSeatFamily: Vehicle = {
+    ...template,
+    id: "larger-five-seater",
+    make: "Test",
+    model: "Family",
+    bodyType: "suv",
+    seats: 5,
+    cargoLiters: 620,
+    priceEUR: 43000,
+    rangeKm: 420,
+    powerKw: 150,
+    features: []
+  };
+
+  const criteria = extractCriteria("sporty 2 seater EV under 60000 EUR");
+  assert.equal(criteria.passengers, 2);
+  assert.equal(hasExactSeatPreference(criteria), true);
+
+  const result = matchVehicles([fiveSeatFamily, twoSeatRoadster], criteria, 2);
+  assert.equal(result.recommendations.length, 2);
+  assert.equal(result.recommendations[0]?.vehicle.id, "exact-two-seater");
+  assert.equal(result.recommendations[1]?.vehicle.id, "larger-five-seater");
+  assert.ok(
+    (result.recommendations[0]?.score ?? 0) > (result.recommendations[1]?.score ?? 0),
+    "exact 2-seater should outscore larger fallback"
   );
 });
 

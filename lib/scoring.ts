@@ -1,5 +1,6 @@
 import { normalizeVehicleFeatures } from "./feature-normalization.ts";
 import {
+  hasExactSeatPreference,
   hasHardBodyTypeConstraint,
   hasHardBrandConstraint,
   hasHardBrandOriginConstraint,
@@ -371,7 +372,16 @@ function scoreBrand(vehicle: Vehicle, criteria: UserCriteria) {
 
 function scoreCargoPassengers(vehicle: Vehicle, criteria: UserCriteria) {
   let score = 78;
-  if (criteria.passengers) score += vehicle.seats >= criteria.passengers ? 12 : -40;
+  if (criteria.passengers) {
+    if (vehicle.seats === criteria.passengers) {
+      score += hasExactSeatPreference(criteria) ? 22 : 12;
+    } else if (vehicle.seats > criteria.passengers) {
+      // "2-seater" means prefer exact capacity; larger cars stay eligible but rank lower.
+      score += hasExactSeatPreference(criteria) ? -30 : 12;
+    } else {
+      score -= 40;
+    }
+  }
   if (criteria.cargoNeeds === "high") score += vehicle.cargoLiters >= 500 ? 18 : vehicle.cargoLiters >= 440 ? 8 : -24;
   if (criteria.cargoNeeds === "medium") score += vehicle.cargoLiters >= 380 ? 12 : -12;
   if (criteria.tripNeeds.includes("family")) {

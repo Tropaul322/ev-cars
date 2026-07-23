@@ -982,6 +982,14 @@ export function hasHardPassengerConstraint(criteria: UserCriteria) {
   );
 }
 
+/** "2-seater" / "zweisitzer" / "only 2 seats" — prefer exact capacity, not merely seats >= N. */
+export function hasExactSeatPreference(criteria: UserCriteria) {
+  if (!criteria.passengers) return false;
+  return /\b(?:\d|two|three|four|five|six|zwei|drei|vier|fünf|fuenf|sechs)[-\s]?(?:seater|sitzer)\b|\b(?:only|nur)\s+\d\s?(?:seats?|sitze|personen)\b/i.test(
+    constraintSourceText(criteria)
+  );
+}
+
 const exclusiveCue =
   /\b(only|must|need|needs|required|require|requires|at least|minimum|min\.?|mindestens|nur|brauche|benötige|benoetige|ausschließlich|ausschliesslich)\b/i;
 
