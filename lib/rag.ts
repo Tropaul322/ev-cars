@@ -1,12 +1,6 @@
 import { computeTopicAffinity } from "./semantic-scoring.ts";
-import { createQueryEmbedding } from "./embeddings.ts";
 import type { KnowledgeDocument } from "./repositories/knowledge-repository.ts";
-import {
-  inferTopic,
-  listKnowledgeChunks,
-  listKnowledgeDocuments,
-  matchKnowledgeChunksByEmbedding
-} from "./repositories/knowledge-repository.ts";
+import { inferTopic } from "./repositories/knowledge-repository.ts";
 import type { Feature, RagContext, RagEvidence, UserCriteria, Vehicle } from "./types.ts";
 import { vehicleTitle, buildVehicleEmbeddingText } from "./vehicle-embedding-text.ts";
 import {
@@ -107,21 +101,12 @@ export async function retrieveRagContext(
   criteria: UserCriteria,
   vehicles: Vehicle[]
 ): Promise<RagContext> {
-  const query = buildQuery(message, criteria);
-  const queryEmbedding = await createQueryEmbedding(query);
-  const [documents, chunks, embeddedChunks] = await Promise.all([
-    listKnowledgeDocuments(),
-    listKnowledgeChunks(),
-    queryEmbedding ? matchKnowledgeChunksByEmbedding(queryEmbedding, 8) : Promise.resolve([])
-  ]);
-  const chunkDocuments = mergeKnowledgeDocuments([...embeddedChunks, ...chunks]);
-  const mergedDocuments = chunkDocuments.length ? chunkDocuments : mergeKnowledgeDocuments(documents);
-
+  // Knowledge RAG disconnected — skip knowledge_documents / knowledge_chunks retrieval.
   return buildRagContext({
     message,
     criteria,
     vehicles,
-    documents: mergedDocuments
+    documents: []
   });
 }
 
@@ -244,14 +229,6 @@ function rankDocuments(
   }
 
   return evidence;
-}
-
-function mergeKnowledgeDocuments(documents: KnowledgeDocument[]) {
-  const byId = new Map<string, KnowledgeDocument>();
-  for (const document of documents) {
-    if (!byId.has(document.id)) byId.set(document.id, document);
-  }
-  return [...byId.values()];
 }
 
 function rankVehicles(

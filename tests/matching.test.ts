@@ -4,7 +4,18 @@ import path from "node:path";
 import test from "node:test";
 import { getClarificationPrompt, getOptimizationPrompt } from "../lib/clarification-catalog.ts";
 import { resolveClarificationAnswer } from "../lib/clarification-resolver.ts";
-import { detectLanguage, emptyCriteria, extractCriteria, hasHardPassengerConstraint, languageLabel, languageReplyInstruction, needsClarification, removeCriteriaKey } from "../lib/criteria.ts";
+import {
+  detectLanguage,
+  emptyCriteria,
+  extractCriteria,
+  getCriteriaConfidence,
+  getMissingCriteria,
+  hasHardPassengerConstraint,
+  languageLabel,
+  languageReplyInstruction,
+  needsClarification,
+  removeCriteriaKey
+} from "../lib/criteria.ts";
 import { applyChipPatch, applyCriteriaPatch, isTopicPivot, normalizeCriteria } from "../lib/criteria-normalizer.ts";
 import type { MissingCriteria, OptimizationDirective, Vehicle } from "../lib/types.ts";
 import { seedVehicles } from "../lib/data/seed-vehicles.ts";
@@ -1198,6 +1209,70 @@ test("match route returns Tesla Model Y and not Tesla Model 3 after the first-tu
     assert.equal(recommendation.vehicle.make, "Tesla");
     assert.equal(recommendation.vehicle.model, "Model Y");
   }
+  assert.doesNotMatch(
+    data.assistantMessage,
+    /prioritize lower mileage|longer range, or premium comfort/i
+  );
+});
+
+test("shouldAskLowConfidencePriorityQuestion skips after optimization is chosen", async () => {
+  const { shouldAskLowConfidencePriorityQuestion } = await import("../lib/match-service.ts");
+  const withOptimization = {
+    ...emptyCriteria("Ford under 40000", "en"),
+    budgetMaxEUR: 40000,
+    brandPreferences: ["Ford"],
+    optimizationDirective: "best_value" as const
+  };
+  assert.equal(
+    shouldAskLowConfidencePriorityQuestion(
+      getCriteriaConfidence(withOptimization),
+      withOptimization,
+      getMissingCriteria(withOptimization)
+    ),
+    false
+  );
+
+  const withoutOptimization = {
+    ...emptyCriteria("Ford under 40000", "en"),
+    budgetMaxEUR: 40000,
+    brandPreferences: ["Ford"]
+  };
+  assert.equal(
+    shouldAskLowConfidencePriorityQuestion(
+      getCriteriaConfidence(withoutOptimization),
+      withoutOptimization,
+      getMissingCriteria(withoutOptimization)
+    ),
+    true
+  );
+});
+
+test("isMatchIntroGrounded ignores seat/mini common-word false positives", async () => {
+  const { isMatchIntroGrounded } = await import("../lib/assistant-messages.ts");
+  assert.equal(
+    isMatchIntroGrounded("These EVs include heated seat options and solid winter range.", ["Ford", "BMW"], {
+      brandPreferences: ["Ford"]
+    }),
+    true
+  );
+  assert.equal(
+    isMatchIntroGrounded("A mini city EV can be enough for short trips.", ["Ford", "BMW"], {
+      brandPreferences: []
+    }),
+    true
+  );
+  assert.equal(
+    isMatchIntroGrounded("The Mini Cooper SE is a fun option.", ["Ford", "BMW"], {
+      brandPreferences: []
+    }),
+    false
+  );
+  assert.equal(
+    isMatchIntroGrounded("SEAT and Cupra both show up in this set.", ["Cupra"], {
+      brandPreferences: []
+    }),
+    false
+  );
 });
 
 matchRoute("match route collects criteria across turns and auto-matches when ready", async () => {

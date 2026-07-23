@@ -49,9 +49,8 @@ import {
 import { matchDebug } from "./match-debug.ts";
 import { detectPromptInjection, promptInjectionResponse } from "./prompt-guard.ts";
 import { attachSearchCriteriaDebug } from "./search-criteria-debug.ts";
-import { buildRagContext, retrieveRagContext } from "./rag.ts";
+import { buildRagContext } from "./rag.ts";
 import { recoverShownVehicleKeysFromChat, listChatMessages } from "./repositories/chat-repository.ts";
-import { listKnowledgeDocuments } from "./repositories/knowledge-repository.ts";
 import {
   getMatchSession,
   saveMatchSession
@@ -107,6 +106,21 @@ export type MatchServiceRequest = {
   cachedRecommendations?: MatchResult[];
   selectedVehicleIds?: string[];
 };
+
+/** Soft priority follow-up after matches — skip once the user already chose an optimization. */
+const PRIORITY_QUALITATIVE_SIGNALS = new Set(["low_mileage", "premium", "road_trip_comfort"]);
+
+export function shouldAskLowConfidencePriorityQuestion(
+  confidence: number,
+  criteria: UserCriteria,
+  missingCriteria: MissingCriteria[]
+) {
+  if (criteria.optimizationDirective) return false;
+  if (criteria.qualitativeSignals.some((signal) => PRIORITY_QUALITATIVE_SIGNALS.has(signal))) {
+    return false;
+  }
+  return confidence < 0.72 && missingCriteria.includes("use_case");
+}
 
 export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchResponse> {
   const sessionId = body.sessionId ?? crypto.randomUUID();
@@ -467,11 +481,9 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
           conversationHistory
         });
       } else {
-        const ragContext = await retrieveRagContext(body.message, criteria, []);
         assistantMessage = await generateConversationalResponse({
           message: body.message,
           criteria,
-          ragEvidence: ragContext.documents.slice(0, 3).map((doc) => doc.excerpt),
           conversationHistory
         });
       }
@@ -581,19 +593,12 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     matchingCandidates: matchingCandidates.length,
     modelBuckets: new Set(matchingCandidates.map(vehicleModelKey)).size
   });
-  // Keyword RAG only on the match hot path — search already paid for an embedding.
-  const knowledgeDocuments = await withPipelineFallback(
-    "knowledge",
-    deadline,
-    pipelineFallbacks,
-    () => listKnowledgeDocuments(),
-    () => []
-  );
+  // Knowledge RAG disconnected — vehicle keyword context only (no knowledge_documents/chunks).
   const ragContext = buildRagContext({
     message: body.message,
     criteria,
     vehicles: matchingCandidates,
-    documents: knowledgeDocuments
+    documents: []
   });
   const result = await withPipelineFallback(
     "filter_score",
@@ -706,7 +711,11 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     );
   }
 
-  const needsLowConfidenceQuestion = confidence < 0.72 && missingCriteria.includes("use_case");
+  const needsLowConfidenceQuestion = shouldAskLowConfidencePriorityQuestion(
+    confidence,
+    criteria,
+    missingCriteria
+  );
   const explanationLimit = Math.min(resolveRecommendationLimit(criteria), CACHED_RECOMMENDATION_LIMIT);
   const [lowConfidenceQuestion, finalSelection] = await Promise.all([
     needsLowConfidenceQuestion

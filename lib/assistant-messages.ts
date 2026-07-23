@@ -192,7 +192,7 @@ export async function generateConversationalResponse(input: {
     "conversational",
     {
       task:
-        "Reply naturally to the user's message. If it is a general EV or shopping question, answer it directly using ragEvidence when helpful. If stepContext is provided and the question relates to the current matching step, you may use it as background — but do not paste it verbatim and do not force the user back into a form-like flow. Do not ask them to tap buttons or chips. Keep it conversational." +
+        "Reply naturally to the user's message. If it is a general EV or shopping question, answer it directly from your knowledge. If stepContext is provided and the question relates to the current matching step, you may use it as background — but do not paste it verbatim and do not force the user back into a form-like flow. Do not ask them to tap buttons or chips. Keep it conversational." +
         (continues
           ? " This chat is already underway — do not re-introduce yourself or repeat your opening pitch."
           : ""),
@@ -200,7 +200,6 @@ export async function generateConversationalResponse(input: {
       language: input.criteria.language,
       knownCriteria: criteriaSummary(input.criteria),
       stepContext: input.stepContext ?? null,
-      ragEvidence: input.ragEvidence ?? [],
       conversationContinues: continues
     },
     history
@@ -289,31 +288,35 @@ export async function generateMatchIntroMessage(input: {
       input.brandWiden ? brands : undefined
     );
 
-  // Brand-widen intros must stay inventory-grounded; prefer the deterministic sentence.
-  if (input.brandWiden) return fallback();
-
+  // Brand-widen intros may use the LLM, but must stay inventory-grounded via isMatchIntroGrounded.
   const emptyBrandPrefs = !input.criteria.brandPreferences.length;
   const brandRule = emptyBrandPrefs
     ? " criteria.brandPreferences is empty — do not frame results as a preferred-brand search (avoid phrases like \"Ford cars for you\"). You may name makes only if they appear in inventoryBrands, as examples from the result set."
     : "";
+  const widenRule = input.brandWiden
+    ? " This is a brand-widen rematch: name only makes present in inventoryBrands; do not claim the catalog has no other brands when multiple makes are listed."
+    : "";
 
   const generated = await generateMessage("match_intro", {
     task:
-      "Briefly introduce the ranked EV listings. Mention that hard limits like budget, availability, and explicit range were respected. Add the lowConfidenceQuestion when provided. Never invent car brands that are absent from inventoryBrands." +
-      brandRule,
+      "Briefly introduce the ranked EV listings in a natural conversational way. Do not reuse a fixed template. Mention hard filters only if relevant, without the phrase \"hard limits like budget, availability, and explicit range\". Add the lowConfidenceQuestion only when it is a non-null string; otherwise do not invent a priority follow-up." +
+      brandRule +
+      widenRule +
+      " Never invent car brands that are absent from inventoryBrands.",
     language: input.criteria.language,
     recommendationCount: input.recommendationCount,
     lowConfidenceQuestion: input.lowConfidenceQuestion ?? null,
     rejectedSummary: input.rejectedSummary ?? [],
     criteria: input.criteria,
     inventoryBrands: brands,
-    brandWiden: false
+    brandWiden: Boolean(input.brandWiden)
   });
 
   if (!generated) return fallback();
   if (
     !isMatchIntroGrounded(generated, brands, {
-      brandPreferences: input.criteria.brandPreferences
+      brandPreferences: input.criteria.brandPreferences,
+      brandWiden: Boolean(input.brandWiden)
     })
   ) {
     return fallback();
@@ -322,7 +325,10 @@ export async function generateMatchIntroMessage(input: {
 }
 
 const MATCH_INTRO_BRAND_GUARD =
-  /\b(?:Mazda|Toyota|BMW|Audi|Mercedes(?:-Benz)?|Volkswagen|VW|Hyundai|Kia|Nissan|Honda|Ford|Tesla|Porsche|Volvo|Peugeot|Renault|Opel|Skoda|Škoda|Cupra|BYD|Polestar|Mini|Fiat|Jeep|Lexus|Seat|Citroën|Citroen|AION|Leapmotor|XPENG|MG|Volvo)\b/gi;
+  /\b(?:Mazda|Toyota|BMW|Audi|Mercedes(?:-Benz)?|Volkswagen|VW|Hyundai|Kia|Nissan|Honda|Ford|Tesla|Porsche|Volvo|Peugeot|Renault|Opel|Skoda|Škoda|Cupra|BYD|Polestar|Fiat|Jeep|Lexus|Citroën|Citroen|AION|Leapmotor|XPENG|MG)\b/gi;
+
+/** Brands that collide with common English words — match capitalized/all-caps forms only. */
+const MATCH_INTRO_AMBIGUOUS_BRAND_GUARD = /\b(?:Mini|SEAT|Seat)\b/g;
 
 /** Reject LLM intros that invent brands or sticky preferred-brand framing when prefs are empty. */
 export function isMatchIntroGrounded(
@@ -333,7 +339,10 @@ export function isMatchIntroGrounded(
   const allowed = new Set(
     [...inventoryBrands, ...(options.brandPreferences ?? [])].map((brand) => brand.toLowerCase())
   );
-  const mentioned = message.match(MATCH_INTRO_BRAND_GUARD) ?? [];
+  const mentioned = [
+    ...(message.match(MATCH_INTRO_BRAND_GUARD) ?? []),
+    ...(message.match(MATCH_INTRO_AMBIGUOUS_BRAND_GUARD) ?? [])
+  ];
   for (const brand of mentioned) {
     if (!allowed.has(brand.toLowerCase())) return false;
   }
@@ -498,8 +507,8 @@ export function fallbackMatchIntroMessage(
         : ` Other brands in these results: ${brands.join(", ")}.`;
   const base =
     criteria.language === "de"
-      ? `${recommendationCount} passende E-Auto${recommendationCount === 1 ? "" : "s"} gefunden. Ich habe harte Grenzen wie Budget, Verfuegbarkeit und explizite Reichweite zuerst eingehalten.${brandSentence}`
-      : `Found ${recommendationCount} matching EV${recommendationCount === 1 ? "" : "s"}. I kept hard limits like budget, availability, and explicit range first.${brandSentence}`;
+      ? `${recommendationCount} passende E-Auto${recommendationCount === 1 ? "" : "s"} gefunden.${brandSentence}`
+      : `Found ${recommendationCount} matching EV${recommendationCount === 1 ? "" : "s"}.${brandSentence}`;
   return lowConfidenceQuestion ? `${base} ${lowConfidenceQuestion}` : base;
 }
 
