@@ -21,7 +21,7 @@ type MatchRequest = {
   previousCriteria?: UserCriteria;
   criteriaOverride?: UserCriteria;
   criteriaPatch?: CriteriaPatch;
-  intent?: "show_matches";
+  intent?: "show_matches" | "show_alternatives";
   skippedKeys?: MissingCriteria[];
   currentPromptKey?: ClarificationPromptKey;
 };
