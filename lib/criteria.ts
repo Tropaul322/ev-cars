@@ -14,7 +14,7 @@ import type {
 } from "./types.ts";
 
 export const DEFAULT_BUDGET_MIN_EUR = 25_000;
-export const DEFAULT_BUDGET_MAX_EUR = 90_000;
+export const DEFAULT_BUDGET_MAX_EUR = 60_000;
 
 const germanSignals = [
   "ich",

@@ -286,10 +286,10 @@ test("no budget answers apply the default working range", () => {
   const resolved = resolveClarificationAnswer("no limit", "budget", "en");
 
   assert.equal(criteria.budgetMinEUR, 25000);
-  assert.equal(criteria.budgetMaxEUR, 90000);
+  assert.equal(criteria.budgetMaxEUR, 60000);
   assert.deepEqual(resolved, {
     kind: "patch",
-    patch: { budgetMinEUR: 25000, budgetMaxEUR: 90000, monthlyBudgetEUR: null }
+    patch: { budgetMinEUR: 25000, budgetMaxEUR: 60000, monthlyBudgetEUR: null }
   });
 });
 

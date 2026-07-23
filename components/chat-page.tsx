@@ -317,6 +317,8 @@ export default function ChatPage() {
           (data.type === "chat" || data.type === "clarification") && data.prompt
             ? data.prompt
             : null;
+        const shouldAttachPrompt =
+          nextPrompt != null && nextPrompt.key !== activePrompt?.key;
         const now = new Date().toISOString();
         const urlChanging = routeChatId !== data.sessionId;
         const existingCached =
@@ -338,7 +340,9 @@ export default function ChatPage() {
 
         setSessionId(data.sessionId);
         setCriteria(data.criteria);
-        setActivePrompt(nextPrompt);
+        setActivePrompt(
+          nextPrompt ?? (data.type === "matches" ? null : activePrompt),
+        );
         setCachedChat({
           ...sessionMeta,
           messages: [
@@ -378,7 +382,9 @@ export default function ChatPage() {
           {
             role: "bot",
             text: <p>{data.assistantMessage}</p>,
-            ...(nextPrompt ? { prompt: nextPrompt } : {}),
+            ...(shouldAttachPrompt && nextPrompt
+              ? { prompt: nextPrompt }
+              : {}),
           },
           ...(data.type === "matches" && data.recommendations.length
             ? [
@@ -813,10 +819,12 @@ export default function ChatPage() {
                       <div className="max-w-[85%] rounded-3xl bg-bubble-bot px-5 py-4 text-[15px] leading-relaxed">
                         {message.text}
                       </div>
-                      {message.prompt ? (
+                      {message.prompt &&
+                      index === lastPromptIndex &&
+                      activePrompt ? (
                         <ChatPrompt
                           prompt={message.prompt}
-                          disabled={index !== lastPromptIndex || loading}
+                          disabled={loading}
                           animate={shouldAnimateEntrance}
                           onSelect={handlePromptSelect}
                         />
