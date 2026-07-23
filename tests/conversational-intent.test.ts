@@ -79,6 +79,26 @@ test("detectPatternTriggers surfaces likely handlers for follow-up requests", ()
 test("routes English and German why-recommendation follow-ups to explanation", () => {
   assert.ok(detectPatternTriggers("Why are you suggesting these cars?").includes("explain_recommendations"));
   assert.ok(detectPatternTriggers("Warum schlägst du mir diese Autos vor?").includes("explain_recommendations"));
+  assert.ok(detectPatternTriggers("Why this one?").includes("explain_recommendations"));
+  assert.ok(detectPatternTriggers("Why did this rank above the other?").includes("explain_recommendations"));
+  assert.ok(detectPatternTriggers("Warum dieses?").includes("explain_recommendations"));
+  assert.ok(detectPatternTriggers("Warum steht das über dem anderen?").includes("explain_recommendations"));
+});
+
+test("does not route unrelated criteria or EV questions to explanation", () => {
+  for (const message of [
+    "Why do I need 450 km range?",
+    "Why an SUV?",
+    "Why is range important for EVs?",
+    "Warum brauche ich so viel Reichweite?",
+    "Budget 40000 EUR"
+  ]) {
+    assert.equal(
+      detectPatternTriggers(message).includes("explain_recommendations"),
+      false,
+      `expected no explain route for: ${message}`
+    );
+  }
 });
 
 test("keeps deterministic explanation routes authoritative", async () => {

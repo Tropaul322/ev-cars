@@ -14,6 +14,8 @@ import { detectPromptInjection, promptInjectionResponse } from "../lib/prompt-gu
 import {
   buildRecommendationExplanationInput,
   fallbackRecommendationExplanation,
+  generateRecommendationExplanation,
+  llmExplanationsEnabled,
   recommendationExplanationSystemPrompt
 } from "../lib/recommendation-explanations.ts";
 import { saveMatchSession } from "../lib/repositories/match-session-repository.ts";
@@ -544,6 +546,37 @@ test("recommendation explanation input omits factor contributions and forbids sc
 
   assert.equal("factorContributions" in input.recommendations[0]!.reasonLedger, false);
   assert.match(recommendationExplanationSystemPrompt, /do not disclose raw scores/i);
+});
+
+test("recommendation explanation LLM stays off unless explicitly enabled", async () => {
+  const previousEnable = process.env.FLOWRYD_ENABLE_LLM_EXPLANATIONS;
+  const previousDisable = process.env.FLOWRYD_DISABLE_LLM;
+  const previousKey = process.env.OPENAI_API_KEY;
+  const recommendation = matchVehicles(seedVehicles, extractCriteria("family SUV under 50000 EUR with 450 km range"))
+    .recommendations[0]!;
+  const input = {
+    question: "Why this one?",
+    criteria: extractCriteria("family SUV under 50000 EUR with 450 km range"),
+    recommendations: [recommendation]
+  };
+  const fallback = fallbackRecommendationExplanation(input);
+
+  delete process.env.FLOWRYD_ENABLE_LLM_EXPLANATIONS;
+  process.env.FLOWRYD_DISABLE_LLM = "0";
+  process.env.OPENAI_API_KEY = previousKey || "test-key";
+
+  assert.equal(llmExplanationsEnabled(), false);
+  assert.equal(await generateRecommendationExplanation(input), fallback);
+
+  process.env.FLOWRYD_ENABLE_LLM_EXPLANATIONS = "1";
+  assert.equal(llmExplanationsEnabled(), true);
+
+  if (previousEnable === undefined) delete process.env.FLOWRYD_ENABLE_LLM_EXPLANATIONS;
+  else process.env.FLOWRYD_ENABLE_LLM_EXPLANATIONS = previousEnable;
+  if (previousDisable === undefined) delete process.env.FLOWRYD_DISABLE_LLM;
+  else process.env.FLOWRYD_DISABLE_LLM = previousDisable;
+  if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+  else process.env.OPENAI_API_KEY = previousKey;
 });
 
 test("cached recommendation fallback is localized", () => {

@@ -118,7 +118,7 @@ const nextBatchPattern =
   /\b(next(?:\s+(?:batch|set|page|results?|cars?))?|more(?:\s+(?:cars?|options?|results?))?|show\s+more|another\s+(?:batch|set|option|options)|weiter|mehr|nächste|naechste|noch\s+mehr)\b/i;
 
 const explainRecommendationsPattern =
-  /\b(why\s+(?:are|were)\s+you\s+(?:suggesting|recommending)|why\s+did\s+you\s+recommend|why\s+(?:this|these)\s+(?:car|cars|vehicle|vehicles|recommendations?)|what\s+makes\s+(?:this|these)\s+(?:car|cars|vehicle|vehicles)\s+(?:a\s+)?(?:good\s+)?(?:fit|match)|warum\s+(?:schlägst|schlagst|empfiehlst|empfiehlst)\s+du\s+(?:mir\s+)?(?:diese[nsr]?|das)\s+(?:auto|autos|fahrzeug|fahrzeuge)|warum\s+wurde[n]?\s+(?:mir\s+)?(?:diese[nsr]?|das)\s+(?:auto|autos|fahrzeug|fahrzeuge)\s+empfohlen)\b/i;
+  /\b(why\s+(?:are|were)\s+you\s+(?:suggesting|recommending)|why\s+did\s+you\s+recommend|why\s+(?:this|these)\s+(?:car|cars|vehicle|vehicles|recommendations?|one)|why\s+did\s+this\s+rank\s+(?:above|over|ahead\s+of)|why\s+(?:is|was)\s+this\s+(?:ranked|chosen|picked|selected)\s+(?:above|over|ahead\s+of)|what\s+makes\s+(?:this|these)\s+(?:car|cars|vehicle|vehicles)\s+(?:a\s+)?(?:good\s+)?(?:fit|match)|warum\s+(?:schlägst|schlagst|empfiehlst)\s+du\s+(?:mir\s+)?(?:diese[nsr]?|das)\s+(?:auto|autos|fahrzeug|fahrzeuge)|warum\s+wurde[n]?\s+(?:mir\s+)?(?:diese[nsr]?|das)\s+(?:auto|autos|fahrzeug|fahrzeuge)\s+empfohlen|warum\s+(?:genau\s+)?(?:dieses(?:e)?(?:\s+eine)?|diesen)|warum\s+(?:steht|ist|war|rankt)\s+(?:das|dieses)\s+(?:über|besser\s+als|vor)\s+(?:dem\s+)?(?:anderen|other))\b/i;
 
 export function isAssistantMetaQuestion(message: string) {
   const text = message.trim();

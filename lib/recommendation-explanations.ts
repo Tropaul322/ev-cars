@@ -19,9 +19,17 @@ export const recommendationExplanationSystemPrompt =
   "Do not infer or invent facts. Do not disclose raw scores, factor contributions, or rankings. " +
   "Return only JSON: {\"answer\":\"...\"}.";
 
+function llmEnabled() {
+  return process.env.FLOWRYD_DISABLE_LLM !== "1" && openAiConfigured();
+}
+
+export function llmExplanationsEnabled() {
+  return process.env.FLOWRYD_ENABLE_LLM_EXPLANATIONS === "1" && llmEnabled();
+}
+
 export async function generateRecommendationExplanation(input: RecommendationExplanationInput): Promise<string> {
   const fallback = fallbackRecommendationExplanation(input);
-  if (process.env.FLOWRYD_DISABLE_LLM === "1" || !openAiConfigured()) return fallback;
+  if (!llmExplanationsEnabled()) return fallback;
 
   try {
     const response = await createOpenAiChatCompletion(
