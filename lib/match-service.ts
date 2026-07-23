@@ -21,7 +21,6 @@ import {
   criteriaSummary,
   detectLanguage,
   emptyCriteria,
-  extractCriteria,
   getCriteriaConfidence,
   getCriteriaReadiness,
   getMissingCriteria,

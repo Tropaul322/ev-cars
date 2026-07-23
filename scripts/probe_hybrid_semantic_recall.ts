@@ -2,27 +2,28 @@ import fs from "node:fs";
 import path from "node:path";
 import { emptyCriteria } from "../lib/criteria.ts";
 import { searchVehicles } from "../lib/repositories/vehicle-repository.ts";
+import type { UserCriteria } from "../lib/types.ts";
 
 for (const [key, value] of Object.entries(loadEnv(path.join(process.cwd(), ".env.local")))) {
   if (typeof value === "string") process.env[key] = value;
 }
 process.env.FLOWRYD_VEHICLE_EMBEDDING_SEARCH = "1";
 
-const probes = [
+const probes: Array<{ label: string; message: string; patch: Partial<UserCriteria> }> = [
   {
     label: "sporty-2-seater",
     message: "sporty 2 seater convertible electric car",
-    patch: { optimizationDirective: "performance" as const, passengers: 2, budgetMaxEUR: 80000 }
+    patch: { optimizationDirective: "performance", passengers: 2, budgetMaxEUR: 80000 }
   },
   {
     label: "city-cheap",
     message: "small cheap city car for Vienna commuting",
-    patch: { tripNeeds: ["city", "commute"] as const, budgetMaxEUR: 25000, chargingAccess: "public" as const }
+    patch: { tripNeeds: ["city", "commute"], budgetMaxEUR: 25000, chargingAccess: "public" }
   },
   {
     label: "family-suv",
     message: "family SUV with long range for highway trips Austria",
-    patch: { tripNeeds: ["family", "road_trip"] as const, bodyTypes: ["suv"] as const, budgetMaxEUR: 60000 }
+    patch: { tripNeeds: ["family", "road_trip"], bodyTypes: ["suv"], budgetMaxEUR: 60000 }
   },
   {
     label: "brand-exact",
@@ -32,7 +33,7 @@ const probes = [
 ];
 
 for (const probe of probes) {
-  const criteria = { ...emptyCriteria(probe.message), ...probe.patch };
+  const criteria: UserCriteria = { ...emptyCriteria(probe.message), ...probe.patch };
   const started = Date.now();
   const vehicles = await searchVehicles(criteria, probe.message);
   const withText = vehicles.filter((v) => (v.textRank ?? 0) > 0);
