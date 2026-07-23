@@ -565,6 +565,29 @@ test("cached recommendation fallback is localized", () => {
   assert.match(german, /passt wegen/i);
 });
 
+test("matchVehicles prefers higher retrievalScore when deterministic scores tie", () => {
+  const template = seedVehicles[0];
+  assert.ok(template);
+  const criteria = extractCriteria("EV under 50000 EUR");
+  const lowRetrieval: Vehicle = {
+    ...template,
+    id: "low-retrieval",
+    priceEUR: 40000,
+    rangeKm: 420,
+    retrievalScore: 0.01
+  };
+  const highRetrieval: Vehicle = {
+    ...template,
+    id: "high-retrieval",
+    priceEUR: 40000,
+    rangeKm: 420,
+    retrievalScore: 0.05
+  };
+
+  const result = matchVehicles([lowRetrieval, highRetrieval], criteria, 2);
+  assert.equal(result.recommendations[0]?.vehicle.id, "high-retrieval");
+});
+
 test("hard filters keep recommendations inside purchase budget", () => {
   const criteria = extractCriteria("Gebrauchtes E-Auto bis 35000 EUR fuer Stadt, CarPlay und Sitzheizung.");
   const result = matchVehicles(seedVehicles, criteria);

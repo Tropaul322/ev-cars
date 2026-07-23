@@ -38,6 +38,9 @@ type SupabaseVehicleRow = {
   id: string;
   payload: Vehicle;
   similarity?: number;
+  semantic_similarity?: number;
+  text_rank?: number;
+  rrf_score?: number;
 };
 
 const SUPABASE_VEHICLE_LIMIT = "120";
@@ -73,112 +76,92 @@ export async function searchVehicles(
     return [];
   }
 
-  const [structuredVehicles, embeddingResult] = await Promise.all([
-    structuredEnabled ? searchVehiclesByStructuredFilters(criteria, options.offset ?? 0) : Promise.resolve([]),
-    embeddingEnabled ? searchVehiclesByEmbedding(criteria, message) : Promise.resolve({ vehicles: [], status: "disabled" as const, provider: undefined })
-  ]);
-  const embeddingVehicles = embeddingResult.vehicles;
-
-  const merged = mergeVehiclesById([...embeddingVehicles, ...structuredVehicles]);
-  const filtered = filterVehiclesForSearch(normalizeSupabaseVehicles(merged), criteria);
-
-  matchDebug("vehicle-repository.search", {
-    structuredEnabled,
-    embeddingEnabled,
-    structuredVehicles: structuredVehicles.length,
-    embeddingVehicles: embeddingVehicles.length,
-    embeddingQueryStatus: embeddingResult.status,
-    embeddingProvider: "provider" in embeddingResult ? embeddingResult.provider : undefined,
-    searchOffset: options.offset ?? 0,
-    mergedVehicles: merged.length,
-    filteredVehicles: filtered.length,
-    queryFilters: summarizeVehicleSearchFilters(criteria),
-    brandPreferences: criteria.brandPreferences,
-    modelPreferences: criteria.modelPreferences
-  });
-
-  return filtered;
-}
-
-async function searchVehiclesByStructuredFilters(criteria: UserCriteria, offset = 0): Promise<Vehicle[]> {
   const supabase = getSupabaseRestConfig();
-  if (!supabase) return [];
+  if (!supabase) {
+    matchDebugWarn("vehicle-repository.fallback", {
+      reason: "supabase-unconfigured",
+      localVehicles: allVehicles.length
+    });
+    return filterVehiclesForSearch(allVehicles, criteria);
+  }
 
-  const params = buildVehicleSearchParams(criteria, offset);
+  const queryText = buildVehicleEmbeddingQuery(criteria, message);
+  let queryEmbedding: string | null = null;
+  let embeddingQueryStatus: "ok" | "disabled" | "unavailable" = "disabled";
+  let embeddingProvider: string | undefined;
+
+  if (embeddingEnabled) {
+    const embeddingResult = await createEmbeddingWithProvider(queryText, "query");
+    embeddingQueryStatus = embeddingResult.status;
+    embeddingProvider = "provider" in embeddingResult ? embeddingResult.provider : undefined;
+    if (embeddingResult.embedding) {
+      queryEmbedding = `[${embeddingResult.embedding.join(",")}]`;
+    } else {
+      matchDebugWarn("vehicle-repository.embedding-query-missing", {
+        status: embeddingResult.status,
+        provider: embeddingProvider,
+        reason:
+          embeddingResult.status === "disabled"
+            ? "FLOWRYD_DISABLE_EMBEDDINGS=1"
+            : "No query embedding provider succeeded; hybrid text search only",
+        queryPreview: queryText.slice(0, 160)
+      });
+    }
+  }
 
   try {
-    const response = await fetch(`${supabase.url}/rest/v1/vehicles?${params}`, {
+    const response = await fetch(`${supabase.url}/rest/v1/rpc/search_vehicles_hybrid`, {
+      method: "POST",
       headers: supabase.headers,
+      body: JSON.stringify({
+        query_text: queryText,
+        query_embedding: queryEmbedding,
+        filters: buildHybridSearchFilters(criteria),
+        match_count: vehicleEmbeddingSearchLimit(),
+        min_similarity: vehicleEmbeddingMinSimilarity()
+      }),
       next: { revalidate: VEHICLE_REVALIDATE_SECONDS }
     });
+
     if (!response.ok) {
-      const message = await response.text();
+      const errorMessage = await response.text();
       matchDebugWarn("vehicle-repository.fallback", {
-        reason: "supabase-search-status",
+        reason: "supabase-hybrid-search-status",
         status: response.status,
-        message,
+        message: errorMessage,
         localVehicles: allVehicles.length
       });
       return filterVehiclesForSearch(allVehicles, criteria);
     }
 
     const rows = (await response.json()) as SupabaseVehicleRow[];
-    return rows.map(mapVehicleRow).filter((vehicle): vehicle is Vehicle => Boolean(vehicle));
+    const vehicles = rows.map(mapVehicleRow).filter((vehicle): vehicle is Vehicle => Boolean(vehicle));
+    const filtered = filterVehiclesForSearch(normalizeSupabaseVehicles(vehicles), criteria);
+    const offset = options.offset ?? 0;
+    const paged = offset > 0 ? filtered.slice(offset) : filtered;
+
+    matchDebug("vehicle-repository.search", {
+      structuredEnabled,
+      embeddingEnabled,
+      hybridRpc: true,
+      hybridVehicles: vehicles.length,
+      embeddingQueryStatus,
+      embeddingProvider,
+      searchOffset: offset,
+      filteredVehicles: filtered.length,
+      returnedVehicles: paged.length,
+      queryFilters: summarizeVehicleSearchFilters(criteria),
+      brandPreferences: criteria.brandPreferences,
+      modelPreferences: criteria.modelPreferences
+    });
+
+    return paged;
   } catch {
     matchDebugWarn("vehicle-repository.fallback", {
-      reason: "supabase-search-error",
+      reason: "supabase-hybrid-search-error",
       localVehicles: allVehicles.length
     });
     return filterVehiclesForSearch(allVehicles, criteria);
-  }
-}
-
-async function searchVehiclesByEmbedding(criteria: UserCriteria, message: string) {
-  const supabase = getSupabaseRestConfig();
-  if (!supabase) return { vehicles: [], status: "unavailable" as const };
-
-  const query = buildVehicleEmbeddingQuery(criteria, message);
-  const embeddingResult = await createEmbeddingWithProvider(query, "query");
-  if (!embeddingResult.embedding) {
-    matchDebugWarn("vehicle-repository.embedding-query-missing", {
-      status: embeddingResult.status,
-      provider: embeddingResult.provider,
-      reason:
-        embeddingResult.status === "disabled"
-          ? "FLOWRYD_DISABLE_EMBEDDINGS=1"
-          : "No query embedding provider succeeded; structured search only",
-      queryPreview: query.slice(0, 160)
-    });
-    return { vehicles: [], status: embeddingResult.status };
-  }
-
-  try {
-    const response = await fetch(`${supabase.url}/rest/v1/rpc/match_vehicles_by_embedding`, {
-      method: "POST",
-      headers: supabase.headers,
-      body: JSON.stringify({
-        query_embedding: `[${embeddingResult.embedding.join(",")}]`,
-        match_count: vehicleEmbeddingSearchLimit(),
-        min_similarity: vehicleEmbeddingMinSimilarity()
-      })
-    });
-
-    if (!response.ok) {
-      matchDebugWarn("vehicle-repository.embedding-search-unavailable", {
-        status: response.status,
-        message: await response.text()
-      });
-      return { vehicles: [], status: "unavailable" as const, provider: embeddingResult.provider };
-    }
-
-    const rows = (await response.json()) as SupabaseVehicleRow[];
-    const vehicles = rows.map(mapVehicleRow).filter((vehicle): vehicle is Vehicle => Boolean(vehicle));
-    return { vehicles, status: "ok" as const, provider: embeddingResult.provider };
-  } catch {
-    matchDebugWarn("vehicle-repository.embedding-search-error", {
-      reason: "rpc-error"
-    });
-    return { vehicles: [], status: "unavailable" as const, provider: embeddingResult.provider };
   }
 }
 
@@ -284,26 +267,6 @@ function normalizeSupabaseVehicles(vehicles: Vehicle[]) {
     vehicle.images.some((image) => /^https?:\/\//.test(image))
   );
   return withListingImages.length ? withListingImages : vehicles;
-}
-
-function mergeVehiclesById(vehicles: Vehicle[]) {
-  const byId = new Map<string, Vehicle>();
-  for (const vehicle of vehicles) {
-    const existing = byId.get(vehicle.id);
-    if (!existing) {
-      byId.set(vehicle.id, vehicle);
-      continue;
-    }
-    byId.set(vehicle.id, mergeVehicleSearchSignals(existing, vehicle));
-  }
-  return [...byId.values()];
-}
-
-function mergeVehicleSearchSignals(left: Vehicle, right: Vehicle): Vehicle {
-  const leftSimilarity = left.embeddingSimilarity ?? 0;
-  const rightSimilarity = right.embeddingSimilarity ?? 0;
-  if (rightSimilarity <= leftSimilarity) return left;
-  return { ...left, embeddingSimilarity: rightSimilarity };
 }
 
 function buildVehicleEmbeddingQuery(criteria: UserCriteria, message: string) {
@@ -531,8 +494,16 @@ function mapVehicleRow(row: SupabaseVehicleRow): Vehicle | null {
     ...vehicle,
     features: normalizeVehicleFeatures(vehicle.features, vehicle)
   };
-  if (typeof row.similarity === "number" && Number.isFinite(row.similarity)) {
+  if (typeof row.semantic_similarity === "number" && Number.isFinite(row.semantic_similarity)) {
+    mapped.embeddingSimilarity = row.semantic_similarity;
+  } else if (typeof row.similarity === "number" && Number.isFinite(row.similarity)) {
     mapped.embeddingSimilarity = row.similarity;
+  }
+  if (typeof row.text_rank === "number" && Number.isFinite(row.text_rank)) {
+    mapped.textRank = row.text_rank;
+  }
+  if (typeof row.rrf_score === "number" && Number.isFinite(row.rrf_score)) {
+    mapped.retrievalScore = row.rrf_score;
   }
   return mapped;
 }
@@ -552,7 +523,7 @@ function isVehicle(value: unknown): value is Vehicle {
   );
 }
 
-function filterVehiclesForSearch(vehicles: Vehicle[], criteria: UserCriteria) {
+export function filterVehiclesForSearch(vehicles: Vehicle[], criteria: UserCriteria) {
   const searchRangeFloorKm = hasHardRangeConstraint(criteria) ? inferSearchRangeFloorKm(criteria) : null;
   return vehicles.filter((vehicle) => {
     if (vehicle.market !== "AT") return false;

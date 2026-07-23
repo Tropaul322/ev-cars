@@ -142,6 +142,10 @@ export type Vehicle = {
   reviewTags: string[];
   /** Set during embedding search; cosine similarity to the query vector (0–1). */
   embeddingSimilarity?: number;
+  /** Set during hybrid text search; ts_rank_cd score from the query. */
+  textRank?: number;
+  /** Set during hybrid retrieval; reciprocal-rank-fusion score combining text and vector ranks. */
+  retrievalScore?: number;
   raw?: unknown;
 };
 

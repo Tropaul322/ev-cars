@@ -127,6 +127,7 @@ export function matchVehicles(
       .sort(
         (a, b) =>
           b.score - a.score ||
+          (b.vehicle.retrievalScore ?? 0) - (a.vehicle.retrievalScore ?? 0) ||
           (b.vehicle.embeddingSimilarity ?? 0) - (a.vehicle.embeddingSimilarity ?? 0) ||
           b.ragScore - a.ragScore
       )

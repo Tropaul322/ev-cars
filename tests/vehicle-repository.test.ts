@@ -1,10 +1,89 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyCriteria } from "../lib/criteria.ts";
+import { seedVehicles } from "../lib/data/seed-vehicles.ts";
 import {
   buildHybridSearchFilters,
-  buildVehicleSearchParams
+  buildVehicleSearchParams,
+  filterVehiclesForSearch,
+  searchVehicles
 } from "../lib/repositories/vehicle-repository.ts";
+
+test("hybrid response keeps retrieval signals and deterministic filters", async () => {
+  const template = seedVehicles[0];
+  assert.ok(template);
+  const criteria = {
+    ...emptyCriteria("winter family EV under 50000 EUR"),
+    budgetMaxEUR: 50000,
+    latestUserMessage: "winter family EV under 50000 EUR"
+  };
+  const hybridVehicle = {
+    ...template,
+    id: "hybrid-winter-ev",
+    priceEUR: 42000,
+    images: ["https://example.com/listing.jpg"]
+  };
+
+  const originalFetch = globalThis.fetch;
+  const originalUrl = process.env.SUPABASE_URL;
+  const originalKey = process.env.SUPABASE_ANON_KEY;
+  process.env.SUPABASE_URL = "https://example.supabase.co";
+  process.env.SUPABASE_ANON_KEY = "test-anon-key";
+  process.env.FLOWRYD_VEHICLE_STRUCTURED_SEARCH = "1";
+  process.env.FLOWRYD_DISABLE_EMBEDDINGS = "1";
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/rest/v1/rpc/search_vehicles_hybrid") && init?.method === "POST") {
+      return new Response(
+        JSON.stringify([
+          {
+            id: hybridVehicle.id,
+            payload: hybridVehicle,
+            semantic_similarity: 0.84,
+            text_rank: 0.12,
+            rrf_score: 0.031
+          }
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    return originalFetch(input, init);
+  };
+
+  try {
+    const vehicles = await searchVehicles(criteria, "winter family EV");
+    assert.equal(vehicles.length, 1);
+    assert.equal(vehicles[0]!.embeddingSimilarity, 0.84);
+    assert.equal(vehicles[0]!.textRank, 0.12);
+    assert.equal(vehicles[0]!.retrievalScore, 0.031);
+    assert.equal(vehicles[0]!.priceEUR, 42000);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalUrl === undefined) delete process.env.SUPABASE_URL;
+    else process.env.SUPABASE_URL = originalUrl;
+    if (originalKey === undefined) delete process.env.SUPABASE_ANON_KEY;
+    else process.env.SUPABASE_ANON_KEY = originalKey;
+    delete process.env.FLOWRYD_VEHICLE_STRUCTURED_SEARCH;
+    delete process.env.FLOWRYD_DISABLE_EMBEDDINGS;
+  }
+});
+
+test("post-RPC validation rejects an over-budget returned vehicle", () => {
+  const template = seedVehicles[0];
+  assert.ok(template);
+  const criteria = {
+    ...emptyCriteria("EV under 35000 EUR"),
+    budgetMaxEUR: 35000
+  };
+  const overBudgetVehicle = {
+    ...template,
+    id: "rpc-over-budget",
+    priceEUR: 48000
+  };
+
+  assert.deepEqual(filterVehiclesForSearch([overBudgetVehicle], criteria), []);
+});
 
 test("hybrid search passes explicit hard filters to RPC", () => {
   const filters = buildHybridSearchFilters({
