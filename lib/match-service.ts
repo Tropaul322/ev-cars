@@ -28,7 +28,7 @@ import {
   looksLikeBrandWidenRequest,
   looksLikeNoBudgetLimit
 } from "./criteria.ts";
-import { applyChipPatch, normalizeCriteria } from "./criteria-normalizer.ts";
+import { applyChipPatch, mergeCriteriaDeterministic, normalizeCriteria } from "./criteria-normalizer.ts";
 import {
   looksLikeAlternativesRequest,
   looksLikeNextBatchRequest,
@@ -269,7 +269,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       () => {
         const fallbackCriteria = body.criteriaOverride
           ? body.criteriaOverride
-          : extractCriteria(body.message, previousCriteria ?? undefined);
+          : mergeCriteriaDeterministic(body.message, previousCriteria);
         return {
           criteria: fallbackCriteria,
           criteriaPatch: {},

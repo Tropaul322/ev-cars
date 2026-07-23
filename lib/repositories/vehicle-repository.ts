@@ -116,6 +116,7 @@ export async function searchVehicles(
       method: "POST",
       headers: supabase.headers,
       body: JSON.stringify({
+        // Short lexical tokens only — long prose ANDs to zero hits in websearch_to_tsquery.
         query_text: ftsQuery,
         query_embedding: queryEmbedding,
         filters: buildHybridSearchFilters(criteria),
@@ -132,7 +133,7 @@ export async function searchVehicles(
         status: response.status,
         message: errorMessage
       });
-      return [];
+      return searchVehiclesStructured(criteria, options);
     }
 
     const rows = (await response.json()) as SupabaseVehicleRow[];
@@ -158,12 +159,20 @@ export async function searchVehicles(
       modelPreferences: criteria.modelPreferences
     });
 
+    if (!paged.length && structuredEnabled) {
+      matchDebugWarn("vehicle-repository.hybrid-empty-structured-fallback", {
+        ftsQueryPreview: ftsQuery.slice(0, 160),
+        embeddingQueryPreview: embeddingQuery.slice(0, 160)
+      });
+      return searchVehiclesStructured(criteria, options);
+    }
+
     return paged;
   } catch {
     matchDebugWarn("vehicle-repository.search-unavailable", {
       reason: "supabase-hybrid-search-error"
     });
-    return [];
+    return searchVehiclesStructured(criteria, options);
   }
 }
 
@@ -294,6 +303,44 @@ export function buildVehicleEmbeddingQuery(criteria: UserCriteria, message: stri
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+async function searchVehiclesStructured(
+  criteria: UserCriteria,
+  options: VehicleSearchOptions = {}
+): Promise<Vehicle[]> {
+  if (!vehicleStructuredSearchEnabled()) return [];
+  const supabase = getSupabaseRestConfig();
+  if (!supabase) return [];
+
+  try {
+    const params = buildVehicleSearchParams(criteria, options.offset ?? 0);
+    const response = await fetch(`${supabase.url}/rest/v1/vehicles?${params}`, {
+      headers: supabase.headers,
+      next: { revalidate: VEHICLE_REVALIDATE_SECONDS }
+    });
+    if (!response.ok) {
+      matchDebugWarn("vehicle-repository.structured-search-unavailable", {
+        status: response.status,
+        message: await response.text()
+      });
+      return [];
+    }
+    const rows = (await response.json()) as SupabaseVehicleRow[];
+    const vehicles = rows.map(mapVehicleRow).filter((vehicle): vehicle is Vehicle => Boolean(vehicle));
+    const filtered = filterVehiclesForSearch(normalizeSupabaseVehicles(vehicles), criteria);
+    matchDebug("vehicle-repository.structured-search", {
+      rows: rows.length,
+      filteredVehicles: filtered.length,
+      queryFilters: summarizeVehicleSearchFilters(criteria)
+    });
+    return filtered;
+  } catch {
+    matchDebugWarn("vehicle-repository.structured-search-unavailable", {
+      reason: "structured-search-error"
+    });
+    return [];
+  }
 }
 
 export function buildVehicleSearchParams(criteria: UserCriteria, offset = 0) {

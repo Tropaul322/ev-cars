@@ -17,7 +17,7 @@ import {
   removeCriteriaKey
 } from "../lib/criteria.ts";
 import { applyChipPatch, applyCriteriaPatch, isTopicPivot, normalizeCriteria } from "../lib/criteria-normalizer.ts";
-import type { MissingCriteria, OptimizationDirective, Vehicle } from "../lib/types.ts";
+import type { MissingCriteria, OptimizationDirective, UserCriteria, Vehicle } from "../lib/types.ts";
 import { seedVehicles } from "../lib/data/seed-vehicles.ts";
 import { fallbackMatchIntroMessage } from "../lib/assistant-messages.ts";
 import { parseLlmExplanationJson } from "../lib/explanations.ts";
@@ -406,6 +406,87 @@ test("brand-only prior pivots to sporty 2-seater and clears brand", async () => 
   assert.deepEqual(normalized.criteria.brandPreferences, []);
   assert.deepEqual(normalized.criteria.modelPreferences, []);
   assert.equal(normalized.criteria.passengers, 2);
+});
+
+test("brand plus mild commute still pivots to sporty 2-seater and clears brand", async () => {
+  // After use_case clarification, tripNeeds often includes commute — that must not
+  // block the brand-led profile pivot (manual PIV-04 style flows).
+  const previous = {
+    ...extractCriteria("Ford cars under 40000 EUR"),
+    tripNeeds: ["commute"] as UserCriteria["tripNeeds"],
+    chargingAccess: "home" as const,
+    optimizationDirective: "best_value" as const
+  };
+  assert.ok(previous.brandPreferences.some((b) => /ford/i.test(b)));
+  assert.equal(isTopicPivot("any sporty 2 seater car", previous), true);
+
+  const normalized = await normalizeCriteria({
+    message: "any sporty 2 seater car",
+    previousCriteria: previous
+  });
+
+  assert.equal(normalized.criteria.budgetMaxEUR, 40000);
+  assert.equal(normalized.criteria.chargingAccess, "home");
+  assert.deepEqual(normalized.criteria.brandPreferences, []);
+  assert.deepEqual(normalized.criteria.modelPreferences, []);
+  assert.deepEqual(normalized.criteria.tripNeeds, []);
+  assert.equal(normalized.criteria.passengers, 2);
+  assert.equal(normalized.criteria.optimizationDirective, "performance");
+});
+
+test("Tesla family prior pivots to compact city hatchback and clears brand", async () => {
+  const previous = {
+    ...extractCriteria("Tesla under 50000 EUR"),
+    tripNeeds: ["family"] as UserCriteria["tripNeeds"],
+    chargingAccess: "home" as const,
+    optimizationDirective: "best_family_fit" as const
+  };
+  assert.ok(previous.brandPreferences.some((b) => /tesla/i.test(b)));
+  assert.equal(isTopicPivot("Show me a compact city hatchback", previous), true);
+
+  const normalized = await normalizeCriteria({
+    message: "Show me a compact city hatchback",
+    previousCriteria: previous
+  });
+
+  assert.equal(normalized.criteria.budgetMaxEUR, 50000);
+  assert.equal(normalized.criteria.chargingAccess, "home");
+  assert.deepEqual(normalized.criteria.brandPreferences, []);
+  assert.deepEqual(normalized.criteria.modelPreferences, []);
+  assert.ok(normalized.criteria.bodyTypes.includes("hatchback"));
+  assert.ok(normalized.criteria.bodyTypes.includes("compact"));
+  assert.ok(normalized.criteria.tripNeeds.includes("city"));
+  assert.equal(normalized.criteria.tripNeeds.includes("family"), false);
+  assert.equal(normalized.criteria.optimizationDirective, null);
+});
+
+test("Tesla-only prior pivots to compact city hatchback and clears brand", async () => {
+  const previous = extractCriteria("Tesla under 50000 EUR");
+  assert.equal(isTopicPivot("Show me a compact city hatchback", previous), true);
+
+  const normalized = await normalizeCriteria({
+    message: "Show me a compact city hatchback",
+    previousCriteria: previous
+  });
+
+  assert.equal(normalized.criteria.budgetMaxEUR, 50000);
+  assert.deepEqual(normalized.criteria.brandPreferences, []);
+  assert.ok(normalized.criteria.bodyTypes.includes("hatchback"));
+});
+
+test("passenger count conflict pivots without cue words", async () => {
+  const previous = extractCriteria("EV under 50000 EUR for 5 passengers");
+  assert.equal(previous.passengers, 5);
+  assert.equal(isTopicPivot("show me a 2-seater sports EV", previous), true);
+
+  const normalized = await normalizeCriteria({
+    message: "show me a 2-seater sports EV",
+    previousCriteria: previous
+  });
+
+  assert.equal(normalized.criteria.budgetMaxEUR, 50000);
+  assert.equal(normalized.criteria.passengers, 2);
+  assert.deepEqual(normalized.criteria.tripNeeds, []);
 });
 
 test("brand focus survives mild budget refinement", async () => {

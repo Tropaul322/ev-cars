@@ -119,31 +119,94 @@ export async function normalizeCriteria({
     return await buildNormalization(message, normalizeCriteriaShape(criteriaOverride), {}, conversationHistory);
   }
 
-  const widen = looksLikeBrandWidenRequest(message);
-  const mergeBase =
-    previousCriteria && isTopicPivot(message, previousCriteria)
-      ? buildPivotBase(previousCriteria)
-      : previousCriteria && widen
-        ? normalizeCriteriaShape({
-            ...normalizeCriteriaShape(previousCriteria),
-            brandPreferences: [],
-            modelPreferences: []
-          })
-        : previousCriteria;
-
+  const mergeBase = resolveMergeBase(message, previousCriteria);
   const fallbackCriteria = extractCriteria(message, mergeBase ?? undefined);
   const fallbackPatch = diffCriteria(previousCriteria, fallbackCriteria);
+  const pivoted = Boolean(previousCriteria && isTopicPivot(message, previousCriteria));
 
   const llmPatch = await generateCriteriaPatch(message, mergeBase ?? null, conversationHistory);
   if (!llmPatch) {
-    const criteria = enforcePivotBrandClears(message, previousCriteria, fallbackCriteria);
+    const criteria = finalizeMergedCriteria(message, previousCriteria, fallbackCriteria, pivoted);
     return await buildNormalization(message, criteria, fallbackPatch, conversationHistory);
   }
 
+  const widen = looksLikeBrandWidenRequest(message);
   const patch = widen ? sanitizeBrandWidenPatch(llmPatch) : llmPatch;
   let criteria = applyCriteriaPatch(mergeBase ?? fallbackCriteria, patch, message, Boolean(mergeBase));
-  criteria = enforcePivotBrandClears(message, previousCriteria, criteria);
+  criteria = finalizeMergedCriteria(message, previousCriteria, criteria, pivoted);
   return await buildNormalization(message, criteria, patch, conversationHistory);
+}
+
+/** Sync pivot/widen-aware merge used when the LLM normalizer times out. */
+export function mergeCriteriaDeterministic(
+  message: string,
+  previousCriteria?: UserCriteria | null
+): UserCriteria {
+  const mergeBase = resolveMergeBase(message, previousCriteria);
+  const pivoted = Boolean(previousCriteria && isTopicPivot(message, previousCriteria));
+  return finalizeMergedCriteria(
+    message,
+    previousCriteria,
+    extractCriteria(message, mergeBase ?? undefined),
+    pivoted
+  );
+}
+
+function finalizeMergedCriteria(
+  message: string,
+  previousCriteria: UserCriteria | null | undefined,
+  criteria: UserCriteria,
+  pivoted: boolean
+) {
+  const withBrands = enforcePivotBrandClears(message, previousCriteria, criteria);
+  return pivoted ? reconcilePivotTopicFields(message, previousCriteria!, withBrands) : withBrands;
+}
+
+/**
+ * After a topic pivot, topic fields must come from the latest message only.
+ * Otherwise the LLM can re-inject prior optimization/family/body from chat history
+ * and leave contradictory criteria (e.g. hatchback + best_family_fit).
+ */
+function reconcilePivotTopicFields(
+  message: string,
+  previousCriteria: UserCriteria,
+  criteria: UserCriteria
+): UserCriteria {
+  const fromMessage = extractCriteria(message);
+  const preserved = buildPivotBase(previousCriteria);
+  return normalizeCriteriaShape({
+    ...preserved,
+    language: criteria.language || fromMessage.language || preserved.language,
+    location: criteria.location ?? preserved.location,
+    tripNeeds: fromMessage.tripNeeds,
+    bodyTypes: fromMessage.bodyTypes,
+    passengers: fromMessage.passengers,
+    cargoNeeds: fromMessage.cargoNeeds,
+    mustHaveFeatures: fromMessage.mustHaveFeatures,
+    qualitativeSignals: fromMessage.qualitativeSignals,
+    optimizationDirective: fromMessage.optimizationDirective,
+    preferredBrandOrigins: fromMessage.preferredBrandOrigins,
+    avoidedBrands: fromMessage.avoidedBrands,
+    brandPreferences: fromMessage.brandPreferences,
+    modelPreferences: fromMessage.modelPreferences,
+    brandFit: fromMessage.brandFit,
+    reliabilityImportance: fromMessage.reliabilityImportance,
+    rawPrompt: message.trim(),
+    latestUserMessage: message.trim()
+  });
+}
+
+function resolveMergeBase(message: string, previousCriteria?: UserCriteria | null) {
+  if (!previousCriteria) return previousCriteria;
+  if (isTopicPivot(message, previousCriteria)) return buildPivotBase(previousCriteria);
+  if (looksLikeBrandWidenRequest(message)) {
+    return normalizeCriteriaShape({
+      ...normalizeCriteriaShape(previousCriteria),
+      brandPreferences: [],
+      modelPreferences: []
+    });
+  }
+  return previousCriteria;
 }
 
 /** Brand-widen turns must only clear brand/model — drop speculative LLM field dumps. */
@@ -562,11 +625,10 @@ export function isTopicPivot(message: string, previousCriteria: UserCriteria): b
 }
 
 function hasTopicConflict(message: string, previousCriteria: UserCriteria, extracted: UserCriteria) {
-  const previousFamilyOriented =
-    previousCriteria.tripNeeds.includes("family") ||
-    (previousCriteria.passengers ?? 0) >= 5 ||
-    previousCriteria.cargoNeeds === "high" ||
-    previousCriteria.bodyTypes.some((body) => body === "suv" || body === "van" || body === "wagon");
+  const previousFamilyOriented = isFamilyOrLargeProfile(previousCriteria);
+  const nextFamilyOriented = isFamilyOrLargeProfile(extracted);
+  const previousCompactCityOriented = isCompactCityProfile(previousCriteria, previousCriteria.latestUserMessage || previousCriteria.rawPrompt);
+  const nextCompactCityOriented = isCompactCityProfile(extracted, message);
 
   const nextSportOriented =
     extracted.passengers === 2 ||
@@ -578,36 +640,72 @@ function hasTopicConflict(message: string, previousCriteria: UserCriteria, extra
   const previousSportOriented =
     previousCriteria.passengers === 2 ||
     previousCriteria.optimizationDirective === "performance" ||
-    previousCriteria.bodyTypes.includes("sedan") && !previousFamilyOriented;
-
-  const nextFamilyOriented =
-    extracted.tripNeeds.includes("family") ||
-    (extracted.passengers ?? 0) >= 5 ||
-    extracted.cargoNeeds === "high" ||
-    extracted.bodyTypes.some((body) => body === "suv" || body === "van" || body === "wagon");
+    (previousCriteria.bodyTypes.includes("sedan") && !previousFamilyOriented);
 
   if (previousFamilyOriented && nextSportOriented) return true;
   if (previousSportOriented && nextFamilyOriented) return true;
+  // Family / large vehicle ↔ compact city hatchback (not only sporty 2-seaters).
+  if (previousFamilyOriented && nextCompactCityOriented) return true;
+  if (previousCompactCityOriented && nextFamilyOriented) return true;
 
   if (previousCriteria.bodyTypes.length && extracted.bodyTypes.length) {
     const overlap = extracted.bodyTypes.some((body) => previousCriteria.bodyTypes.includes(body));
     if (!overlap) return true;
   }
 
-  if (isBrandOnlyProfilePivot(previousCriteria, extracted, message)) return true;
+  const previousPassengers = previousCriteria.passengers ?? 0;
+  const nextPassengers = extracted.passengers ?? 0;
+  if (previousPassengers >= 4 && nextPassengers > 0 && nextPassengers <= 2) return true;
+  if (previousPassengers > 0 && previousPassengers <= 2 && nextPassengers >= 4) return true;
+
+  if (isBrandLedProfilePivot(previousCriteria, extracted, message)) return true;
 
   return false;
+}
+
+function isFamilyOrLargeProfile(criteria: Pick<UserCriteria, "tripNeeds" | "passengers" | "cargoNeeds" | "bodyTypes">) {
+  return (
+    criteria.tripNeeds.includes("family") ||
+    (criteria.passengers ?? 0) >= 5 ||
+    criteria.cargoNeeds === "high" ||
+    criteria.bodyTypes.some((body) => body === "suv" || body === "van" || body === "wagon")
+  );
+}
+
+function isCompactCityProfile(
+  criteria: Pick<UserCriteria, "bodyTypes" | "tripNeeds">,
+  message = ""
+) {
+  const compactBody = criteria.bodyTypes.some(
+    (body) => body === "hatchback" || body === "compact"
+  );
+  const cityCue =
+    criteria.tripNeeds.includes("city") ||
+    /\b(city|urban|stadt|kleinwagen|stadtwagen|compact|hatchback|kompakt)\b/i.test(message);
+  return compactBody || (cityCue && /\b(hatchback|compact|kleinwagen|stadtwagen|kompakt)\b/i.test(message));
 }
 
 function introducesVehicleProfile(extracted: UserCriteria, message: string) {
   return Boolean(
     extracted.passengers ||
       extracted.bodyTypes.length ||
-      extracted.tripNeeds.length ||
+      extracted.tripNeeds.includes("family") ||
+      extracted.cargoNeeds === "high" ||
       extracted.optimizationDirective === "performance" ||
-      /(?:\b(?:2|two)[-\s]?(?:seater|sitzer)\b|\bsports?\b|\bcoupe\b|\broadster\b|\bsportlich\b|\bperformance\b|\bfamily\b|\bfamilie\b|\bsuv\b)/i.test(
+      /(?:\b(?:2|two)[-\s]?(?:seater|sitzer)\b|\bsports?\b|\bcoupe\b|\broadster\b|\bsportlich\b|\bperformance\b|\bfamily\b|\bfamilie\b|\bsuv\b|\bhatchback\b|\bcompact\b|\bkleinwagen\b|\bstadtwagen\b)/i.test(
         message
       )
+  );
+}
+
+/** Strong profile only — mild trip needs like commute/city must not block brand-clearing pivots. */
+function priorHadConcreteVehicleProfile(previousCriteria: UserCriteria) {
+  return Boolean(
+    previousCriteria.passengers ||
+      previousCriteria.bodyTypes.length ||
+      previousCriteria.cargoNeeds === "high" ||
+      previousCriteria.optimizationDirective === "performance" ||
+      previousCriteria.tripNeeds.includes("family")
   );
 }
 
@@ -617,8 +715,11 @@ function messageRestatesPriorBrands(message: string, previousCriteria: UserCrite
   );
 }
 
-/** Brand-only (or brand without prior seats/body/trip/performance) → new vehicle profile without restating brand. */
-function isBrandOnlyProfilePivot(
+/**
+ * Brand-led prior → new seats/body/sport/family/compact profile without restating that brand.
+ * Also fires when prior already had a concrete profile but the new ask diverges (e.g. family → hatchback).
+ */
+function isBrandLedProfilePivot(
   previousCriteria: UserCriteria,
   extracted: UserCriteria,
   message: string
@@ -626,14 +727,20 @@ function isBrandOnlyProfilePivot(
   if (!previousCriteria.brandPreferences.length) return false;
   if (messageRestatesPriorBrands(message, previousCriteria)) return false;
   if (!introducesVehicleProfile(extracted, message)) return false;
+  if (!priorHadConcreteVehicleProfile(previousCriteria)) return true;
 
-  const priorHadProfile = Boolean(
-    previousCriteria.passengers ||
-      previousCriteria.bodyTypes.length ||
-      previousCriteria.tripNeeds.length ||
-      previousCriteria.optimizationDirective === "performance"
-  );
-  return !priorHadProfile;
+  // Prior already had a profile: only clear brand when the new profile diverges.
+  if (extracted.bodyTypes.length) {
+    if (!previousCriteria.bodyTypes.length) return true;
+    const overlap = extracted.bodyTypes.some((body) => previousCriteria.bodyTypes.includes(body));
+    if (!overlap) return true;
+  }
+  if (isFamilyOrLargeProfile(previousCriteria) && isCompactCityProfile(extracted, message)) return true;
+  if (isCompactCityProfile(previousCriteria, previousCriteria.latestUserMessage || previousCriteria.rawPrompt) &&
+      isFamilyOrLargeProfile(extracted)) {
+    return true;
+  }
+  return false;
 }
 
 function enforcePivotBrandClears(
@@ -671,7 +778,10 @@ function buildPivotBase(previousCriteria: UserCriteria): UserCriteria {
     modelPreferences: [],
     preferredBrandOrigins: [],
     qualitativeSignals: [],
-    optimizationDirective: null
+    optimizationDirective: null,
+    // Drop prior utterance text so exclusive hard-filter language cannot bleed.
+    rawPrompt: "",
+    latestUserMessage: ""
   });
 }
 
