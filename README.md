@@ -74,6 +74,13 @@ unavailable.
 `AUSTRIA_BEV_INCENTIVE_EUR` defaults to `0` until the incentive source is
 verified before a staging demo.
 
+## Conversational explanations and hybrid search
+
+- `FLOWRYD_ENABLE_LLM_EXPLANATIONS=1` enables grounded LLM wording; deterministic explanations remain the fallback.
+- Keep `FLOWRYD_VEHICLE_EMBEDDING_SEARCH=1` only after vehicle embeddings and the hybrid migration are deployed.
+- Inspect explanation fallback rate, hard-constraint violations (must be zero), p95 match latency, Recall@K, NDCG@K, and catalog coverage after each ranking change.
+- Run `npm run eval` before deploying ranking or prompt changes.
+
 ## Demo Registration Gate
 
 The alpha uses a lightweight capture gate before matching. Testers provide only
