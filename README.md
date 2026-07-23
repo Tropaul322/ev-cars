@@ -9,7 +9,7 @@ explainable recommendations, and side-by-side comparison.
 - shadcn-style UI components in `components/ui`.
 - Deterministic EV criteria extraction, filtering, scoring, and TCO calculation.
 - Optional OpenAI explanation generation with deterministic fallback.
-- Supabase EU-ready REST repository, with seed-data fallback for local demos.
+- Supabase EU-ready REST repository (runtime source of truth).
 - API routes for matching, vehicle lookup, comparison, and seed ingestion.
 - Node test runner coverage for parser, matching, TCO, and eval scenarios.
 - Repeatable scraper for the public FlowRyd static dashboard.
@@ -32,7 +32,15 @@ npm run dev
 
 ## Environment
 
-The app works with local seed data without environment variables.
+Supabase is required at runtime. Seed JSON under `data/` and `lib/data/seed-vehicles.ts`
+are ingest/test fixtures only — they are not used as a live data store.
+
+Required:
+
+```bash
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
+```
 
 Optional:
 
@@ -48,8 +56,6 @@ FLOWRYD_VEHICLE_EMBEDDING_SEARCH_LIMIT=200
 FLOWRYD_VEHICLE_EMBEDDING_MIN_SIMILARITY=0.1
 FLOWRYD_MATCH_DEBUG=0
 FLOWRYD_SHOW_SEARCH_CRITERIA=0
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=...
 INGEST_ADMIN_TOKEN=...
 ADMIN_SESSION_SECRET=... # at least 32 random characters for signing admin sessions
 AUSTRIA_BEV_INCENTIVE_EUR=0
@@ -97,9 +103,9 @@ flow.
   location as the default matching location unless the chat turn supplies a
   different location.
 
-For production demos, use a Supabase project in an EU region and a server-side
+For demos, use a Supabase project in an EU region and a server-side
 `SUPABASE_SERVICE_ROLE_KEY` so writes to `tester_registrations` stay in the
-configured EU data store. Local demos fall back to in-memory storage.
+configured EU data store.
 
 ## Admin Panel
 

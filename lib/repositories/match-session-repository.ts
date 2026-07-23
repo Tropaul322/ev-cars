@@ -19,13 +19,9 @@ type SupabaseMatchSessionRow = {
   cached_recommendations?: MatchResult[] | null;
 };
 
-const localSessions = new Map<string, MatchSession>();
-
 export async function getMatchSession(id: string, testerRegistrationId?: string | null): Promise<MatchSession | null> {
-  const local = localSessions.get(id);
-  const localForTester = local && matchesTester(local, testerRegistrationId) ? local : null;
   const supabase = getSupabaseRestConfig();
-  if (!supabase) return localForTester;
+  if (!supabase) return null;
 
   const params = new URLSearchParams({
     select: "id,tester_registration_id,criteria,selected_vehicle_ids,cached_recommendations",
@@ -39,10 +35,10 @@ export async function getMatchSession(id: string, testerRegistrationId?: string 
       headers: supabase.headers,
       next: { revalidate: 0 }
     });
-    if (!response.ok) return localForTester;
+    if (!response.ok) return null;
     const rows = (await response.json()) as SupabaseMatchSessionRow[];
     const row = rows[0];
-    if (!row) return localForTester;
+    if (!row) return null;
     return {
       id: row.id,
       testerRegistrationId: row.tester_registration_id ?? null,
@@ -51,7 +47,7 @@ export async function getMatchSession(id: string, testerRegistrationId?: string 
       cachedRecommendations: Array.isArray(row.cached_recommendations) ? row.cached_recommendations : []
     };
   } catch {
-    return localForTester;
+    return null;
   }
 }
 
@@ -61,10 +57,15 @@ export async function saveMatchSession(session: MatchSession): Promise<void> {
     criteria: normalizeCriteriaShape(session.criteria),
     cachedRecommendations: session.cachedRecommendations ?? []
   };
-  localSessions.set(session.id, normalizedSession);
 
   const supabase = getSupabaseRestConfig();
-  if (!supabase) return;
+  if (!supabase) {
+    matchDebugWarn("match-session.save-skipped", {
+      sessionId: session.id,
+      reason: "supabase-unconfigured"
+    });
+    return;
+  }
 
   try {
     const response = await fetch(`${supabase.url}/rest/v1/match_sessions?on_conflict=id`, {
@@ -95,8 +96,4 @@ export async function saveMatchSession(session: MatchSession): Promise<void> {
       reason: error instanceof Error ? error.message : "unknown"
     });
   }
-}
-
-function matchesTester(session: MatchSession, testerRegistrationId?: string | null) {
-  return !testerRegistrationId || !session.testerRegistrationId || session.testerRegistrationId === testerRegistrationId;
 }

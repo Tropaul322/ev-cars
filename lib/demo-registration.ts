@@ -42,7 +42,6 @@ type RegistrationRow = {
   deletion_requested_at: string | null;
 };
 
-const localRegistrations = new Map<string, DemoRegistration>();
 const REGISTRATION_SELECT = "id,name,email,location,consent_at,deletion_requested_at";
 
 export function validateDemoRegistration(input: DemoRegistrationInput): {
@@ -72,16 +71,17 @@ export function validateDemoRegistration(input: DemoRegistrationInput): {
   return { clean };
 }
 
-export async function createDemoRegistration(input: DemoRegistrationInput): Promise<DemoRegistration> {
+export async function createDemoRegistration(
+  input: DemoRegistrationInput
+): Promise<DemoRegistration | { error: string }> {
   const consentAt = new Date().toISOString();
   const supabase = getSupabaseRestConfig();
-
-  const existingRegistration = supabase
-    ? await findRegistrationByEmail(input.email)
-    : findLocalRegistrationByEmail(input.email);
-  if (existingRegistration) {
-    return cacheRegistration(existingRegistration);
+  if (!supabase) {
+    return { error: "Supabase is not configured." };
   }
+
+  const existingRegistration = await findRegistrationByEmail(input.email);
+  if (existingRegistration) return existingRegistration;
 
   const registration: DemoRegistration = {
     id: crypto.randomUUID(),
@@ -91,10 +91,6 @@ export async function createDemoRegistration(input: DemoRegistrationInput): Prom
     consentAt,
     deletionRequestedAt: null
   };
-
-  localRegistrations.set(registration.id, registration);
-
-  if (!supabase) return registration;
 
   try {
     const response = await fetch(`${supabase.url}/rest/v1/tester_registrations`, {
@@ -111,20 +107,25 @@ export async function createDemoRegistration(input: DemoRegistrationInput): Prom
         consent_at: registration.consentAt
       })
     });
-    if (!response.ok) return (await findRegistrationByEmail(input.email)) ?? registration;
+    if (!response.ok) {
+      const existing = await findRegistrationByEmail(input.email);
+      if (existing) return existing;
+      return { error: await response.text() };
+    }
     const rows = (await response.json()) as RegistrationRow[];
-    return cacheRegistration(rowToRegistration(rows[0]) ?? registration);
-  } catch {
-    return registration;
+    return rowToRegistration(rows[0]) ?? registration;
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Failed to create registration."
+    };
   }
 }
 
 export async function getDemoRegistration(id: string | undefined): Promise<DemoRegistration | null> {
   if (!id) return null;
 
-  const local = localRegistrations.get(id) ?? null;
   const supabase = getSupabaseRestConfig();
-  if (!supabase) return local;
+  if (!supabase) return null;
 
   const params = new URLSearchParams({
     select: REGISTRATION_SELECT,
@@ -137,17 +138,17 @@ export async function getDemoRegistration(id: string | undefined): Promise<DemoR
       headers: supabase.headers,
       next: { revalidate: 0 }
     });
-    if (!response.ok) return local;
+    if (!response.ok) return null;
     const rows = (await response.json()) as RegistrationRow[];
-    return rowToRegistration(rows[0]) ?? local;
+    return rowToRegistration(rows[0]);
   } catch {
-    return local;
+    return null;
   }
 }
 
 async function findRegistrationByEmail(email: string): Promise<DemoRegistration | null> {
   const supabase = getSupabaseRestConfig();
-  if (!supabase) return findLocalRegistrationByEmail(email);
+  if (!supabase) return null;
 
   const params = new URLSearchParams({
     select: REGISTRATION_SELECT,
@@ -169,25 +170,10 @@ async function findRegistrationByEmail(email: string): Promise<DemoRegistration 
   }
 }
 
-function findLocalRegistrationByEmail(email: string): DemoRegistration | null {
-  const normalizedEmail = email.trim().toLowerCase();
-  return [...localRegistrations.values()].find((registration) => registration.email === normalizedEmail) ?? null;
-}
-
-function cacheRegistration(registration: DemoRegistration) {
-  localRegistrations.set(registration.id, registration);
-  return registration;
-}
-
 export async function requestDemoRegistrationDeletion(id: string | undefined): Promise<void> {
   if (!id) return;
 
   const requestedAt = new Date().toISOString();
-  const local = localRegistrations.get(id);
-  if (local) {
-    localRegistrations.set(id, { ...local, deletionRequestedAt: requestedAt });
-  }
-
   const supabase = getSupabaseRestConfig();
   if (!supabase) return;
 

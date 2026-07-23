@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
-import { llmDebug } from "./llm-debug.ts";
+import { llmCallLog, llmDebug } from "./llm-debug.ts";
 
 type OpenAiChatCompletionOptions = NonNullable<
   Parameters<OpenAI["chat"]["completions"]["create"]>[1]
@@ -55,22 +55,42 @@ export async function createOpenAiChatCompletion(
   params: ChatCompletionCreateParamsNonStreaming,
   options?: OpenAiChatCompletionOptions
 ) {
+  const startedAt = Date.now();
   try {
     const response = await createOpenAiClient().chat.completions.create(params, options);
+    const content = response.choices[0]?.message?.content ?? null;
+    const finishReason = response.choices[0]?.finish_reason ?? null;
+    const usage = response.usage ?? null;
+    llmCallLog(stage, {
+      ok: true,
+      httpStatus: 200,
+      model: params.model,
+      finishReason,
+      durationMs: Date.now() - startedAt,
+      usage
+    });
     llmDebug(stage, {
       ok: true,
       model: params.model,
-      content: response.choices[0]?.message?.content ?? null,
-      finishReason: response.choices[0]?.finish_reason ?? null,
-      usage: response.usage ?? null
+      content,
+      finishReason,
+      usage
     });
     return response;
   } catch (error) {
-    llmDebug(stage, {
+    llmCallLog(stage, {
       ok: false,
+      httpStatus: openAiErrorStatus(error),
       model: params.model,
+      durationMs: Date.now() - startedAt,
       error: error instanceof Error ? error.message : String(error)
     });
     throw error;
   }
+}
+
+function openAiErrorStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" ? status : null;
 }

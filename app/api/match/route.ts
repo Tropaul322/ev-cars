@@ -44,13 +44,19 @@ export async function POST(request: Request) {
   const requestedSessionId = body.sessionId?.trim();
   const existingChat = requestedSessionId ? await getChatSession(registration!.id, requestedSessionId) : null;
   const sessionId = existingChat ? existingChat.id : crypto.randomUUID();
-  await ensureChatSession(registration!.id, sessionId, message);
-  await saveChatMessage({
+  const chatSession = await ensureChatSession(registration!.id, sessionId, message);
+  if (!chatSession) {
+    return NextResponse.json({ error: "Unable to create chat session." }, { status: 503 });
+  }
+  const userMessage = await saveChatMessage({
     chatSessionId: sessionId,
     testerRegistrationId: registration!.id,
     role: "user",
     content: message
   });
+  if (!userMessage) {
+    return NextResponse.json({ error: "Unable to save chat message." }, { status: 503 });
+  }
 
   const response = await runMatchRequest({
     message,

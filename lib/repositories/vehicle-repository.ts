@@ -49,11 +49,10 @@ const VEHICLE_SELECT = "id,payload";
 export async function listVehicles(): Promise<Vehicle[]> {
   const vehicles = await fetchSupabaseVehicles();
   if (vehicles) return vehicles;
-  matchDebugWarn("vehicle-repository.fallback", {
-    reason: "supabase-list-unavailable",
-    localVehicles: allVehicles.length
+  matchDebugWarn("vehicle-repository.list-unavailable", {
+    reason: "supabase-list-unavailable"
   });
-  return allVehicles;
+  return [];
 }
 
 export type VehicleSearchOptions = {
@@ -78,11 +77,10 @@ export async function searchVehicles(
 
   const supabase = getSupabaseRestConfig();
   if (!supabase) {
-    matchDebugWarn("vehicle-repository.fallback", {
-      reason: "supabase-unconfigured",
-      localVehicles: allVehicles.length
+    matchDebugWarn("vehicle-repository.search-unavailable", {
+      reason: "supabase-unconfigured"
     });
-    return filterVehiclesForSearch(allVehicles, criteria);
+    return [];
   }
 
   const queryText = buildVehicleEmbeddingQuery(criteria, message);
@@ -125,13 +123,12 @@ export async function searchVehicles(
 
     if (!response.ok) {
       const errorMessage = await response.text();
-      matchDebugWarn("vehicle-repository.fallback", {
+      matchDebugWarn("vehicle-repository.search-unavailable", {
         reason: "supabase-hybrid-search-status",
         status: response.status,
-        message: errorMessage,
-        localVehicles: allVehicles.length
+        message: errorMessage
       });
-      return filterVehiclesForSearch(allVehicles, criteria);
+      return [];
     }
 
     const rows = (await response.json()) as SupabaseVehicleRow[];
@@ -157,11 +154,10 @@ export async function searchVehicles(
 
     return paged;
   } catch {
-    matchDebugWarn("vehicle-repository.fallback", {
-      reason: "supabase-hybrid-search-error",
-      localVehicles: allVehicles.length
+    matchDebugWarn("vehicle-repository.search-unavailable", {
+      reason: "supabase-hybrid-search-error"
     });
-    return filterVehiclesForSearch(allVehicles, criteria);
+    return [];
   }
 }
 
@@ -204,8 +200,7 @@ export async function upsertSeedVehicles() {
 
 export async function getVehicleById(id: string): Promise<Vehicle | null> {
   const supabase = getSupabaseRestConfig();
-  const localVehicle = findLocalVehicleById(id);
-  if (!supabase) return localVehicle;
+  if (!supabase) return null;
 
   try {
     const response = await fetch(
@@ -215,24 +210,18 @@ export async function getVehicleById(id: string): Promise<Vehicle | null> {
         next: { revalidate: VEHICLE_REVALIDATE_SECONDS }
       }
     );
-    if (!response.ok) return localVehicle;
+    if (!response.ok) return null;
 
     const rows = (await response.json()) as SupabaseVehicleRow[];
-    const vehicle = rows.map(mapVehicleRow).find((item): item is Vehicle => Boolean(item));
-    return vehicle ?? localVehicle;
+    return rows.map(mapVehicleRow).find((item): item is Vehicle => Boolean(item)) ?? null;
   } catch {
-    return localVehicle;
+    return null;
   }
-}
-
-function findLocalVehicleById(id: string) {
-  const vehicle = allVehicles.find((item) => item.id === id);
-  return vehicle ? sanitizeVehicleImages(vehicle) : null;
 }
 
 async function fetchSupabaseVehicles(): Promise<Vehicle[] | null> {
   const supabase = getSupabaseRestConfig();
-  if (!supabase) return allVehicles;
+  if (!supabase) return null;
 
   try {
     const params = new URLSearchParams({

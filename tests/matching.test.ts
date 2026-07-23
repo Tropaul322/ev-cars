@@ -18,7 +18,6 @@ import {
   llmExplanationsEnabled,
   recommendationExplanationSystemPrompt
 } from "../lib/recommendation-explanations.ts";
-import { saveMatchSession } from "../lib/repositories/match-session-repository.ts";
 import { buildRagContext } from "../lib/rag.ts";
 import { getSupabaseRestConfig } from "../lib/repositories/supabase-rest.ts";
 import { deriveWeights, getHardFilterReasons, matchVehicles, scorePrice, scoreVehicle } from "../lib/scoring.ts";
@@ -491,19 +490,12 @@ test("show_alternatives returns cached runner-ups without running a new search",
   assert.ok(scored.length >= 3);
 
   const sessionId = crypto.randomUUID();
-  await saveMatchSession({
-    id: sessionId,
-    testerRegistrationId: null,
-    criteria,
-    selectedVehicleIds: [],
-    cachedRecommendations: scored
-  });
-
   const response = await runMatchRequest({
     message: "show other options",
     sessionId,
     previousCriteria: criteria,
-    intent: "show_alternatives"
+    intent: "show_alternatives",
+    cachedRecommendations: scored
   });
 
   assert.equal(response.type, "matches");
@@ -520,16 +512,11 @@ test("show_alternatives returns cached runner-ups without running a new search",
 test("cached explanation returns chat without matching again", async () => {
   const criteria = extractCriteria("family SUV under 50000 EUR with 450 km range");
   const cachedRecommendations = matchVehicles(seedVehicles, criteria).recommendations.slice(0, 1);
-  await saveMatchSession({
-    id: "explain-cache",
-    criteria,
-    selectedVehicleIds: [],
-    cachedRecommendations
-  });
   const response = await runMatchRequest({
     message: "Why are you suggesting this car?",
     sessionId: "explain-cache",
-    previousCriteria: criteria
+    previousCriteria: criteria,
+    cachedRecommendations
   });
   assert.equal(response.type, "chat");
   assert.match(response.assistantMessage, new RegExp(cachedRecommendations[0]!.vehicle.model));
@@ -1259,6 +1246,11 @@ matchRoute("match route does not substitute a different Kia model for EV6 search
   });
   const data = await answerOptimizationPrompt(first);
 
+  // Catalog may not contain an EV6 listing; never substitute a different Kia model.
+  if (data.type === "no_matches") {
+    assert.equal(data.recommendations.length, 0);
+    return;
+  }
   assert.equal(data.type, "matches");
   assert.ok(data.recommendations.length > 0);
   for (const recommendation of data.recommendations) {

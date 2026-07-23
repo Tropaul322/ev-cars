@@ -37,8 +37,6 @@ type SavedCarRow = {
   updated_at: string;
 };
 
-const localSavedCars = new Map<string, SavedCarRow>();
-
 export async function listSavedCars(testerRegistrationId: string): Promise<SavedCar[]> {
   const rows = await listSavedCarRows(testerRegistrationId);
   const cars = await Promise.all(rows.map(rowToSavedCar));
@@ -52,10 +50,7 @@ export async function getSavedVehicleIds(testerRegistrationId: string): Promise<
 
 export async function isCarSaved(testerRegistrationId: string, vehicleId: string): Promise<boolean> {
   const supabase = getSupabaseRestConfig();
-  if (!supabase) {
-    const row = getLocalSavedRow(testerRegistrationId, vehicleId);
-    return Boolean(row && !row.deleted_at);
-  }
+  if (!supabase) return false;
 
   const params = new URLSearchParams({
     select: "id",
@@ -88,21 +83,7 @@ export async function saveCar(
 
   const cleanSnapshot = snapshot ? sanitizeSnapshot({ ...snapshot, id: cleanVehicleId }) : null;
   const supabase = getSupabaseRestConfig();
-
-  if (!supabase) {
-    const now = new Date().toISOString();
-    const key = savedCarKey(testerRegistrationId, cleanVehicleId);
-    const existing = localSavedCars.get(key);
-    localSavedCars.set(key, {
-      id: existing?.id ?? crypto.randomUUID(),
-      tester_registration_id: testerRegistrationId,
-      vehicle_id: cleanVehicleId,
-      snapshot: cleanSnapshot,
-      created_at: existing?.created_at ?? now,
-      updated_at: now
-    });
-    return { saved: true };
-  }
+  if (!supabase) return { saved: false, error: "Supabase is not configured." };
 
   const existing = await findSavedCarRow(testerRegistrationId, cleanVehicleId);
   if (existing) {
@@ -144,20 +125,9 @@ export async function unsaveCar(
   if (!cleanVehicleId) return { saved: true, error: "vehicleId is required" };
 
   const supabase = getSupabaseRestConfig();
+  if (!supabase) return { saved: true, error: "Supabase is not configured." };
+
   const deletedAt = new Date().toISOString();
-
-  if (!supabase) {
-    const row = getLocalSavedRow(testerRegistrationId, cleanVehicleId);
-    if (row) {
-      localSavedCars.set(savedCarKey(testerRegistrationId, cleanVehicleId), {
-        ...row,
-        updated_at: deletedAt,
-        deleted_at: deletedAt
-      });
-    }
-    return { saved: false };
-  }
-
   const params = new URLSearchParams({
     tester_registration_id: `eq.${testerRegistrationId}`,
     vehicle_id: `eq.${cleanVehicleId}`,
@@ -199,11 +169,7 @@ function normalizeSnapshotString(value: unknown) {
 
 async function listSavedCarRows(testerRegistrationId: string): Promise<SavedCarRow[]> {
   const supabase = getSupabaseRestConfig();
-  if (!supabase) {
-    return [...localSavedCars.values()]
-      .filter((row) => row.tester_registration_id === testerRegistrationId && !row.deleted_at)
-      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-  }
+  if (!supabase) return [];
 
   const params = new URLSearchParams({
     select: "id,tester_registration_id,vehicle_id,snapshot,created_at,updated_at",
@@ -226,7 +192,7 @@ async function listSavedCarRows(testerRegistrationId: string): Promise<SavedCarR
 
 async function findSavedCarRow(testerRegistrationId: string, vehicleId: string): Promise<SavedCarRow | null> {
   const supabase = getSupabaseRestConfig();
-  if (!supabase) return getLocalSavedRow(testerRegistrationId, vehicleId);
+  if (!supabase) return null;
 
   const params = new URLSearchParams({
     select: "id,tester_registration_id,vehicle_id,snapshot,created_at,updated_at",
@@ -258,14 +224,6 @@ async function rowToSavedCar(row: SavedCarRow): Promise<SavedCar> {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
-}
-
-function getLocalSavedRow(testerRegistrationId: string, vehicleId: string) {
-  return localSavedCars.get(savedCarKey(testerRegistrationId, vehicleId)) ?? null;
-}
-
-function savedCarKey(testerRegistrationId: string, vehicleId: string) {
-  return `${testerRegistrationId}:${vehicleId}`;
 }
 
 export function snapshotFromVehicle(vehicle: Vehicle, match?: number | null): SavedCarSnapshot {

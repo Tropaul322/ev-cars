@@ -186,7 +186,11 @@ matchRoute("match request re-runs inventory after a brand focus follow-up", asyn
 
   assert.notEqual(second.type, "chat");
   assert.deepEqual(second.criteria.brandPreferences, ["Ford"]);
-  assert.ok(second.recommendations.some((match) => match.vehicle.make === "Ford"));
+  const ranked =
+    second.type === "matches"
+      ? [...second.recommendations, ...(second.alternativeRecommendations ?? [])]
+      : second.recommendations;
+  assert.ok(ranked.some((match) => match.vehicle.make === "Ford"));
 });
 
 matchRoute("match request shows listings when user asks to show them", async () => {

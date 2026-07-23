@@ -53,11 +53,28 @@ as $$
       nullif(filters ->> 'batterySoHMin', '')::numeric as battery_soh_min,
       nullif(filters ->> 'location', '') as location
   ),
-  eligible as (
-    select vehicles.*
+  text_query as (
+    select
+      nullif(btrim(coalesce(query_text, '')), '') as q,
+      case
+        when nullif(btrim(coalesce(query_text, '')), '') is null then null
+        else websearch_to_tsquery('simple', btrim(query_text))
+      end as tsq
+  ),
+  text_candidates as (
+    select
+      vehicles.id,
+      ts_rank_cd(vehicles.search_document, text_query.tsq) as text_rank,
+      row_number() over (
+        order by ts_rank_cd(vehicles.search_document, text_query.tsq) desc,
+          vehicles.price_eur asc
+      ) as text_rank_position
     from public.vehicles
     cross join filter_input f
-    where vehicles.market = f.market
+    cross join text_query
+    where text_query.tsq is not null
+      and vehicles.search_document @@ text_query.tsq
+      and vehicles.market = f.market
       and vehicles.available = f.available
       and (f.budget_min_eur is null or vehicles.price_eur >= f.budget_min_eur)
       and (f.budget_max_eur is null or vehicles.price_eur <= f.budget_max_eur)
@@ -139,47 +156,142 @@ as $$
         )
       )
   ),
-  text_query as (
-    select nullif(btrim(coalesce(query_text, '')), '') as q
-  ),
-  text_candidates as (
-    select
-      eligible.id,
-      ts_rank_cd(eligible.search_document, websearch_to_tsquery('simple', text_query.q)) as text_rank,
-      row_number() over (
-        order by ts_rank_cd(eligible.search_document, websearch_to_tsquery('simple', text_query.q)) desc,
-          eligible.price_eur asc
-      ) as text_rank_position
-    from eligible
-    cross join text_query
-    where text_query.q is not null
-      and eligible.search_document @@ websearch_to_tsquery('simple', text_query.q)
-  ),
   vector_candidates as (
     select
-      eligible.id,
-      1 - (eligible.embedding <=> query_embedding) as semantic_similarity,
+      vehicles.id,
+      1 - (vehicles.embedding <=> query_embedding) as semantic_similarity,
       row_number() over (
-        order by eligible.embedding <=> query_embedding,
-          eligible.price_eur asc
+        order by vehicles.embedding <=> query_embedding,
+          vehicles.price_eur asc
       ) as vector_rank_position
-    from eligible
+    from public.vehicles
+    cross join filter_input f
     where query_embedding is not null
-      and eligible.embedding is not null
-      and 1 - (eligible.embedding <=> query_embedding) >= min_similarity
+      and vehicles.embedding is not null
+      and 1 - (vehicles.embedding <=> query_embedding) >= min_similarity
+      and vehicles.market = f.market
+      and vehicles.available = f.available
+      and (f.budget_min_eur is null or vehicles.price_eur >= f.budget_min_eur)
+      and (f.budget_max_eur is null or vehicles.price_eur <= f.budget_max_eur)
+      and (
+        f.monthly_budget_eur is null
+        or vehicles.monthly_lease_eur is null
+        or vehicles.monthly_lease_eur <= f.monthly_budget_eur
+      )
+      and (f.hard_range_floor_km is null or vehicles.range_km >= f.hard_range_floor_km)
+      and (f.hard_condition is null or vehicles.condition = f.hard_condition)
+      and (
+        jsonb_array_length(f.hard_body_types) = 0
+        or vehicles.body_type = any (select jsonb_array_elements_text(f.hard_body_types))
+      )
+      and (f.hard_passengers is null or vehicles.seats >= f.hard_passengers)
+      and (
+        f.mileage_max_km is null
+        or (
+          vehicles.mileage_km is not null
+          and vehicles.mileage_km <= f.mileage_max_km
+        )
+        or (
+          vehicles.condition is distinct from 'used'
+          and vehicles.mileage_km is null
+        )
+      )
+      and (f.battery_soh_min is null or vehicles.battery_soh is null or vehicles.battery_soh >= f.battery_soh_min)
+      and (
+        f.location is null
+        or vehicles.location ilike ('%' || f.location || '%')
+      )
+      and (
+        jsonb_array_length(f.hard_brand_preferences) = 0
+        or vehicles.brand = any (select jsonb_array_elements_text(f.hard_brand_preferences))
+        or vehicles.make = any (select jsonb_array_elements_text(f.hard_brand_preferences))
+      )
+      and (
+        jsonb_array_length(f.hard_brand_origins) = 0
+        or vehicles.brand_origin = any (select jsonb_array_elements_text(f.hard_brand_origins))
+        or (
+          jsonb_array_length(f.hard_brand_origin_country_codes) > 0
+          and vehicles.manufacturer_country_code = any (
+            select jsonb_array_elements_text(f.hard_brand_origin_country_codes)
+          )
+        )
+      )
+      and (
+        jsonb_array_length(f.avoided_brands) = 0
+        or (
+          coalesce(vehicles.brand, '') <> all (select jsonb_array_elements_text(f.avoided_brands))
+          and coalesce(vehicles.make, '') <> all (select jsonb_array_elements_text(f.avoided_brands))
+        )
+      )
+      and (
+        jsonb_array_length(f.model_preferences) = 0
+        or exists (
+          select 1
+          from jsonb_array_elements_text(f.model_preferences) as preferred(model)
+          where vehicles.model ilike ('%' || preferred.model || '%')
+             or vehicles.title ilike ('%' || preferred.model || '%')
+        )
+      )
+      and (
+        jsonb_array_length(f.must_have_features) = 0
+        or (
+          select bool_and(
+            exists (
+              select 1
+              from unnest(string_to_array(coalesce(vehicles.features, ''), '|')) as tok(feature_name)
+              where tok.feature_name = feature
+            )
+            or exists (
+              select 1
+              from jsonb_array_elements_text(coalesce(vehicles.payload -> 'features', '[]'::jsonb)) as listed(feature_name)
+              where listed.feature_name = feature
+            )
+          )
+          from jsonb_array_elements_text(f.must_have_features) as feature
+        )
+      )
+  ),
+  ranked_text as (
+    select * from text_candidates
+    where text_rank_position <= greatest(match_count * 4, 100)
+  ),
+  ranked_vector as (
+    select * from vector_candidates
+    where vector_rank_position <= greatest(match_count * 4, 100)
+  ),
+  candidate_ids as (
+    select id from ranked_text
+    union
+    select id from ranked_vector
+  ),
+  fallback_ids as (
+    select vehicles.id
+    from public.vehicles
+    cross join filter_input f
+    cross join text_query
+    where text_query.tsq is null
+      and query_embedding is null
+      and vehicles.market = f.market
+      and vehicles.available = f.available
+      and (f.budget_min_eur is null or vehicles.price_eur >= f.budget_min_eur)
+      and (f.budget_max_eur is null or vehicles.price_eur <= f.budget_max_eur)
+    order by vehicles.price_eur asc
+    limit greatest(match_count, 1)
   ),
   fused as (
     select
-      eligible.id,
-      eligible.payload,
-      eligible.price_eur,
-      vector_candidates.semantic_similarity,
-      text_candidates.text_rank,
-      coalesce(1.0 / (50 + text_candidates.text_rank_position), 0)
-        + coalesce(1.0 / (50 + vector_candidates.vector_rank_position), 0) as rrf_score
-    from eligible
-    left join text_candidates on text_candidates.id = eligible.id
-    left join vector_candidates on vector_candidates.id = eligible.id
+      vehicles.id,
+      vehicles.payload,
+      vehicles.price_eur,
+      ranked_vector.semantic_similarity,
+      ranked_text.text_rank,
+      coalesce(1.0 / (50 + ranked_text.text_rank_position), 0)
+        + coalesce(1.0 / (50 + ranked_vector.vector_rank_position), 0) as rrf_score
+    from public.vehicles
+    left join ranked_text on ranked_text.id = vehicles.id
+    left join ranked_vector on ranked_vector.id = vehicles.id
+    where vehicles.id in (select id from candidate_ids)
+       or vehicles.id in (select id from fallback_ids)
   )
   select
     fused.id,

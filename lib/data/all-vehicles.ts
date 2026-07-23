@@ -7,5 +7,5 @@ import { seedVehicles } from "./seed-vehicles.ts";
 
 export const flowrydVehicles = (inventoryRows as RawInventoryRow[]).map(normalizeFlowrydVehicle);
 
-/** Local inventory bundle used by upload scripts and as a deterministic runtime fallback. */
+/** Inventory bundle for upload/ingest scripts and unit-test fixtures (not used at runtime). */
 export const allVehicles = [...seedVehicles, ...flowrydVehicles];

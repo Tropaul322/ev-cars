@@ -52,6 +52,10 @@ export async function POST(request: Request) {
   }
 
   const registration = await createDemoRegistration(result.clean);
+  if ("error" in registration) {
+    return NextResponse.json({ error: registration.error }, { status: 503 });
+  }
+
   const response = NextResponse.json({
     registered: true,
     tester: {

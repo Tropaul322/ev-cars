@@ -48,18 +48,12 @@ type ChatMessageRow = {
   created_at: string;
 };
 
-const localChatSessions = new Map<string, ChatSessionRow>();
-const localChatMessages = new Map<string, ChatMessageRow[]>();
-
 export async function getChatSession(
   testerRegistrationId: string,
   chatSessionId: string
 ): Promise<ChatSession | null> {
   const supabase = getSupabaseRestConfig();
-  if (!supabase) {
-    const local = localChatSessions.get(chatSessionId);
-    return local?.tester_registration_id === testerRegistrationId ? rowToSession(local) : null;
-  }
+  if (!supabase) return null;
 
   const params = new URLSearchParams({
     select: "id,tester_registration_id,title,latest_message_at,created_at,updated_at",
@@ -83,14 +77,7 @@ export async function getChatSession(
 
 export async function listChatSessions(testerRegistrationId: string, limit = 30): Promise<ChatSession[]> {
   const supabase = getSupabaseRestConfig();
-  if (!supabase) {
-    return [...localChatSessions.values()]
-      .filter((session) => session.tester_registration_id === testerRegistrationId)
-      .sort((left, right) => right.latest_message_at.localeCompare(left.latest_message_at))
-      .slice(0, limit)
-      .map(rowToSession)
-      .filter((session): session is ChatSession => Boolean(session));
-  }
+  if (!supabase) return [];
 
   const params = new URLSearchParams({
     select: "id,tester_registration_id,title,latest_message_at,created_at,updated_at",
@@ -114,12 +101,7 @@ export async function listChatSessions(testerRegistrationId: string, limit = 30)
 
 export async function getLatestChat(testerRegistrationId: string): Promise<ChatWithMessages | null> {
   const supabase = getSupabaseRestConfig();
-  if (!supabase) {
-    const row = [...localChatSessions.values()]
-      .filter((session) => session.tester_registration_id === testerRegistrationId)
-      .sort((left, right) => right.latest_message_at.localeCompare(left.latest_message_at))[0];
-    return row ? { ...rowToSession(row)!, messages: localMessagesFor(row.id) } : null;
-  }
+  if (!supabase) return null;
 
   const params = new URLSearchParams({
     select: "id,tester_registration_id,title,latest_message_at,created_at,updated_at",
@@ -162,10 +144,13 @@ export async function ensureChatSession(
   testerRegistrationId: string,
   chatSessionId: string,
   titleSource?: string
-): Promise<ChatSession> {
+): Promise<ChatSession | null> {
   const now = new Date().toISOString();
   const existing = await getChatSession(testerRegistrationId, chatSessionId);
   if (existing) return existing;
+
+  const supabase = getSupabaseRestConfig();
+  if (!supabase) return null;
 
   const row: ChatSessionRow = {
     id: chatSessionId,
@@ -176,11 +161,6 @@ export async function ensureChatSession(
     updated_at: now
   };
 
-  localChatSessions.set(chatSessionId, row);
-
-  const supabase = getSupabaseRestConfig();
-  if (!supabase) return rowToSession(row)!;
-
   try {
     const response = await fetch(`${supabase.url}/rest/v1/chat_sessions?on_conflict=id`, {
       method: "POST",
@@ -190,11 +170,11 @@ export async function ensureChatSession(
       },
       body: JSON.stringify(row)
     });
-    if (!response.ok) return rowToSession(row)!;
+    if (!response.ok) return null;
     const rows = (await response.json()) as ChatSessionRow[];
-    return rowToSession(rows[0]) ?? rowToSession(row)!;
+    return rowToSession(rows[0]) ?? rowToSession(row);
   } catch {
-    return rowToSession(row)!;
+    return null;
   }
 }
 
@@ -204,7 +184,10 @@ export async function saveChatMessage(input: {
   role: ChatMessageRole;
   content: string;
   payload?: ChatMessagePayload;
-}): Promise<ChatMessage> {
+}): Promise<ChatMessage | null> {
+  const supabase = getSupabaseRestConfig();
+  if (!supabase) return null;
+
   const createdAt = new Date().toISOString();
   const row: ChatMessageRow = {
     id: crypto.randomUUID(),
@@ -216,14 +199,6 @@ export async function saveChatMessage(input: {
     created_at: createdAt
   };
 
-  const localRows = localChatMessages.get(input.chatSessionId) ?? [];
-  localRows.push(row);
-  localChatMessages.set(input.chatSessionId, localRows);
-  touchLocalSession(input.chatSessionId, createdAt);
-
-  const supabase = getSupabaseRestConfig();
-  if (!supabase) return rowToMessage(row);
-
   try {
     const messageResponse = await fetch(`${supabase.url}/rest/v1/chat_messages`, {
       method: "POST",
@@ -233,9 +208,9 @@ export async function saveChatMessage(input: {
       },
       body: JSON.stringify(row)
     });
-    if (!messageResponse.ok) return rowToMessage(row);
+    if (!messageResponse.ok) return null;
 
-    const sessionResponse = await fetch(`${supabase.url}/rest/v1/chat_sessions?id=eq.${input.chatSessionId}`, {
+    await fetch(`${supabase.url}/rest/v1/chat_sessions?id=eq.${input.chatSessionId}`, {
       method: "PATCH",
       headers: {
         ...supabase.headers,
@@ -243,12 +218,11 @@ export async function saveChatMessage(input: {
       },
       body: JSON.stringify({ latest_message_at: createdAt })
     });
-    if (!sessionResponse.ok) return rowToMessage(row);
-  } catch {
-    // Local history remains available for the current server process.
-  }
 
-  return rowToMessage(row);
+    return rowToMessage(row);
+  } catch {
+    return null;
+  }
 }
 
 export async function recoverShownVehicleKeysFromChat(
@@ -280,7 +254,7 @@ export async function recoverShownVehicleKeysFromChat(
 
 export async function listChatMessages(testerRegistrationId: string, chatSessionId: string): Promise<ChatMessage[]> {
   const supabase = getSupabaseRestConfig();
-  if (!supabase) return localMessagesFor(chatSessionId).filter((message) => message.testerRegistrationId === testerRegistrationId);
+  if (!supabase) return [];
 
   const params = new URLSearchParams({
     select: "id,chat_session_id,tester_registration_id,role,content,payload,created_at",
@@ -300,20 +274,6 @@ export async function listChatMessages(testerRegistrationId: string, chatSession
   } catch {
     return [];
   }
-}
-
-function localMessagesFor(chatSessionId: string) {
-  return (localChatMessages.get(chatSessionId) ?? []).map(rowToMessage);
-}
-
-function touchLocalSession(chatSessionId: string, latestMessageAt: string) {
-  const session = localChatSessions.get(chatSessionId);
-  if (!session) return;
-  localChatSessions.set(chatSessionId, {
-    ...session,
-    latest_message_at: latestMessageAt,
-    updated_at: latestMessageAt
-  });
 }
 
 function rowToSession(row: ChatSessionRow | undefined): ChatSession | null {

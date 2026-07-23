@@ -57,7 +57,6 @@ import {
 } from "./repositories/match-session-repository.ts";
 import { listVehicles, searchVehicles } from "./repositories/vehicle-repository.ts";
 import { matchVehicles } from "./scoring.ts";
-import { allVehicles } from "./data/all-vehicles.ts";
 import type { MatchDiagnostics } from "./match-diagnostics.ts";
 import type {
   ClarificationPrompt,
@@ -103,6 +102,9 @@ export type MatchServiceRequest = {
   currentPromptKey?: ClarificationPromptKey;
   testerLocation?: string | null;
   conversationHistory?: LlmConversationTurn[];
+  /** Optional session seed (tests / callers that already hold cache in memory). */
+  cachedRecommendations?: MatchResult[];
+  selectedVehicleIds?: string[];
 };
 
 export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchResponse> {
@@ -121,6 +123,10 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
         )
       : []);
   const storedSession = body.sessionId ? await getMatchSession(sessionId, body.testerRegistrationId) : null;
+  const sessionState = {
+    selectedVehicleIds: body.selectedVehicleIds ?? storedSession?.selectedVehicleIds ?? [],
+    cachedRecommendations: body.cachedRecommendations ?? storedSession?.cachedRecommendations ?? []
+  };
   const previousCriteria = body.previousCriteria ?? storedSession?.criteria ?? null;
   const hasPriorContext = Boolean(previousCriteria);
 
@@ -134,8 +140,8 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       id: sessionId,
       testerRegistrationId: body.testerRegistrationId,
       criteria: guardCriteria,
-      selectedVehicleIds: storedSession?.selectedVehicleIds ?? [],
-      cachedRecommendations: storedSession?.cachedRecommendations ?? []
+      selectedVehicleIds: sessionState.selectedVehicleIds,
+      cachedRecommendations: sessionState.cachedRecommendations
     });
     return attachSearchCriteriaDebug(
       {
@@ -178,7 +184,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     const assistantMessage = await generateRecommendationExplanation({
       question: body.message,
       criteria,
-      recommendations: storedSession?.cachedRecommendations ?? []
+      recommendations: sessionState.cachedRecommendations
     });
     return {
       type: "chat",
@@ -312,12 +318,12 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
   });
 
   if (isShowAlternatives && !criteriaChanged) {
-    const cachedRecommendations = storedSession?.cachedRecommendations ?? [];
+    const cachedRecommendations = sessionState.cachedRecommendations;
     if (cachedRecommendations.length > VISIBLE_RECOMMENDATION_LIMIT) {
       const recommendations = cachedRecommendations.slice(VISIBLE_RECOMMENDATION_LIMIT, CACHED_RECOMMENDATION_LIMIT);
       {
         const selectedVehicleIds = new Set([
-          ...(storedSession?.selectedVehicleIds ?? []),
+          ...sessionState.selectedVehicleIds,
           ...recommendations.flatMap((match) => vehicleExclusionKeys(match.vehicle))
         ]);
         await saveMatchSession({
@@ -357,7 +363,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       id: sessionId,
       testerRegistrationId: body.testerRegistrationId,
       criteria,
-      selectedVehicleIds: storedSession?.selectedVehicleIds ?? [],
+      selectedVehicleIds: sessionState.selectedVehicleIds,
       cachedRecommendations
     });
     return attachSearchCriteriaDebug(
@@ -378,13 +384,13 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
   }
 
   const storedSelectedVehicleIds =
-    storedSession?.selectedVehicleIds?.length
-      ? storedSession.selectedVehicleIds
+    sessionState.selectedVehicleIds.length
+      ? sessionState.selectedVehicleIds
       : body.sessionId && body.testerRegistrationId
         ? await recoverShownVehicleKeysFromChat(body.testerRegistrationId, body.sessionId)
         : [];
   const cachedRecommendationVehicleIds =
-    storedSession?.cachedRecommendations?.flatMap((match) => vehicleExclusionKeys(match.vehicle)) ?? [];
+    sessionState.cachedRecommendations.flatMap((match) => vehicleExclusionKeys(match.vehicle));
   const shownVehicleIds =
     isNextBatch && !body.criteriaOverride
       ? new Set([...storedSelectedVehicleIds, ...cachedRecommendationVehicleIds])
@@ -497,7 +503,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       testerRegistrationId: body.testerRegistrationId,
       criteria,
       selectedVehicleIds: [...nextSelectedVehicleIds],
-      cachedRecommendations: criteriaChanged ? [] : storedSession?.cachedRecommendations ?? []
+      cachedRecommendations: criteriaChanged ? [] : sessionState.cachedRecommendations
     });
     return attachSearchCriteriaDebug(
       {
@@ -524,7 +530,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     async () => {
       const candidateVehicles = await searchVehicles(criteria, body.message, { offset: searchOffset });
       const vehiclesForScoring = candidateVehicles.length ? candidateVehicles : await listVehicles();
-      if (!candidateVehicles.length) pipelineFallbacks.fallbackSource = "local_inventory";
+      if (!candidateVehicles.length) pipelineFallbacks.fallbackSource = "full_catalog_list";
       return {
         candidateVehicles,
         scoringVehicles: dedupeVehiclesForMatching(vehiclesForScoring),
@@ -535,14 +541,14 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     },
     () => ({
       candidateVehicles: [],
-      scoringVehicles: dedupeVehiclesForMatching(allVehicles),
+      scoringVehicles: [],
       structuredHits: 0,
       embeddingHits: 0,
       usedFallbackList: true
     })
   );
   if (retrieved.usedFallbackList && !pipelineFallbacks.fallbackSource) {
-    pipelineFallbacks.fallbackSource = "local_inventory";
+    pipelineFallbacks.fallbackSource = "retrieve_empty";
   }
 
   const sanePool = filterVehiclesWithSanityChecks(retrieved.scoringVehicles);
@@ -730,7 +736,11 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     VISIBLE_RECOMMENDATION_LIMIT,
     CACHED_RECOMMENDATION_LIMIT
   );
-  const assistantMessage = primaryAssistantMessage(criteria, recommendations.length, alternativeRecommendations.length, lowConfidenceQuestion);
+  const assistantMessage = appendLowConfidenceQuestion(
+    finalSelection.assistantMessage ||
+      fallbackMatchIntroMessage(criteria, recommendations.length, lowConfidenceQuestion),
+    lowConfidenceQuestion
+  );
   const responseDiagnostics = buildMatchDiagnostics({
     embeddingQueryStatus:
       embeddingHits > 0 ? "ok" : vehicleEmbeddingSearchEnabled() ? "unavailable" : "disabled",
@@ -968,21 +978,9 @@ function strongestPrimaryAdvantage(primary: MatchResult, alternatives: MatchResu
   return labels[strongest] ?? labels.score;
 }
 
-function primaryAssistantMessage(
-  criteria: UserCriteria,
-  visibleCount: number,
-  alternativesCount: number,
-  lowConfidenceQuestion?: string | null
-) {
-  const base =
-    criteria.language === "de"
-      ? visibleCount
-        ? `Ich zeige dir zuerst den stärksten Treffer. ${alternativesCount ? `Ich habe ${alternativesCount} Alternativen im Hintergrund bereit.` : "Ich habe keine gleich starken Alternativen gefunden."}`
-        : "Ich konnte keinen sichtbaren Treffer vorbereiten."
-      : visibleCount
-        ? `I am showing the strongest match first. ${alternativesCount ? `I have ${alternativesCount} alternatives ready in the background.` : "I did not find equally strong alternatives."}`
-        : "I could not prepare a visible match.";
-  return lowConfidenceQuestion ? `${base}\n\n${lowConfidenceQuestion}` : base;
+function appendLowConfidenceQuestion(message: string, lowConfidenceQuestion?: string | null) {
+  if (!lowConfidenceQuestion) return message;
+  return message.includes(lowConfidenceQuestion) ? message : `${message}\n\n${lowConfidenceQuestion}`;
 }
 
 function alternativesAssistantMessage(criteria: UserCriteria, count: number) {
