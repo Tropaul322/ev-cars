@@ -449,6 +449,54 @@ function buildPostgrestIlikePattern(value: string) {
   return `*${escapePostgrestValue(trimmed)}*`;
 }
 
+export type HybridSearchFilters = {
+  market: "AT";
+  available: true;
+  budgetMinEUR: number | null;
+  budgetMaxEUR: number | null;
+  monthlyBudgetEUR: number | null;
+  modelPreferences: string[];
+  avoidedBrands: string[];
+  mustHaveFeatures: UserCriteria["mustHaveFeatures"];
+  hardRangeFloorKm: number | null;
+  hardBodyTypes: UserCriteria["bodyTypes"];
+  hardPassengers: number | null;
+  hardCondition: UserCriteria["preferredCondition"] | null;
+  hardBrandPreferences: string[];
+  hardBrandOrigins: UserCriteria["preferredBrandOrigins"];
+  mileageMaxKm: number | null;
+  batterySoHMin: number | null;
+  location: string | null;
+};
+
+/** Typed hard-filter payload for `search_vehicles_hybrid`. Soft preferences are omitted. */
+export function buildHybridSearchFilters(criteria: UserCriteria): HybridSearchFilters {
+  return {
+    market: "AT",
+    available: true,
+    budgetMinEUR: criteria.budgetMinEUR,
+    budgetMaxEUR: criteria.budgetMaxEUR,
+    monthlyBudgetEUR: criteria.monthlyBudgetEUR,
+    modelPreferences: criteria.modelPreferences,
+    avoidedBrands: expandBrandSearchValues(criteria.avoidedBrands),
+    mustHaveFeatures: criteria.mustHaveFeatures,
+    hardRangeFloorKm: hasHardRangeConstraint(criteria) ? inferSearchRangeFloorKm(criteria) : null,
+    hardBodyTypes: hasHardBodyTypeConstraint(criteria) ? criteria.bodyTypes : [],
+    hardPassengers: hasHardPassengerConstraint(criteria) ? criteria.passengers : null,
+    hardCondition:
+      hasHardConditionConstraint(criteria) && criteria.preferredCondition !== "any"
+        ? criteria.preferredCondition
+        : null,
+    hardBrandPreferences: hasHardBrandConstraint(criteria)
+      ? expandBrandSearchValues(criteria.brandPreferences)
+      : [],
+    hardBrandOrigins: hasHardBrandOriginConstraint(criteria) ? criteria.preferredBrandOrigins : [],
+    mileageMaxKm: criteria.mileageMaxKm,
+    batterySoHMin: criteria.batteryHealthRequired ? criteria.batterySoHMin : null,
+    location: resolveInventoryLocationFilter(criteria.location)
+  };
+}
+
 export function summarizeVehicleSearchFilters(criteria: UserCriteria) {
   return {
     market: "AT",

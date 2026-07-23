@@ -1,7 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyCriteria } from "../lib/criteria.ts";
-import { buildVehicleSearchParams } from "../lib/repositories/vehicle-repository.ts";
+import {
+  buildHybridSearchFilters,
+  buildVehicleSearchParams
+} from "../lib/repositories/vehicle-repository.ts";
+
+test("hybrid search passes explicit hard filters to RPC", () => {
+  const filters = buildHybridSearchFilters({
+    ...emptyCriteria("Kia EV6 under 45000 EUR"),
+    budgetMaxEUR: 45000,
+    modelPreferences: ["EV6"]
+  });
+
+  assert.equal(filters.market, "AT");
+  assert.equal(filters.available, true);
+  assert.equal(filters.budgetMaxEUR, 45000);
+  assert.deepEqual(filters.modelPreferences, ["EV6"]);
+});
 
 test("vehicle search pushes generated-column criteria into the Supabase request", () => {
   const params = buildVehicleSearchParams({
