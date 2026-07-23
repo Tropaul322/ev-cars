@@ -48,6 +48,7 @@ as $$
       nullif(filters ->> 'hardCondition', '') as hard_condition,
       coalesce(filters -> 'hardBrandPreferences', '[]'::jsonb) as hard_brand_preferences,
       coalesce(filters -> 'hardBrandOrigins', '[]'::jsonb) as hard_brand_origins,
+      coalesce(filters -> 'hardBrandOriginCountryCodes', '[]'::jsonb) as hard_brand_origin_country_codes,
       nullif(filters ->> 'mileageMaxKm', '')::integer as mileage_max_km,
       nullif(filters ->> 'batterySoHMin', '')::numeric as battery_soh_min,
       nullif(filters ->> 'location', '') as location
@@ -72,7 +73,17 @@ as $$
         or vehicles.body_type = any (select jsonb_array_elements_text(f.hard_body_types))
       )
       and (f.hard_passengers is null or vehicles.seats >= f.hard_passengers)
-      and (f.mileage_max_km is null or vehicles.mileage_km is null or vehicles.mileage_km <= f.mileage_max_km)
+      and (
+        f.mileage_max_km is null
+        or (
+          vehicles.mileage_km is not null
+          and vehicles.mileage_km <= f.mileage_max_km
+        )
+        or (
+          vehicles.condition is distinct from 'used'
+          and vehicles.mileage_km is null
+        )
+      )
       and (f.battery_soh_min is null or vehicles.battery_soh is null or vehicles.battery_soh >= f.battery_soh_min)
       and (
         f.location is null
@@ -86,6 +97,12 @@ as $$
       and (
         jsonb_array_length(f.hard_brand_origins) = 0
         or vehicles.brand_origin = any (select jsonb_array_elements_text(f.hard_brand_origins))
+        or (
+          jsonb_array_length(f.hard_brand_origin_country_codes) > 0
+          and vehicles.manufacturer_country_code = any (
+            select jsonb_array_elements_text(f.hard_brand_origin_country_codes)
+          )
+        )
       )
       and (
         jsonb_array_length(f.avoided_brands) = 0
@@ -107,7 +124,11 @@ as $$
         jsonb_array_length(f.must_have_features) = 0
         or (
           select bool_and(
-            position(feature in coalesce(vehicles.features, '')) > 0
+            exists (
+              select 1
+              from unnest(string_to_array(coalesce(vehicles.features, ''), '|')) as tok(feature_name)
+              where tok.feature_name = feature
+            )
             or exists (
               select 1
               from jsonb_array_elements_text(coalesce(vehicles.payload -> 'features', '[]'::jsonb)) as listed(feature_name)

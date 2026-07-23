@@ -464,6 +464,7 @@ export type HybridSearchFilters = {
   hardCondition: UserCriteria["preferredCondition"] | null;
   hardBrandPreferences: string[];
   hardBrandOrigins: UserCriteria["preferredBrandOrigins"];
+  hardBrandOriginCountryCodes: string[];
   mileageMaxKm: number | null;
   batterySoHMin: number | null;
   location: string | null;
@@ -471,6 +472,9 @@ export type HybridSearchFilters = {
 
 /** Typed hard-filter payload for `search_vehicles_hybrid`. Soft preferences are omitted. */
 export function buildHybridSearchFilters(criteria: UserCriteria): HybridSearchFilters {
+  const hardBrandOrigins = hasHardBrandOriginConstraint(criteria)
+    ? criteria.preferredBrandOrigins
+    : [];
   return {
     market: "AT",
     available: true,
@@ -490,7 +494,8 @@ export function buildHybridSearchFilters(criteria: UserCriteria): HybridSearchFi
     hardBrandPreferences: hasHardBrandConstraint(criteria)
       ? expandBrandSearchValues(criteria.brandPreferences)
       : [],
-    hardBrandOrigins: hasHardBrandOriginConstraint(criteria) ? criteria.preferredBrandOrigins : [],
+    hardBrandOrigins,
+    hardBrandOriginCountryCodes: countryCodesForBrandOrigins(hardBrandOrigins),
     mileageMaxKm: criteria.mileageMaxKm,
     batterySoHMin: criteria.batteryHealthRequired ? criteria.batterySoHMin : null,
     location: resolveInventoryLocationFilter(criteria.location)

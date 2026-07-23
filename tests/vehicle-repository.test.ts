@@ -8,15 +8,21 @@ import {
 
 test("hybrid search passes explicit hard filters to RPC", () => {
   const filters = buildHybridSearchFilters({
-    ...emptyCriteria("Kia EV6 under 45000 EUR"),
+    ...emptyCriteria("Only Korean Kia EV6 under 45000 EUR with max 30000 km"),
     budgetMaxEUR: 45000,
-    modelPreferences: ["EV6"]
+    modelPreferences: ["EV6"],
+    preferredBrandOrigins: ["korea"],
+    mileageMaxKm: 30000,
+    latestUserMessage: "Only Korean Kia EV6 under 45000 EUR with max 30000 km"
   });
 
   assert.equal(filters.market, "AT");
   assert.equal(filters.available, true);
   assert.equal(filters.budgetMaxEUR, 45000);
   assert.deepEqual(filters.modelPreferences, ["EV6"]);
+  assert.deepEqual(filters.hardBrandOrigins, ["korea"]);
+  assert.deepEqual(filters.hardBrandOriginCountryCodes, ["KR"]);
+  assert.equal(filters.mileageMaxKm, 30000);
 });
 
 test("vehicle search pushes generated-column criteria into the Supabase request", () => {
