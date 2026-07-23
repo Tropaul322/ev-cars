@@ -55,6 +55,35 @@ create table if not exists public.vehicles (
     setweight(to_tsvector('simple', coalesce(model, '')), 'A') ||
     setweight(to_tsvector('simple', coalesce(trim, '')), 'B') ||
     setweight(to_tsvector('simple', coalesce(title, '')), 'B') ||
+    setweight(to_tsvector('simple', coalesce(body_type, '')), 'B') ||
+    setweight(
+      to_tsvector(
+        'simple',
+        trim(
+          both ' ' from (
+            (case when seats is not null then seats::text || ' seats' else '' end) || ' ' ||
+            (case when seats is not null then seats::text || ' sitze' else '' end) || ' ' ||
+            (case when seats is not null and seats <= 2 then '2-seater two seater zweisitzer 2 sitzer' else '' end) || ' ' ||
+            (case when seats is not null and seats >= 5 then 'family seats familienauto' else '' end) || ' ' ||
+            (case
+              when body_type = 'suv' then 'suv geländewagen gelaendewagen'
+              when body_type = 'sedan' then 'sedan limousine'
+              when body_type = 'hatchback' then 'hatchback schrägheck schraegheck'
+              when body_type = 'compact' then 'compact kleinwagen'
+              when body_type = 'wagon' then 'wagon kombi'
+              when body_type = 'crossover' then 'crossover suv'
+              when body_type = 'van' then 'van kleinbus'
+              when body_type = 'minibus' then 'minibus'
+              else coalesce(body_type, '')
+            end)
+          )
+        )
+      ),
+      'B'
+    ) ||
+    setweight(to_tsvector('simple', coalesce(drivetrain, '')), 'C') ||
+    setweight(to_tsvector('simple', coalesce(location, '')), 'C') ||
+    setweight(to_tsvector('simple', coalesce(review_tags, '')), 'C') ||
     setweight(to_tsvector('simple', coalesce(notes, '')), 'C')
   ) stored,
   created_at timestamptz not null default now(),
