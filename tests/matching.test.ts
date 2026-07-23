@@ -510,6 +510,24 @@ test("show_alternatives returns cached runner-ups without running a new search",
   }
 });
 
+test("cached explanation returns chat without matching again", async () => {
+  const criteria = extractCriteria("family SUV under 50000 EUR with 450 km range");
+  const cachedRecommendations = matchVehicles(seedVehicles, criteria).recommendations.slice(0, 1);
+  await saveMatchSession({
+    id: "explain-cache",
+    criteria,
+    selectedVehicleIds: [],
+    cachedRecommendations
+  });
+  const response = await runMatchRequest({
+    message: "Why are you suggesting this car?",
+    sessionId: "explain-cache",
+    previousCriteria: criteria
+  });
+  assert.equal(response.type, "chat");
+  assert.match(response.assistantMessage, new RegExp(cachedRecommendations[0]!.vehicle.model));
+});
+
 test("hard filters keep recommendations inside purchase budget", () => {
   const criteria = extractCriteria("Gebrauchtes E-Auto bis 35000 EUR fuer Stadt, CarPlay und Sitzheizung.");
   const result = matchVehicles(seedVehicles, criteria);

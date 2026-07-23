@@ -20,7 +20,8 @@ export type ConversationTrigger =
   | "show_matches"
   | "show_alternatives"
   | "next_batch"
-  | "brand_focus";
+  | "brand_focus"
+  | "explain_recommendations";
 
 export type ResolvedConversationTurn = {
   trigger: ConversationTrigger;
@@ -42,7 +43,7 @@ const triggerClassifierPrompt = `You route the user's latest message in an EV sh
 
 Return ONLY valid JSON:
 {
-  "trigger": "small_talk"|"meta"|"ev_question"|"update_criteria"|"clarify"|"show_matches"|"show_alternatives"|"next_batch"|"brand_focus",
+  "trigger": "small_talk"|"meta"|"ev_question"|"update_criteria"|"clarify"|"show_matches"|"show_alternatives"|"next_batch"|"brand_focus"|"explain_recommendations",
   "criteriaPatch": { ...optional fields changed this turn only... }
 }
 
@@ -56,6 +57,7 @@ Triggers:
 - show_matches: user wants listings now, including "show them/those" referring to cars just discussed
 - show_alternatives: user wants the already prepared runner-up options ("show other options", "alternatives", "runner-ups")
 - next_batch: user wants more or different results beyond cached alternatives ("show more", "next batch")
+- explain_recommendations: user asks why the already shown cars were recommended
 
 Rules:
 1. patternTriggers are fast heuristics; override them when conversation context makes them wrong.
@@ -115,6 +117,9 @@ const alternativesPattern =
 const nextBatchPattern =
   /\b(next(?:\s+(?:batch|set|page|results?|cars?))?|more(?:\s+(?:cars?|options?|results?))?|show\s+more|another\s+(?:batch|set|option|options)|weiter|mehr|nächste|naechste|noch\s+mehr)\b/i;
 
+const explainRecommendationsPattern =
+  /\b(why\s+(?:are|were)\s+you\s+(?:suggesting|recommending)|why\s+did\s+you\s+recommend|why\s+(?:this|these)\s+(?:car|cars|vehicle|vehicles|recommendations?)|what\s+makes\s+(?:this|these)\s+(?:car|cars|vehicle|vehicles)\s+(?:a\s+)?(?:good\s+)?(?:fit|match)|warum\s+(?:schlägst|schlagst|empfiehlst|empfiehlst)\s+du\s+(?:mir\s+)?(?:diese[nsr]?|das)\s+(?:auto|autos|fahrzeug|fahrzeuge)|warum\s+wurde[n]?\s+(?:mir\s+)?(?:diese[nsr]?|das)\s+(?:auto|autos|fahrzeug|fahrzeuge)\s+empfohlen)\b/i;
+
 export function isAssistantMetaQuestion(message: string) {
   const text = message.trim();
   if (!text) return false;
@@ -158,6 +163,10 @@ export function looksLikeAlternativesRequest(message: string) {
   return alternativesPattern.test(message.trim());
 }
 
+export function looksLikeRecommendationExplanationRequest(message: string) {
+  return explainRecommendationsPattern.test(message.trim());
+}
+
 export function looksLikeEvQuestion(message: string) {
   const trimmed = message.trim();
   if (!trimmed) return false;
@@ -185,6 +194,7 @@ export function detectPatternTriggers(message: string, currentPromptKey?: string
   const triggers: ConversationTrigger[] = [];
 
   if (!text) return ["update_criteria"];
+  if (looksLikeRecommendationExplanationRequest(text)) triggers.push("explain_recommendations");
   if (looksLikeAlternativesRequest(text)) triggers.push("show_alternatives");
   if (looksLikeNextBatchRequest(text)) triggers.push("next_batch");
   if (isExplicitShowMatches(text)) triggers.push("show_matches");
@@ -208,6 +218,7 @@ export function classifyConversationTurn(message: string): ConversationTurnKind 
   const text = message.trim();
   if (!text) return "criteria";
 
+  if (looksLikeRecommendationExplanationRequest(text)) return "ev_question";
   if (isAssistantMetaQuestion(text)) return "meta";
   if (isExplicitShowMatches(text) || looksLikeAlternativesRequest(text) || looksLikeNextBatchRequest(text)) {
     return "show_matches";
@@ -390,6 +401,7 @@ function pickPrimaryPatternTrigger(
   currentPromptKey?: string | null
 ): ConversationTrigger {
   const priority: ConversationTrigger[] = [
+    "explain_recommendations",
     "show_alternatives",
     "next_batch",
     "show_matches",
@@ -437,6 +449,7 @@ function triggerToTurnKind(trigger: ConversationTrigger): ConversationTurnKind {
     case "meta":
       return "meta";
     case "ev_question":
+    case "explain_recommendations":
       return "ev_question";
     case "show_matches":
     case "show_alternatives":
@@ -472,7 +485,8 @@ function isConversationTrigger(value: unknown): value is ConversationTrigger {
     value === "show_matches" ||
     value === "show_alternatives" ||
     value === "next_batch" ||
-    value === "brand_focus"
+    value === "brand_focus" ||
+    value === "explain_recommendations"
   );
 }
 

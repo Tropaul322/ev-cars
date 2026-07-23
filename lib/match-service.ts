@@ -35,6 +35,7 @@ import {
   resolveConversationTurnPatternOnly
 } from "./conversational-intent.ts";
 import { fallbackExplanation, selectAndExplainMatches } from "./explanations.ts";
+import { generateRecommendationExplanation } from "./recommendation-explanations.ts";
 import { applyLlmRankings, rankRecommendationsWithLlm } from "./llm-scoring.ts";
 import { chatMessagesToLlmHistory, type LlmConversationTurn } from "./llm-conversation.ts";
 import {
@@ -171,6 +172,26 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       })
   );
   const { trigger, turnKind } = resolvedTurn;
+  if (trigger === "explain_recommendations") {
+    const criteria = previousCriteria ?? emptyCriteria(body.message, detectLanguage(body.message, "en"));
+    const missingCriteria = getMissingCriteria(criteria);
+    const assistantMessage = await generateRecommendationExplanation({
+      question: body.message,
+      criteria,
+      recommendations: storedSession?.cachedRecommendations ?? []
+    });
+    return {
+      type: "chat",
+      sessionId,
+      assistantMessage,
+      message: assistantMessage,
+      criteria,
+      missingCriteria,
+      recommendations: [],
+      ragCitations: [],
+      rejectedSummary: []
+    };
+  }
   const isNextBatch =
     trigger === "next_batch" || (looksLikeNextBatchRequest(body.message) && Boolean(previousCriteria));
   const isShowAlternatives =
