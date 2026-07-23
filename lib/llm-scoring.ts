@@ -5,6 +5,7 @@ import {
   openAiConfigured,
   openAiModel
 } from "./openai-provider.ts";
+import { PROMPT_GUARD_SYSTEM_NOTE } from "./prompt-guard.ts";
 import type { MatchResult, RagContext, UserCriteria } from "./types.ts";
 
 export type LlmVehicleRanking = {
@@ -39,7 +40,8 @@ export const llmScoringSystemPrompt =
   "Prefer vehicles that clearly match qualitative signals such as premium, low mileage, or battery health. " +
   "ruleScore is a deterministic hint only; you may override it when user intent clearly favors a different ranking. " +
   "Return JSON only: {\"rankings\":[{\"vehicleId\":\"...\",\"score\":0-100,\"fitSummary\":\"one short sentence\"}]}. " +
-  "Every provided vehicleId must appear exactly once.";
+  "Every provided vehicleId must appear exactly once. " +
+  PROMPT_GUARD_SYSTEM_NOTE;
 
 export function llmScoringEnabled() {
   // Opt-in only: scoring is too slow/timeout-prone on the match hot path.

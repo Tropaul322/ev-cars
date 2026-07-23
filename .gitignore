@@ -4,6 +4,8 @@
 .env.*.local
 .next/
 node_modules/
+.worktrees/
+.superpowers/
 coverage/
 *.tsbuildinfo
 dist/

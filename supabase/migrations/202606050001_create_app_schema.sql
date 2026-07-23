@@ -62,6 +62,7 @@ create table if not exists public.match_sessions (
   language text not null check (language in ('de', 'en')),
   criteria jsonb not null,
   selected_vehicle_ids text[] not null default '{}',
+  cached_recommendations jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 

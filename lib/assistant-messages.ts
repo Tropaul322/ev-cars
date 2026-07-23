@@ -2,6 +2,7 @@ import { clarificationQuestion, criteriaSummary, languageReplyInstruction } from
 import { buildLlmMessages, conversationContinues, type LlmConversationTurn } from "./llm-conversation.ts";
 import type { Language } from "./types.ts";
 import { createOpenAiChatCompletion, openAiChatTimeout, openAiConfigured, openAiModel } from "./openai-provider.ts";
+import { PROMPT_GUARD_SYSTEM_NOTE } from "./prompt-guard.ts";
 import type { MissingCriteria, RejectedSummary, UserCriteria } from "./types.ts";
 
 type AssistantMessageInput = {
@@ -320,7 +321,7 @@ async function generateMessage(
 ): Promise<string | null> {
   if (!llmEnabled()) return null;
   const language = resolveMessageLanguage(context);
-  const systemPrompt = `${assistantMessageSystemPromptBase} ${languageReplyInstruction(language)}`;
+  const systemPrompt = `${assistantMessageSystemPromptBase} ${languageReplyInstruction(language)} ${PROMPT_GUARD_SYSTEM_NOTE}`;
 
   try {
     const response = await createOpenAiChatCompletion(

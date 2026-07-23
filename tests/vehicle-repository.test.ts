@@ -1,11 +1,114 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyCriteria } from "../lib/criteria.ts";
-import { buildVehicleSearchParams } from "../lib/repositories/vehicle-repository.ts";
+import { seedVehicles } from "../lib/data/seed-vehicles.ts";
+import {
+  buildHybridSearchFilters,
+  buildVehicleSearchParams,
+  filterVehiclesForSearch,
+  searchVehicles
+} from "../lib/repositories/vehicle-repository.ts";
+
+test("hybrid response keeps retrieval signals and deterministic filters", async () => {
+  const template = seedVehicles[0];
+  assert.ok(template);
+  const criteria = {
+    ...emptyCriteria("winter family EV under 50000 EUR"),
+    budgetMaxEUR: 50000,
+    latestUserMessage: "winter family EV under 50000 EUR"
+  };
+  const hybridVehicle = {
+    ...template,
+    id: "hybrid-winter-ev",
+    priceEUR: 42000,
+    images: ["https://example.com/listing.jpg"]
+  };
+
+  const originalFetch = globalThis.fetch;
+  const originalUrl = process.env.SUPABASE_URL;
+  const originalKey = process.env.SUPABASE_ANON_KEY;
+  process.env.SUPABASE_URL = "https://example.supabase.co";
+  process.env.SUPABASE_ANON_KEY = "test-anon-key";
+  process.env.FLOWRYD_VEHICLE_STRUCTURED_SEARCH = "1";
+  process.env.FLOWRYD_DISABLE_EMBEDDINGS = "1";
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/rest/v1/rpc/search_vehicles_hybrid") && init?.method === "POST") {
+      return new Response(
+        JSON.stringify([
+          {
+            id: hybridVehicle.id,
+            payload: hybridVehicle,
+            semantic_similarity: 0.84,
+            text_rank: 0.12,
+            rrf_score: 0.031
+          }
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    return originalFetch(input, init);
+  };
+
+  try {
+    const vehicles = await searchVehicles(criteria, "winter family EV");
+    assert.equal(vehicles.length, 1);
+    assert.equal(vehicles[0]!.embeddingSimilarity, 0.84);
+    assert.equal(vehicles[0]!.textRank, 0.12);
+    assert.equal(vehicles[0]!.retrievalScore, 0.031);
+    assert.equal(vehicles[0]!.priceEUR, 42000);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalUrl === undefined) delete process.env.SUPABASE_URL;
+    else process.env.SUPABASE_URL = originalUrl;
+    if (originalKey === undefined) delete process.env.SUPABASE_ANON_KEY;
+    else process.env.SUPABASE_ANON_KEY = originalKey;
+    delete process.env.FLOWRYD_VEHICLE_STRUCTURED_SEARCH;
+    delete process.env.FLOWRYD_DISABLE_EMBEDDINGS;
+  }
+});
+
+test("post-RPC validation rejects an over-budget returned vehicle", () => {
+  const template = seedVehicles[0];
+  assert.ok(template);
+  const criteria = {
+    ...emptyCriteria("EV under 35000 EUR"),
+    budgetMaxEUR: 35000
+  };
+  const overBudgetVehicle = {
+    ...template,
+    id: "rpc-over-budget",
+    priceEUR: 48000
+  };
+
+  assert.deepEqual(filterVehiclesForSearch([overBudgetVehicle], criteria), []);
+});
+
+test("hybrid search passes explicit hard filters to RPC", () => {
+  const filters = buildHybridSearchFilters({
+    ...emptyCriteria("Only Korean Kia EV6 under 45000 EUR with max 30000 km"),
+    budgetMaxEUR: 45000,
+    modelPreferences: ["EV6"],
+    preferredBrandOrigins: ["korea"],
+    mileageMaxKm: 30000,
+    latestUserMessage: "Only Korean Kia EV6 under 45000 EUR with max 30000 km"
+  });
+
+  assert.equal(filters.market, "AT");
+  assert.equal(filters.available, true);
+  assert.equal(filters.budgetMaxEUR, 45000);
+  assert.deepEqual(filters.modelPreferences, ["EV6"]);
+  assert.deepEqual(filters.hardBrandOrigins, ["korea"]);
+  assert.deepEqual(filters.hardBrandOriginCountryCodes, ["KR"]);
+  assert.equal(filters.mileageMaxKm, 30000);
+});
 
 test("vehicle search pushes generated-column criteria into the Supabase request", () => {
   const params = buildVehicleSearchParams({
-    ...emptyCriteria("Used Kia SUV under 50000 EUR with 450 km range"),
+    ...emptyCriteria(
+      "Only used Korean Kia SUV under 50000 EUR with at least 450 km range that must seat 5"
+    ),
     budgetMaxEUR: 50000,
     monthlyBudgetEUR: 650,
     rangeFloorKm: 450,
@@ -15,7 +118,9 @@ test("vehicle search pushes generated-column criteria into the Supabase request"
     brandPreferences: ["Kia"],
     modelPreferences: ["EV6"],
     preferredBrandOrigins: ["korea"],
-    passengers: 5
+    passengers: 5,
+    latestUserMessage:
+      "Only used Korean Kia SUV under 50000 EUR with at least 450 km range that must seat 5"
   });
 
   assert.equal(params.get("market"), "eq.AT");
@@ -37,13 +142,24 @@ test("vehicle search pushes generated-column criteria into the Supabase request"
   assert.equal(params.has("brand_origin"), false);
 });
 
-test("vehicle search expands brand aliases for preferred brands", () => {
+test("vehicle search expands brand aliases for preferred brands when hard", () => {
   const params = buildVehicleSearchParams({
-    ...emptyCriteria("VW or Mercedes"),
-    brandPreferences: ["VW", "Mercedes-Benz"]
+    ...emptyCriteria("Only VW or Mercedes"),
+    brandPreferences: ["VW", "Mercedes-Benz"],
+    latestUserMessage: "Only VW or Mercedes"
   });
 
   assert.equal(params.get("brand"), "in.(VW,Volkswagen,Mercedes-Benz,Mercedes)");
+});
+
+test("vehicle search keeps soft brand preferences out of SQL filters", () => {
+  const params = buildVehicleSearchParams({
+    ...emptyCriteria("Looking for a VW or Mercedes"),
+    brandPreferences: ["VW", "Mercedes-Benz"],
+    latestUserMessage: "Looking for a VW or Mercedes"
+  });
+
+  assert.equal(params.get("brand"), null);
 });
 
 test("vehicle search applies avoided brands", () => {
@@ -66,7 +182,7 @@ test("vehicle search expands Vienna to Wien for location lookup", () => {
 
 test("vehicle search ignores postal codes as hard location filters", () => {
   const params = buildVehicleSearchParams({
-    ...emptyCriteria("Budget EV near me"),
+    ...emptyCriteria("Budget EV near me with at least 400 km range"),
     location: "1010",
     budgetMaxEUR: 30000,
     rangeFloorKm: 400
@@ -79,9 +195,10 @@ test("vehicle search ignores postal codes as hard location filters", () => {
 
 test("vehicle search applies location and origin fallbacks", () => {
   const params = buildVehicleSearchParams({
-    ...emptyCriteria("Korean EV in Wien"),
+    ...emptyCriteria("Only Korean EV in Wien"),
     preferredBrandOrigins: ["korea"],
-    location: "Wien"
+    location: "Wien",
+    latestUserMessage: "Only Korean EV in Wien"
   });
 
   assert.equal(params.get("location"), "ilike.*Wien*");

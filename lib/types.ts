@@ -1,10 +1,19 @@
 import type { MatchDiagnostics } from "./match-diagnostics.ts";
+import type { SearchCriteriaDebug } from "./search-criteria-debug.ts";
 
 export type Language = "de" | "en";
 export type VehicleCondition = "new" | "used";
 export type ChargingAccess = "home" | "work" | "public" | "none" | "unknown";
 export type TripNeed = "city" | "commute" | "road_trip" | "family" | "winter";
 export type Importance = "low" | "medium" | "high";
+export type OptimizationDirective =
+  | "best_value"
+  | "maximum_range"
+  | "most_reliable"
+  | "fastest_charging"
+  | "lowest_running_cost"
+  | "best_family_fit"
+  | "performance";
 
 export type QualitativeSignal =
   | "premium"
@@ -133,6 +142,10 @@ export type Vehicle = {
   reviewTags: string[];
   /** Set during embedding search; cosine similarity to the query vector (0–1). */
   embeddingSimilarity?: number;
+  /** Set during hybrid text search; ts_rank_cd score from the query. */
+  textRank?: number;
+  /** Set during hybrid retrieval; reciprocal-rank-fusion score combining text and vector ranks. */
+  retrievalScore?: number;
   raw?: unknown;
 };
 
@@ -163,8 +176,11 @@ export type UserCriteria = {
   reliabilityImportance: Importance;
   mustHaveFeatures: Feature[];
   qualitativeSignals: QualitativeSignal[];
+  optimizationDirective: OptimizationDirective | null;
   location: string | null;
   rawPrompt: string;
+  /** Latest user turn only — used for exclusive-language hard-constraint detection. */
+  latestUserMessage: string;
 };
 
 export type CriteriaPatch = Partial<
@@ -174,7 +190,7 @@ export type CriteriaPatch = Partial<
   }
 >;
 
-export type ClarificationPromptKey = MissingCriteria | "ready";
+export type ClarificationPromptKey = MissingCriteria | "ready" | "optimization";
 
 export type ClarificationOption = {
   id: string;
@@ -200,6 +216,20 @@ export type ScoringBreakdown = {
   cargoPassengerFit: number;
   reliabilityFit: number;
   featureFit: number;
+};
+
+export type RecommendationReason = {
+  field: keyof Vehicle;
+  label: string;
+  value: string | number | boolean;
+};
+
+export type RecommendationReasonLedger = {
+  positiveReasons: RecommendationReason[];
+  tradeoffs: string[];
+  passedHardFilters: string[];
+  factorContributions: Partial<ScoringBreakdown>;
+  evidenceIds: string[];
 };
 
 export type TcoBreakdown = {
@@ -245,6 +275,7 @@ export type MatchResult = {
   ragEvidence: RagEvidence[];
   hardFilterStatus: "passed";
   scoringBreakdown: ScoringBreakdown;
+  reasonLedger: RecommendationReasonLedger;
   explanation: string;
   ruledOutReasons: string[];
   tco: TcoBreakdown;
@@ -272,6 +303,7 @@ export type MatchResponse =
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
       prompt?: ClarificationPrompt;
+      searchCriteriaDebug?: SearchCriteriaDebug;
     }
   | {
       type: "clarification";
@@ -284,6 +316,7 @@ export type MatchResponse =
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
       prompt?: ClarificationPrompt;
+      searchCriteriaDebug?: SearchCriteriaDebug;
     }
   | {
       type: "matches";
@@ -293,9 +326,13 @@ export type MatchResponse =
       criteria: UserCriteria;
       missingCriteria: MissingCriteria[];
       recommendations: MatchResult[];
+      alternativeRecommendations?: MatchResult[];
+      alternativesAvailable: boolean;
+      responseMode: "primary" | "alternatives";
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
       matchDiagnostics?: MatchDiagnostics;
+      searchCriteriaDebug?: SearchCriteriaDebug;
     }
   | {
       type: "no_matches";
@@ -308,8 +345,9 @@ export type MatchResponse =
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
       matchDiagnostics?: MatchDiagnostics;
+      searchCriteriaDebug?: SearchCriteriaDebug;
     };
-export type { MatchDiagnostics };
+export type { MatchDiagnostics, SearchCriteriaDebug };
 
 export type CompareVehicle = {
   vehicle: Vehicle;

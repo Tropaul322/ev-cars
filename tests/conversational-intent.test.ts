@@ -12,7 +12,8 @@ import {
   looksLikeEvQuestion,
   mergeConversationTurnClassification,
   parseTriggerJson,
-  parseTurnKindJson
+  parseTurnKindJson,
+  resolveConversationTurn
 } from "../lib/conversational-intent.ts";
 import { looksLikeBrandFocusQuestion, extractCriteria } from "../lib/criteria.ts";
 import { getSupabaseRestConfig } from "../lib/repositories/supabase-rest.ts";
@@ -75,6 +76,41 @@ test("detectPatternTriggers surfaces likely handlers for follow-up requests", ()
   assert.ok(detectPatternTriggers("show more").includes("next_batch"));
 });
 
+test("routes English and German why-recommendation follow-ups to explanation", () => {
+  assert.ok(detectPatternTriggers("Why are you suggesting these cars?").includes("explain_recommendations"));
+  assert.ok(detectPatternTriggers("Warum schlägst du mir diese Autos vor?").includes("explain_recommendations"));
+  assert.ok(detectPatternTriggers("Why this one?").includes("explain_recommendations"));
+  assert.ok(detectPatternTriggers("Why did this rank above the other?").includes("explain_recommendations"));
+  assert.ok(detectPatternTriggers("Warum dieses?").includes("explain_recommendations"));
+  assert.ok(detectPatternTriggers("Warum steht das über dem anderen?").includes("explain_recommendations"));
+});
+
+test("does not route unrelated criteria or EV questions to explanation", () => {
+  for (const message of [
+    "Why do I need 450 km range?",
+    "Why an SUV?",
+    "Why is range important for EVs?",
+    "Warum brauche ich so viel Reichweite?",
+    "Budget 40000 EUR"
+  ]) {
+    assert.equal(
+      detectPatternTriggers(message).includes("explain_recommendations"),
+      false,
+      `expected no explain route for: ${message}`
+    );
+  }
+});
+
+test("keeps deterministic explanation routes authoritative", async () => {
+  const resolved = await resolveConversationTurn({
+    message: "Why are you suggesting these cars?",
+    currentPromptKey: "use_case"
+  });
+
+  assert.equal(resolved.trigger, "explain_recommendations");
+  assert.equal(resolved.source, "pattern");
+});
+
 test("parseTriggerJson accepts trigger routing JSON", () => {
   assert.deepEqual(parseTriggerJson('{"trigger":"show_matches"}'), { trigger: "show_matches" });
   assert.deepEqual(parseTriggerJson('{"trigger":"brand_focus","criteriaPatch":{"brandPreferences":["Ford"]}}'), {
@@ -135,9 +171,11 @@ test("brand focus narrows brand preferences", () => {
 });
 
 matchRoute("match request re-runs inventory after a brand focus follow-up", async () => {
-  const first = await runMatchRequest({
-    message: "American car like Ford or Tesla around 35k EUR with good range for trips"
-  });
+  const first = await answerOptimizationPrompt(
+    await runMatchRequest({
+      message: "American car like Ford or Tesla around 35k EUR with good range for trips"
+    })
+  );
   assert.equal(first.type, "matches");
 
   const second = await runMatchRequest({
@@ -152,9 +190,11 @@ matchRoute("match request re-runs inventory after a brand focus follow-up", asyn
 });
 
 matchRoute("match request shows listings when user asks to show them", async () => {
-  const first = await runMatchRequest({
-    message: "American car like Ford or Tesla around 35k EUR with good range for trips"
-  });
+  const first = await answerOptimizationPrompt(
+    await runMatchRequest({
+      message: "American car like Ford or Tesla around 35k EUR with good range for trips"
+    })
+  );
   assert.equal(first.type, "matches");
 
   const second = await runMatchRequest({
@@ -166,6 +206,18 @@ matchRoute("match request shows listings when user asks to show them", async () 
   assert.equal(second.type, "matches");
   assert.ok(second.recommendations.length > 0);
 });
+
+async function answerOptimizationPrompt(first: Awaited<ReturnType<typeof runMatchRequest>>) {
+  assert.equal(first.type, "clarification");
+  assert.equal(first.prompt?.key, "optimization");
+  return await runMatchRequest({
+    message: "Best value",
+    sessionId: first.sessionId,
+    previousCriteria: first.criteria,
+    criteriaPatch: { optimizationDirective: "best_value" },
+    currentPromptKey: "optimization"
+  });
+}
 
 test("capability and greeting fallbacks are available in German", () => {
   assert.match(fallbackCapabilityMessage({ language: "de" } as never), /FlowRyd/);

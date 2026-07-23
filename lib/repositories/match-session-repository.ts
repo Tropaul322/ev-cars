@@ -1,6 +1,6 @@
 import { matchDebugWarn } from "../match-debug.ts";
 import { normalizeCriteriaShape } from "../criteria.ts";
-import type { UserCriteria } from "../types.ts";
+import type { MatchResult, UserCriteria } from "../types.ts";
 import { getSupabaseRestConfig } from "./supabase-rest.ts";
 
 export type MatchSession = {
@@ -8,6 +8,7 @@ export type MatchSession = {
   testerRegistrationId?: string | null;
   criteria: UserCriteria;
   selectedVehicleIds: string[];
+  cachedRecommendations: MatchResult[];
 };
 
 type SupabaseMatchSessionRow = {
@@ -15,6 +16,7 @@ type SupabaseMatchSessionRow = {
   tester_registration_id?: string | null;
   criteria: UserCriteria;
   selected_vehicle_ids: string[] | null;
+  cached_recommendations?: MatchResult[] | null;
 };
 
 const localSessions = new Map<string, MatchSession>();
@@ -26,7 +28,7 @@ export async function getMatchSession(id: string, testerRegistrationId?: string 
   if (!supabase) return localForTester;
 
   const params = new URLSearchParams({
-    select: "id,tester_registration_id,criteria,selected_vehicle_ids",
+    select: "id,tester_registration_id,criteria,selected_vehicle_ids,cached_recommendations",
     id: `eq.${id}`,
     limit: "1"
   });
@@ -45,7 +47,8 @@ export async function getMatchSession(id: string, testerRegistrationId?: string 
       id: row.id,
       testerRegistrationId: row.tester_registration_id ?? null,
       criteria: normalizeCriteriaShape(row.criteria),
-      selectedVehicleIds: row.selected_vehicle_ids ?? []
+      selectedVehicleIds: row.selected_vehicle_ids ?? [],
+      cachedRecommendations: Array.isArray(row.cached_recommendations) ? row.cached_recommendations : []
     };
   } catch {
     return localForTester;
@@ -55,7 +58,8 @@ export async function getMatchSession(id: string, testerRegistrationId?: string 
 export async function saveMatchSession(session: MatchSession): Promise<void> {
   const normalizedSession = {
     ...session,
-    criteria: normalizeCriteriaShape(session.criteria)
+    criteria: normalizeCriteriaShape(session.criteria),
+    cachedRecommendations: session.cachedRecommendations ?? []
   };
   localSessions.set(session.id, normalizedSession);
 
@@ -74,7 +78,8 @@ export async function saveMatchSession(session: MatchSession): Promise<void> {
         tester_registration_id: session.testerRegistrationId ?? null,
         language: session.criteria.language,
         criteria: normalizedSession.criteria,
-        selected_vehicle_ids: session.selectedVehicleIds
+        selected_vehicle_ids: session.selectedVehicleIds,
+        cached_recommendations: normalizedSession.cachedRecommendations
       })
     });
     if (!response.ok) {
