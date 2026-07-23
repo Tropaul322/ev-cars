@@ -249,6 +249,9 @@ export async function resolveConversationTurn(
 ): Promise<ResolvedConversationTurn> {
   const pattern = classifyConversationTurn(input.message);
   const patternTriggers = detectPatternTriggers(input.message, input.currentPromptKey);
+  if (patternTriggers.includes("explain_recommendations")) {
+    return buildPatternResolution(input.message, pattern, patternTriggers, input.currentPromptKey);
+  }
   const llm = await classifyTriggerWithLlm(input, pattern, patternTriggers);
 
   if (llm) {

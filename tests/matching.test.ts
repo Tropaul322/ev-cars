@@ -11,6 +11,11 @@ import { seedVehicles } from "../lib/data/seed-vehicles.ts";
 import { parseLlmExplanationJson } from "../lib/explanations.ts";
 import { filterVehiclesWithSanityChecks, runMatchRequest, withPipelineFallback } from "../lib/match-service.ts";
 import { detectPromptInjection, promptInjectionResponse } from "../lib/prompt-guard.ts";
+import {
+  buildRecommendationExplanationInput,
+  fallbackRecommendationExplanation,
+  recommendationExplanationSystemPrompt
+} from "../lib/recommendation-explanations.ts";
 import { saveMatchSession } from "../lib/repositories/match-session-repository.ts";
 import { buildRagContext } from "../lib/rag.ts";
 import { getSupabaseRestConfig } from "../lib/repositories/supabase-rest.ts";
@@ -526,6 +531,38 @@ test("cached explanation returns chat without matching again", async () => {
   });
   assert.equal(response.type, "chat");
   assert.match(response.assistantMessage, new RegExp(cachedRecommendations[0]!.vehicle.model));
+});
+
+test("recommendation explanation input omits factor contributions and forbids score disclosure", () => {
+  const criteria = extractCriteria("family SUV under 50000 EUR with 450 km range");
+  const recommendation = matchVehicles(seedVehicles, criteria).recommendations[0]!;
+  const input = buildRecommendationExplanationInput({
+    question: "Why this car?",
+    criteria,
+    recommendations: [recommendation]
+  });
+
+  assert.equal("factorContributions" in input.recommendations[0]!.reasonLedger, false);
+  assert.match(recommendationExplanationSystemPrompt, /do not disclose raw scores/i);
+});
+
+test("cached recommendation fallback is localized", () => {
+  const recommendation = matchVehicles(seedVehicles, extractCriteria("family SUV under 50000 EUR with 450 km range"))
+    .recommendations[0]!;
+
+  const english = fallbackRecommendationExplanation({
+    question: "Why this car?",
+    criteria: extractCriteria("family SUV under 50000 EUR with 450 km range"),
+    recommendations: [recommendation]
+  });
+  const german = fallbackRecommendationExplanation({
+    question: "Warum dieses Auto?",
+    criteria: extractCriteria("Familien-SUV bis 50000 EUR mit 450 km Reichweite"),
+    recommendations: [recommendation]
+  });
+
+  assert.match(english, /fits because of/i);
+  assert.match(german, /passt wegen/i);
 });
 
 test("hard filters keep recommendations inside purchase budget", () => {

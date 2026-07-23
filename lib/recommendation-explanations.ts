@@ -13,10 +13,11 @@ export type RecommendationExplanationInput = {
   recommendations: MatchResult[];
 };
 
-const explanationSystemPrompt =
+export const recommendationExplanationSystemPrompt =
   "You explain cached EV recommendations. do not search, do not add vehicles, and use only supplied facts. " +
   "Answer the user's question using only the supplied criteria, vehicle facts, deterministic reason ledger, and RAG evidence. " +
-  "Do not infer or invent facts. Return only JSON: {\"answer\":\"...\"}.";
+  "Do not infer or invent facts. Do not disclose raw scores, factor contributions, or rankings. " +
+  "Return only JSON: {\"answer\":\"...\"}.";
 
 export async function generateRecommendationExplanation(input: RecommendationExplanationInput): Promise<string> {
   const fallback = fallbackRecommendationExplanation(input);
@@ -31,7 +32,7 @@ export async function generateRecommendationExplanation(input: RecommendationExp
         max_tokens: 500,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: explanationSystemPrompt },
+          { role: "system", content: recommendationExplanationSystemPrompt },
           { role: "user", content: JSON.stringify(buildRecommendationExplanationInput(input)) }
         ]
       },
@@ -52,9 +53,12 @@ export function fallbackRecommendationExplanation(input: RecommendationExplanati
   }
   const reasons = first.reasonLedger.positiveReasons
     .slice(0, 3)
-    .map((reason) => `${reason.label}: ${reason.value}`)
+    .map((reason) => `${localizedReasonLabel(reason.label, input.criteria.language)}: ${reason.value}`)
     .join(", ");
   const tradeoff = first.reasonLedger.tradeoffs[0];
+  if (input.criteria.language === "de") {
+    return `${first.vehicle.make} ${first.vehicle.model} passt wegen ${reasons}.${tradeoff ? ` Der Kompromiss ist ${tradeoff}.` : ""}`;
+  }
   return `${first.vehicle.make} ${first.vehicle.model} fits because of ${reasons}.${tradeoff ? ` The trade-off is ${tradeoff}.` : ""}`;
 }
 
@@ -68,7 +72,7 @@ export function parseRecommendationExplanationJson(content: string): string | nu
   }
 }
 
-function buildRecommendationExplanationInput(input: RecommendationExplanationInput) {
+export function buildRecommendationExplanationInput(input: RecommendationExplanationInput) {
   return {
     question: input.question,
     criteriaSummary: criteriaSummary(input.criteria),
@@ -93,7 +97,12 @@ function buildRecommendationExplanationInput(input: RecommendationExplanationInp
         location: match.vehicle.location,
         available: match.vehicle.available
       },
-      reasonLedger: match.reasonLedger,
+      reasonLedger: {
+        positiveReasons: match.reasonLedger.positiveReasons,
+        tradeoffs: match.reasonLedger.tradeoffs,
+        passedHardFilters: match.reasonLedger.passedHardFilters,
+        evidenceIds: match.reasonLedger.evidenceIds
+      },
       ragEvidence: match.ragEvidence.map((evidence) => ({
         title: evidence.title,
         excerpt: evidence.excerpt,
@@ -107,4 +116,15 @@ function stripJsonFence(content: string) {
   const trimmed = content.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
   return fenced?.[1] ?? trimmed;
+}
+
+function localizedReasonLabel(label: string, language: UserCriteria["language"]) {
+  if (language === "en") return label;
+  const labels: Record<string, string> = {
+    price: "Preis",
+    range: "Reichweite",
+    seats: "Sitze",
+    cargo: "Kofferraum"
+  };
+  return labels[label] ?? label;
 }

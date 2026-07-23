@@ -12,7 +12,8 @@ import {
   looksLikeEvQuestion,
   mergeConversationTurnClassification,
   parseTriggerJson,
-  parseTurnKindJson
+  parseTurnKindJson,
+  resolveConversationTurn
 } from "../lib/conversational-intent.ts";
 import { looksLikeBrandFocusQuestion, extractCriteria } from "../lib/criteria.ts";
 import { getSupabaseRestConfig } from "../lib/repositories/supabase-rest.ts";
@@ -78,6 +79,16 @@ test("detectPatternTriggers surfaces likely handlers for follow-up requests", ()
 test("routes English and German why-recommendation follow-ups to explanation", () => {
   assert.ok(detectPatternTriggers("Why are you suggesting these cars?").includes("explain_recommendations"));
   assert.ok(detectPatternTriggers("Warum schlägst du mir diese Autos vor?").includes("explain_recommendations"));
+});
+
+test("keeps deterministic explanation routes authoritative", async () => {
+  const resolved = await resolveConversationTurn({
+    message: "Why are you suggesting these cars?",
+    currentPromptKey: "use_case"
+  });
+
+  assert.equal(resolved.trigger, "explain_recommendations");
+  assert.equal(resolved.source, "pattern");
 });
 
 test("parseTriggerJson accepts trigger routing JSON", () => {
