@@ -5,7 +5,9 @@ import { buildVehicleSearchParams } from "../lib/repositories/vehicle-repository
 
 test("vehicle search pushes generated-column criteria into the Supabase request", () => {
   const params = buildVehicleSearchParams({
-    ...emptyCriteria("Used Kia SUV under 50000 EUR with 450 km range"),
+    ...emptyCriteria(
+      "Only used Korean Kia SUV under 50000 EUR with at least 450 km range that must seat 5"
+    ),
     budgetMaxEUR: 50000,
     monthlyBudgetEUR: 650,
     rangeFloorKm: 450,
@@ -15,7 +17,9 @@ test("vehicle search pushes generated-column criteria into the Supabase request"
     brandPreferences: ["Kia"],
     modelPreferences: ["EV6"],
     preferredBrandOrigins: ["korea"],
-    passengers: 5
+    passengers: 5,
+    latestUserMessage:
+      "Only used Korean Kia SUV under 50000 EUR with at least 450 km range that must seat 5"
   });
 
   assert.equal(params.get("market"), "eq.AT");
@@ -37,13 +41,24 @@ test("vehicle search pushes generated-column criteria into the Supabase request"
   assert.equal(params.has("brand_origin"), false);
 });
 
-test("vehicle search expands brand aliases for preferred brands", () => {
+test("vehicle search expands brand aliases for preferred brands when hard", () => {
   const params = buildVehicleSearchParams({
-    ...emptyCriteria("VW or Mercedes"),
-    brandPreferences: ["VW", "Mercedes-Benz"]
+    ...emptyCriteria("Only VW or Mercedes"),
+    brandPreferences: ["VW", "Mercedes-Benz"],
+    latestUserMessage: "Only VW or Mercedes"
   });
 
   assert.equal(params.get("brand"), "in.(VW,Volkswagen,Mercedes-Benz,Mercedes)");
+});
+
+test("vehicle search keeps soft brand preferences out of SQL filters", () => {
+  const params = buildVehicleSearchParams({
+    ...emptyCriteria("Looking for a VW or Mercedes"),
+    brandPreferences: ["VW", "Mercedes-Benz"],
+    latestUserMessage: "Looking for a VW or Mercedes"
+  });
+
+  assert.equal(params.get("brand"), null);
 });
 
 test("vehicle search applies avoided brands", () => {
@@ -66,7 +81,7 @@ test("vehicle search expands Vienna to Wien for location lookup", () => {
 
 test("vehicle search ignores postal codes as hard location filters", () => {
   const params = buildVehicleSearchParams({
-    ...emptyCriteria("Budget EV near me"),
+    ...emptyCriteria("Budget EV near me with at least 400 km range"),
     location: "1010",
     budgetMaxEUR: 30000,
     rangeFloorKm: 400
@@ -79,9 +94,10 @@ test("vehicle search ignores postal codes as hard location filters", () => {
 
 test("vehicle search applies location and origin fallbacks", () => {
   const params = buildVehicleSearchParams({
-    ...emptyCriteria("Korean EV in Wien"),
+    ...emptyCriteria("Only Korean EV in Wien"),
     preferredBrandOrigins: ["korea"],
-    location: "Wien"
+    location: "Wien",
+    latestUserMessage: "Only Korean EV in Wien"
   });
 
   assert.equal(params.get("location"), "ilike.*Wien*");

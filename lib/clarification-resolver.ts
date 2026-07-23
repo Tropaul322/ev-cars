@@ -1,6 +1,6 @@
-import { getClarificationPrompt } from "./clarification-catalog.ts";
-import { extractCriteria } from "./criteria.ts";
-import type { ClarificationOption, CriteriaPatch, Language, MissingCriteria } from "./types.ts";
+import { getClarificationPrompt, getOptimizationPrompt } from "./clarification-catalog.ts";
+import { DEFAULT_BUDGET_MAX_EUR, DEFAULT_BUDGET_MIN_EUR, extractCriteria, looksLikeNoBudgetLimit } from "./criteria.ts";
+import type { ClarificationOption, ClarificationPromptKey, CriteriaPatch, Language } from "./types.ts";
 
 export type ClarificationResolution =
   | { kind: "patch"; patch: CriteriaPatch }
@@ -18,6 +18,10 @@ const optionSynonyms: Record<string, RegExp[]> = {
   budget_40_60k: [/\b(40|45|50|55|60)\s*k\b/i, /\b(40|45|50|55|60)[.,]000\b/i],
   budget_over_60k: [/\b(over|above|more than|über|ueber|mehr als)\b[^.]{0,20}\b(60|70|80|90)\s*k\b/i],
   budget_skip: [/\b(no budget|no limit|unlimited budget|kein budget|kein limit)\b/i],
+  opt_best_value: [/\b(best value|value for money|preis[-\s]?leistung|preiswert)\b/i],
+  opt_max_range: [/\b(max(?:imum)? range|longest range|maximale reichweite|größte reichweite|groesste reichweite)\b/i],
+  opt_reliable: [/\b(reliable|reliability|zuverlässig|zuverlaessig|haltbar)\b/i],
+  opt_family: [/\b(family fit|family|familie|familientauglich)\b/i],
   use_city: [/\b(city|urban|town|stadt|stadtfahr|inner city|short trips?|errands?|einkauf)\b/i],
   use_commute: [/\b(commut|pendel|arbeitsweg|work(?:ing)?|office|job|daily drive|täglich|taeglich)\b/i],
   use_family: [/\b(famil|kids?|children|kinder|school run|kindergarten|kinderwagen)\b/i],
@@ -45,16 +49,24 @@ const optionSynonyms: Record<string, RegExp[]> = {
  */
 export function resolveClarificationAnswer(
   message: string,
-  promptKey: MissingCriteria,
+  promptKey: ClarificationPromptKey,
   language: Language
 ): ClarificationResolution | null {
   const trimmed = message.trim();
   if (!trimmed) return null;
 
-  const prompt = getClarificationPrompt(promptKey, language);
+  if (promptKey === "ready") return null;
+
+  const prompt =
+    promptKey === "optimization"
+      ? getOptimizationPrompt(language)
+      : getClarificationPrompt(promptKey, language);
   const matchedOptions = matchPromptOptions(trimmed, prompt.options);
   if (matchedOptions.length) {
     const skipOption = matchedOptions.find((option) => option.skip);
+    if (promptKey === "budget" && (skipOption || looksLikeNoBudgetLimit(trimmed))) {
+      return { kind: "patch", patch: defaultBudgetPatch() };
+    }
     if (skipOption && matchedOptions.length === 1) {
       return { kind: "skip" };
     }
@@ -63,6 +75,7 @@ export function resolveClarificationAnswer(
   }
 
   if (isSkipAnswer(trimmed)) {
+    if (promptKey === "budget") return { kind: "patch", patch: defaultBudgetPatch() };
     return { kind: "skip" };
   }
 
@@ -96,11 +109,12 @@ function isSkipAnswer(message: string) {
   return skipAnswerPattern.test(message);
 }
 
-function extractPatchForPrompt(message: string, promptKey: MissingCriteria): CriteriaPatch | null {
+function extractPatchForPrompt(message: string, promptKey: ClarificationPromptKey): CriteriaPatch | null {
   const extracted = extractCriteria(message);
   switch (promptKey) {
     case "budget": {
       const patch: CriteriaPatch = {};
+      if (looksLikeNoBudgetLimit(message)) return defaultBudgetPatch();
       if (extracted.budgetMinEUR) patch.budgetMinEUR = extracted.budgetMinEUR;
       if (extracted.budgetMaxEUR) patch.budgetMaxEUR = extracted.budgetMaxEUR;
       if (extracted.monthlyBudgetEUR) patch.monthlyBudgetEUR = extracted.monthlyBudgetEUR;
@@ -131,9 +145,22 @@ function extractPatchForPrompt(message: string, promptKey: MissingCriteria): Cri
       if (extracted.qualitativeSignals.length) patch.qualitativeSignals = extracted.qualitativeSignals;
       return Object.keys(patch).length ? patch : null;
     }
+    case "optimization": {
+      return extracted.optimizationDirective
+        ? { optimizationDirective: extracted.optimizationDirective }
+        : null;
+    }
     default:
       return null;
   }
+}
+
+function defaultBudgetPatch(): CriteriaPatch {
+  return {
+    budgetMinEUR: DEFAULT_BUDGET_MIN_EUR,
+    budgetMaxEUR: DEFAULT_BUDGET_MAX_EUR,
+    monthlyBudgetEUR: null
+  };
 }
 
 function mergeOptionPatches(options: ClarificationOption[]): CriteriaPatch {

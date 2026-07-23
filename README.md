@@ -46,6 +46,8 @@ FLOWRYD_VEHICLE_STRUCTURED_SEARCH=1
 FLOWRYD_VEHICLE_EMBEDDING_SEARCH=0
 FLOWRYD_VEHICLE_EMBEDDING_SEARCH_LIMIT=200
 FLOWRYD_VEHICLE_EMBEDDING_MIN_SIMILARITY=0.1
+FLOWRYD_MATCH_DEBUG=0
+FLOWRYD_SHOW_SEARCH_CRITERIA=0
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
 INGEST_ADMIN_TOKEN=...
@@ -62,6 +64,10 @@ Vehicle matching uses structured filters plus keyword/topic scoring by default.
 Set `FLOWRYD_VEHICLE_EMBEDDING_SEARCH=1` after populating vehicle embeddings to
 augment candidate retrieval with vector search, or set
 `FLOWRYD_VEHICLE_STRUCTURED_SEARCH=0` to disable structured Supabase filters.
+Set `FLOWRYD_MATCH_DEBUG=1` to attach match diagnostics to API responses and
+server logs. Set `FLOWRYD_SHOW_SEARCH_CRITERIA=1` to attach a searchable
+criteria debug panel showing extracted criteria and the filters applied during
+inventory search.
 LLM paths fall back to deterministic local behavior if the model call is
 unavailable.
 

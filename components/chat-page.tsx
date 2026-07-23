@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Clock3,
   History,
+  ListPlus,
   Lock,
   MessageCirclePlus,
   Sparkles,
@@ -59,6 +60,7 @@ import type {
   MatchResponse,
   MatchResult,
   MissingCriteria,
+  SearchCriteriaDebug,
   UserCriteria,
 } from "@/lib/types";
 import {
@@ -70,11 +72,17 @@ import {
 type Message =
   | { role: "user"; text: string }
   | { role: "bot"; text: ReactNode; preview?: boolean; prompt?: ClarificationPrompt }
-  | { role: "results"; matches: MatchResult[]; preview?: boolean };
+  | {
+      role: "results";
+      matches: MatchResult[];
+      alternativeMatches?: MatchResult[];
+      alternativesRevealed?: boolean;
+      preview?: boolean;
+    };
 
 type SendPayload = {
   criteriaPatch?: CriteriaPatch;
-  intent?: "show_matches";
+  intent?: "show_matches" | "show_alternatives";
   skippedKeys?: MissingCriteria[];
   currentPromptKey?: ClarificationPrompt["key"];
 };
@@ -133,6 +141,7 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [criteria, setCriteria] = useState<UserCriteria | null>(null);
+  const [searchCriteriaDebug, setSearchCriteriaDebug] = useState<SearchCriteriaDebug | null>(null);
   const [activePrompt, setActivePrompt] = useState<ClarificationPrompt | null>(null);
   const [skippedKeys, setSkippedKeys] = useState<MissingCriteria[]>([]);
   const [chatSessions, setChatSessions] = useState<StoredChatSession[]>(
@@ -186,6 +195,7 @@ export default function ChatPage() {
     setSessionId(chat.id);
     setMessages(hydrated.messages);
     setCriteria(hydrated.criteria);
+    setSearchCriteriaDebug(extractLatestSearchCriteriaDebug(chat));
     setActivePrompt(hydrated.activePrompt);
     setSkippedKeys([]);
     setCachedChatDetail(chat);
@@ -216,6 +226,7 @@ export default function ChatPage() {
     } else {
       setSessionId(null);
       setCriteria(null);
+      setSearchCriteriaDebug(null);
       setActivePrompt(null);
       setSkippedKeys([]);
       entranceAnimationStartIndex.current = initialMessages.length;
@@ -266,10 +277,14 @@ export default function ChatPage() {
 
       setLoading(true);
 
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 15_000);
+
       try {
         const response = await fetch("/api/match", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             message: trimmed,
             sessionId,
@@ -291,6 +306,12 @@ export default function ChatPage() {
         const data = (await response.json()) as MatchResponse;
         if ("matchDiagnostics" in data && data.matchDiagnostics) {
           console.info("[match diagnostics]", data.matchDiagnostics);
+        }
+        if ("searchCriteriaDebug" in data && data.searchCriteriaDebug) {
+          setSearchCriteriaDebug(data.searchCriteriaDebug);
+          console.info("[search criteria]", data.searchCriteriaDebug);
+        } else {
+          setSearchCriteriaDebug(null);
         }
         const nextPrompt =
           (data.type === "chat" || data.type === "clarification") && data.prompt
@@ -360,7 +381,14 @@ export default function ChatPage() {
             ...(nextPrompt ? { prompt: nextPrompt } : {}),
           },
           ...(data.type === "matches" && data.recommendations.length
-            ? [{ role: "results" as const, matches: data.recommendations }]
+            ? [
+                {
+                  role: "results" as const,
+                  matches: data.recommendations,
+                  alternativeMatches: data.alternativeRecommendations ?? [],
+                  alternativesRevealed: data.responseMode === "alternatives",
+                },
+              ]
             : []),
         ]);
         void loadChatSessions();
@@ -371,20 +399,24 @@ export default function ChatPage() {
           })
           .catch(() => undefined);
       } catch (error) {
+        const timedOut = error instanceof DOMException && error.name === "AbortError";
         setMessages((current) => [
           ...stripPreviewMessages(current),
           {
             role: "bot",
             text: (
               <p>
-                {error instanceof Error
-                  ? error.message
-                  : "Something went wrong."}
+                {timedOut
+                  ? "Search took too long — try again."
+                  : error instanceof Error
+                    ? error.message
+                    : "Something went wrong."}
               </p>
             ),
           },
         ]);
       } finally {
+        window.clearTimeout(timeoutId);
         setLoading(false);
       }
     },
@@ -479,6 +511,23 @@ export default function ChatPage() {
     },
     [loading, send, skippedKeys],
   );
+
+  const revealAlternatives = useCallback((messageIndex: number) => {
+    setMessages((current) =>
+      current.map((message, index) => {
+        if (index !== messageIndex || message.role !== "results") return message;
+        if (!message.alternativeMatches?.length || message.alternativesRevealed) {
+          return message;
+        }
+        return {
+          ...message,
+          matches: [...message.matches, ...message.alternativeMatches],
+          alternativeMatches: [],
+          alternativesRevealed: true,
+        };
+      }),
+    );
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -606,6 +655,7 @@ export default function ChatPage() {
     } else {
       setSessionId(null);
       setCriteria(null);
+      setSearchCriteriaDebug(null);
       setActivePrompt(null);
       setSkippedKeys([]);
       entranceAnimationStartIndex.current = 0;
@@ -778,8 +828,11 @@ export default function ChatPage() {
                   <ResultsBlock
                     key={index}
                     matches={message.matches}
+                    alternativeMatches={message.alternativeMatches ?? []}
+                    alternativesRevealed={Boolean(message.alternativesRevealed)}
                     locked={Boolean(message.preview)}
                     animate={shouldAnimateEntrance}
+                    onRevealAlternatives={() => revealAlternatives(index)}
                   />
                 );
               })}
@@ -791,6 +844,9 @@ export default function ChatPage() {
           </div>
 
           <div className="py-4 bg-background">
+            {searchCriteriaDebug ? (
+              <SearchCriteriaDebugPanel debug={searchCriteriaDebug} />
+            ) : null}
             <Composer
               ref={composerRef}
               placeholder="Ask a follow-up question..."
@@ -958,6 +1014,58 @@ function formatChatTimestamp(value: string) {
   });
 }
 
+function extractLatestSearchCriteriaDebug(chat: StoredChat): SearchCriteriaDebug | null {
+  for (let index = chat.messages.length - 1; index >= 0; index -= 1) {
+    const matchResponse = extractStoredMatchResponse(chat.messages[index]);
+    if (matchResponse && "searchCriteriaDebug" in matchResponse && matchResponse.searchCriteriaDebug) {
+      return matchResponse.searchCriteriaDebug;
+    }
+  }
+  return null;
+}
+
+function SearchCriteriaDebugPanel({ debug }: { debug: SearchCriteriaDebug }) {
+  return (
+    <details className="mb-3 rounded-2xl border border-dashed border-amber-500/40 bg-amber-500/5 px-4 py-3 text-xs text-muted-foreground">
+      <summary className="cursor-pointer font-medium text-amber-700 dark:text-amber-300">
+        Search criteria debug
+      </summary>
+      <div className="mt-3 space-y-3">
+        <div>
+          <p className="mb-1 font-medium text-foreground">Found</p>
+          {debug.found.length ? (
+            <ul className="space-y-1">
+              {debug.found.map((item) => (
+                <li key={`${item.key}:${item.label}`}>
+                  <span className="font-mono text-[11px] text-amber-700 dark:text-amber-300">
+                    {item.key}
+                  </span>
+                  {": "}
+                  {item.label}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>None yet.</p>
+          )}
+        </div>
+        <div>
+          <p className="mb-1 font-medium text-foreground">Used in search</p>
+          <pre className="overflow-x-auto rounded-xl bg-background/80 p-3 font-mono text-[11px] leading-relaxed text-foreground">
+            {JSON.stringify(debug.usedInSearch, null, 2)}
+          </pre>
+        </div>
+        {debug.missing.length ? (
+          <div>
+            <p className="mb-1 font-medium text-foreground">Missing</p>
+            <p>{debug.missing.join(", ")}</p>
+          </div>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
 function hydrateStoredChat(chat: StoredChat): {
   messages: Message[];
   criteria: UserCriteria | null;
@@ -997,6 +1105,8 @@ function hydrateStoredChat(chat: StoredChat): {
         messages.push({
           role: "results",
           matches: matchResponse.recommendations,
+          alternativeMatches: matchResponse.alternativeRecommendations ?? [],
+          alternativesRevealed: matchResponse.responseMode === "alternatives",
         });
       }
     }
@@ -1096,16 +1206,23 @@ function ChatPrompt({
 
 function ResultsBlock({
   matches,
+  alternativeMatches = [],
+  alternativesRevealed = false,
   locked = false,
   animate = true,
+  onRevealAlternatives,
 }: {
   matches: MatchResult[];
+  alternativeMatches?: MatchResult[];
+  alternativesRevealed?: boolean;
   locked?: boolean;
   animate?: boolean;
+  onRevealAlternatives?: () => void;
 }) {
   const [detailMatch, setDetailMatch] = useState<MatchResult | null>(null);
   const groups = groupMatchesByModel(matches);
   const totalListings = matches.length;
+  const hiddenAlternativeCount = alternativesRevealed ? 0 : alternativeMatches.length;
 
   return (
     <>
@@ -1141,6 +1258,20 @@ function ResultsBlock({
               </div>
             ))}
           </div>
+          {!locked && hiddenAlternativeCount > 0 ? (
+            <div className="mt-4 flex justify-start">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onRevealAlternatives}
+                className="rounded-full"
+              >
+                <ListPlus className="size-4" aria-hidden="true" />
+                Show other options
+              </Button>
+            </div>
+          ) : null}
           {locked ? (
             <>
               <div className="absolute inset-0 z-10 rounded-2xl bg-background/10 backdrop-blur-[12px]" />

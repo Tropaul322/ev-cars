@@ -1,4 +1,12 @@
 import { normalizeVehicleFeatures } from "./feature-normalization.ts";
+import {
+  hasHardBodyTypeConstraint,
+  hasHardBrandConstraint,
+  hasHardBrandOriginConstraint,
+  hasHardConditionConstraint,
+  hasHardPassengerConstraint,
+  hasHardRangeConstraint
+} from "./criteria.ts";
 import type {
   MatchResult,
   RagContext,
@@ -35,6 +43,38 @@ const baseWeights: Weights = {
   featureFit: 0.12
 };
 
+/** Reviewable hard vs soft attribute policy for matching. */
+export const hardFilterPolicy = {
+  hard: [
+    "market",
+    "availability",
+    "budget",
+    "monthlyBudget",
+    "explicitCondition",
+    "explicitRangeFloor",
+    "mileageMaximum",
+    "requiredBatteryHealth",
+    "explicitBodyType",
+    "explicitBrandOrigin",
+    "explicitBrand",
+    "model",
+    "explicitPassengers",
+    "avoidedBrands",
+    "mustHaveFeatures"
+  ],
+  soft: [
+    "familyInferredPassengers",
+    "familyInferredCargo",
+    "preferredBodyType",
+    "preferredCondition",
+    "preferredBrand",
+    "preferredBrandOrigin",
+    "qualitativeRange",
+    "optimizationDirective",
+    "reliabilityPreference"
+  ]
+} as const;
+
 export function matchVehicles(
   vehicles: Vehicle[],
   criteria: UserCriteria,
@@ -43,6 +83,7 @@ export function matchVehicles(
 ): MatchEngineResult {
   const rejected: RejectedVehicle[] = [];
   const passed: MatchResult[] = [];
+  const weights = deriveWeights(criteria, vehicles);
 
   for (const vehicle of vehicles) {
     const reasons = getHardFilterReasons(vehicle, criteria);
@@ -53,7 +94,6 @@ export function matchVehicles(
 
     const tco = calculateTco(vehicle, criteria);
     const scoringBreakdown = scoreVehicle(vehicle, criteria);
-    const weights = deriveWeights(criteria, vehicles);
     const baseScore = Math.round(
       Object.entries(scoringBreakdown).reduce((sum, [key, value]) => {
         return sum + value * weights[key as keyof ScoringBreakdown];
@@ -103,10 +143,10 @@ export function getHardFilterReasons(vehicle: Vehicle, criteria: UserCriteria) {
   if (criteria.monthlyBudgetEUR && estimateMonthlyVehiclePayment(vehicle) > criteria.monthlyBudgetEUR) {
     reasons.push(`above monthly budget of EUR ${criteria.monthlyBudgetEUR.toLocaleString("de-AT")}`);
   }
-  if (criteria.preferredCondition !== "any" && vehicle.condition !== criteria.preferredCondition) {
+  if (hasHardConditionConstraint(criteria) && criteria.preferredCondition !== "any" && vehicle.condition !== criteria.preferredCondition) {
     reasons.push(`condition is ${vehicle.condition}, not ${criteria.preferredCondition}`);
   }
-  if (criteria.rangeFloorKm && vehicle.rangeKm < criteria.rangeFloorKm) {
+  if (hasHardRangeConstraint(criteria) && criteria.rangeFloorKm && vehicle.rangeKm < criteria.rangeFloorKm) {
     reasons.push(`range below requested ${criteria.rangeFloorKm} km`);
   }
   if (criteria.mileageMaxKm && vehicle.condition === "used" && vehicle.mileageKm === null) {
@@ -131,20 +171,34 @@ export function getHardFilterReasons(vehicle: Vehicle, criteria: UserCriteria) {
   ) {
     reasons.push(`battery state-of-health below requested ${criteria.batterySoHMin}%`);
   }
-  if (criteria.bodyTypes.length && !criteria.bodyTypes.includes(vehicle.bodyType)) {
+  if (
+    hasHardBodyTypeConstraint(criteria) &&
+    criteria.bodyTypes.length &&
+    !criteria.bodyTypes.includes(vehicle.bodyType)
+  ) {
     reasons.push(`body type is ${vehicle.bodyType}`);
   }
-  if (!vehicleMatchesBrandOriginPreferences(vehicle, criteria.preferredBrandOrigins)) {
+  if (
+    hasHardBrandOriginConstraint(criteria) &&
+    !vehicleMatchesBrandOriginPreferences(vehicle, criteria.preferredBrandOrigins)
+  ) {
     reasons.push(`brand origin is ${vehicle.brandOrigin}, not ${criteria.preferredBrandOrigins.join(" or ")}`);
   }
-  if (!vehicleMatchesBrandPreferences(vehicle, criteria.brandPreferences)) {
+  if (hasHardBrandConstraint(criteria) && !vehicleMatchesBrandPreferences(vehicle, criteria.brandPreferences)) {
     reasons.push(`brand is ${vehiclePrimaryBrand(vehicle)}, not ${criteria.brandPreferences.join(" or ")}`);
   }
   if (!vehicleMatchesModelPreferences(vehicle, criteria.modelPreferences)) {
     reasons.push(`model is ${vehicle.make} ${vehicle.model}, not ${criteria.modelPreferences.join(" or ")}`);
   }
-  if (criteria.passengers && vehicle.seats < criteria.passengers) {
+  if (hasHardPassengerConstraint(criteria) && criteria.passengers && vehicle.seats < criteria.passengers) {
     reasons.push(`only ${vehicle.seats} seats`);
+  }
+  if (criteria.mustHaveFeatures.length) {
+    const normalizedFeatures = normalizeVehicleFeatures(vehicle.features, vehicle);
+    const missingFeatures = criteria.mustHaveFeatures.filter((feature) => !normalizedFeatures.includes(feature));
+    if (missingFeatures.length) {
+      reasons.push(`missing required feature${missingFeatures.length === 1 ? "" : "s"}: ${missingFeatures.join(", ")}`);
+    }
   }
   if (criteria.avoidedBrands.some((brand) => sameBrand(brand, vehicle.make))) {
     reasons.push(`brand ${vehicle.make} was excluded`);
@@ -164,7 +218,7 @@ export function scoreVehicle(vehicle: Vehicle, criteria: UserCriteria): ScoringB
   };
 }
 
-function deriveWeights(criteria: UserCriteria, vehicles: Vehicle[]): Weights {
+export function deriveWeights(criteria: UserCriteria, vehicles: Vehicle[]): Weights {
   const weights = { ...baseWeights };
   if (vehicles.some((vehicle) => (vehicle.embeddingSimilarity ?? 0) > 0)) {
     weights.featureFit += 0.04;
@@ -187,6 +241,39 @@ function deriveWeights(criteria: UserCriteria, vehicles: Vehicle[]): Weights {
   }
   if (criteria.reliabilityImportance === "high") weights.reliabilityFit += 0.05;
   if (criteria.brandFit === "high") weights.brandFit += 0.05;
+
+  if (criteria.optimizationDirective === "best_value") {
+    weights.priceFit += 0.14;
+    weights.efficiencyFit += 0.04;
+    weights.reliabilityFit += 0.03;
+  }
+  if (criteria.optimizationDirective === "maximum_range") {
+    weights.rangeFit += 0.18;
+    weights.efficiencyFit += 0.03;
+    weights.priceFit -= 0.03;
+  }
+  if (criteria.optimizationDirective === "most_reliable") {
+    weights.reliabilityFit += 0.18;
+    weights.efficiencyFit += 0.04;
+  }
+  if (criteria.optimizationDirective === "fastest_charging") {
+    weights.featureFit += 0.1;
+    weights.rangeFit += 0.08;
+  }
+  if (criteria.optimizationDirective === "lowest_running_cost") {
+    weights.efficiencyFit += 0.14;
+    weights.priceFit += 0.08;
+  }
+  if (criteria.optimizationDirective === "best_family_fit") {
+    weights.cargoPassengerFit += 0.16;
+    weights.rangeFit += 0.05;
+    weights.reliabilityFit += 0.04;
+  }
+  if (criteria.optimizationDirective === "performance") {
+    weights.featureFit += 0.08;
+    weights.brandFit += 0.05;
+    weights.rangeFit += 0.04;
+  }
 
   const total = Object.values(weights).reduce((sum, value) => sum + value, 0);
   for (const key of Object.keys(weights) as Array<keyof Weights>) {
@@ -284,11 +371,20 @@ function scoreCargoPassengers(vehicle: Vehicle, criteria: UserCriteria) {
   if (criteria.tripNeeds.includes("family")) {
     score += vehicle.seats >= 5 && vehicle.cargoLiters >= 440 ? 14 : -18;
   }
+  if (criteria.bodyTypes.length && !hasHardBodyTypeConstraint(criteria)) {
+    score += criteria.bodyTypes.includes(vehicle.bodyType) ? 14 : -22;
+  }
   return clamp(score, 20, 100);
 }
 
 function scoreReliability(vehicle: Vehicle, criteria: UserCriteria) {
   let score = vehicle.condition === "new" ? 88 : 72;
+  if (
+    criteria.preferredCondition !== "any" &&
+    !hasHardConditionConstraint(criteria)
+  ) {
+    score += vehicle.condition === criteria.preferredCondition ? 12 : -16;
+  }
   const warranty = vehicle.warranty.toLowerCase();
   if (warranty.includes("battery warranty") || warranty.includes("factory warranty") || warranty.includes("garantie")) {
     score += 10;

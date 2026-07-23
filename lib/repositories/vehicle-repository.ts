@@ -1,5 +1,13 @@
 import { allVehicles } from "../data/all-vehicles.ts";
 import { VEHICLE_REVALIDATE_SECONDS } from "../cache.ts";
+import {
+  hasHardBodyTypeConstraint,
+  hasHardBrandConstraint,
+  hasHardBrandOriginConstraint,
+  hasHardConditionConstraint,
+  hasHardPassengerConstraint,
+  hasHardRangeConstraint
+} from "../criteria.ts";
 import { createEmbeddingWithProvider } from "../embeddings.ts";
 import { normalizeVehicleFeatures } from "../feature-normalization.ts";
 import { resolveInventoryLocationFilter } from "../location-search.ts";
@@ -333,14 +341,18 @@ export function buildVehicleSearchParams(criteria: UserCriteria, offset = 0) {
   if (offset > 0) params.set("offset", String(offset));
 
   const orGroups: string[][] = [];
-  const searchRangeFloorKm = inferSearchRangeFloorKm(criteria);
+  const searchRangeFloorKm = hasHardRangeConstraint(criteria) ? inferSearchRangeFloorKm(criteria) : null;
 
   if (criteria.budgetMinEUR) params.append("price_eur", `gte.${criteria.budgetMinEUR}`);
   if (criteria.budgetMaxEUR) params.append("price_eur", `lte.${criteria.budgetMaxEUR}`);
-  if (criteria.preferredCondition !== "any") params.set("condition", `eq.${criteria.preferredCondition}`);
+  if (hasHardConditionConstraint(criteria) && criteria.preferredCondition !== "any") {
+    params.set("condition", `eq.${criteria.preferredCondition}`);
+  }
   if (searchRangeFloorKm) params.set("range_km", `gte.${searchRangeFloorKm}`);
-  if (criteria.bodyTypes.length) params.set("body_type", `in.(${criteria.bodyTypes.join(",")})`);
-  if (criteria.passengers) params.set("seats", `gte.${criteria.passengers}`);
+  if (hasHardBodyTypeConstraint(criteria) && criteria.bodyTypes.length) {
+    params.set("body_type", `in.(${criteria.bodyTypes.join(",")})`);
+  }
+  if (hasHardPassengerConstraint(criteria) && criteria.passengers) params.set("seats", `gte.${criteria.passengers}`);
   if (criteria.mileageMaxKm) params.set("mileage_km", `lte.${criteria.mileageMaxKm}`);
   if (criteria.batteryHealthRequired && criteria.batterySoHMin) {
     params.set("battery_soh", `gte.${criteria.batterySoHMin}`);
@@ -350,14 +362,14 @@ export function buildVehicleSearchParams(criteria: UserCriteria, offset = 0) {
     params.set("location", `ilike.${buildPostgrestIlikePattern(locationFilter)}`);
   }
 
-  if (criteria.brandPreferences.length) {
+  if (hasHardBrandConstraint(criteria) && criteria.brandPreferences.length) {
     params.set("brand", `in.(${formatPostgrestInList(expandBrandSearchValues(criteria.brandPreferences))})`);
   }
   if (criteria.avoidedBrands.length) {
     params.set("brand", `not.in.(${formatPostgrestInList(expandBrandSearchValues(criteria.avoidedBrands))})`);
   }
 
-  if (criteria.preferredBrandOrigins.length) {
+  if (hasHardBrandOriginConstraint(criteria) && criteria.preferredBrandOrigins.length) {
     const originFilters = [`brand_origin.in.(${criteria.preferredBrandOrigins.join(",")})`];
     const countryCodes = countryCodesForBrandOrigins(criteria.preferredBrandOrigins);
     if (countryCodes.length) {
@@ -437,20 +449,21 @@ function buildPostgrestIlikePattern(value: string) {
   return `*${escapePostgrestValue(trimmed)}*`;
 }
 
-function summarizeVehicleSearchFilters(criteria: UserCriteria) {
+export function summarizeVehicleSearchFilters(criteria: UserCriteria) {
   return {
     market: "AT",
     available: true,
+    budgetMinEUR: criteria.budgetMinEUR,
     budgetMaxEUR: criteria.budgetMaxEUR,
     monthlyBudgetEUR: criteria.monthlyBudgetEUR,
-    preferredCondition: criteria.preferredCondition,
-    rangeFloorKm: criteria.rangeFloorKm ?? inferSearchRangeFloorKm(criteria),
+    preferredCondition: hasHardConditionConstraint(criteria) ? criteria.preferredCondition : "any",
+    rangeFloorKm: hasHardRangeConstraint(criteria) ? criteria.rangeFloorKm ?? inferSearchRangeFloorKm(criteria) : null,
     mileageMaxKm: criteria.mileageMaxKm,
     batterySoHMin: criteria.batteryHealthRequired ? criteria.batterySoHMin : null,
-    bodyTypes: criteria.bodyTypes,
-    preferredBrandOrigins: criteria.preferredBrandOrigins,
-    passengers: criteria.passengers,
-    brandPreferences: criteria.brandPreferences,
+    bodyTypes: hasHardBodyTypeConstraint(criteria) ? criteria.bodyTypes : [],
+    preferredBrandOrigins: hasHardBrandOriginConstraint(criteria) ? criteria.preferredBrandOrigins : [],
+    passengers: hasHardPassengerConstraint(criteria) ? criteria.passengers : null,
+    brandPreferences: hasHardBrandConstraint(criteria) ? criteria.brandPreferences : [],
     modelPreferences: criteria.modelPreferences,
     avoidedBrands: criteria.avoidedBrands,
     location: resolveInventoryLocationFilter(criteria.location),
@@ -487,7 +500,7 @@ function isVehicle(value: unknown): value is Vehicle {
 }
 
 function filterVehiclesForSearch(vehicles: Vehicle[], criteria: UserCriteria) {
-  const searchRangeFloorKm = inferSearchRangeFloorKm(criteria);
+  const searchRangeFloorKm = hasHardRangeConstraint(criteria) ? inferSearchRangeFloorKm(criteria) : null;
   return vehicles.filter((vehicle) => {
     if (vehicle.market !== "AT") return false;
     if (!vehicle.available) return false;
@@ -497,15 +510,36 @@ function filterVehiclesForSearch(vehicles: Vehicle[], criteria: UserCriteria) {
     if (criteria.monthlyBudgetEUR && estimateMonthlyVehiclePayment(vehicle) > criteria.monthlyBudgetEUR) {
       return false;
     }
-    if (criteria.preferredCondition !== "any" && vehicle.condition !== criteria.preferredCondition) return false;
+    if (
+      hasHardConditionConstraint(criteria) &&
+      criteria.preferredCondition !== "any" &&
+      vehicle.condition !== criteria.preferredCondition
+    ) {
+      return false;
+    }
     if (searchRangeFloorKm && vehicle.rangeKm < searchRangeFloorKm) return false;
     if (criteria.mileageMaxKm && vehicle.mileageKm !== null && vehicle.mileageKm > criteria.mileageMaxKm) return false;
     if (criteria.mileageMaxKm && vehicle.condition === "used" && vehicle.mileageKm === null) return false;
-    if (criteria.bodyTypes.length && !criteria.bodyTypes.includes(vehicle.bodyType)) return false;
-    if (!vehicleMatchesBrandOriginPreferences(vehicle, criteria.preferredBrandOrigins)) return false;
-    if (!vehicleMatchesBrandPreferences(vehicle, criteria.brandPreferences)) return false;
+    if (
+      hasHardBodyTypeConstraint(criteria) &&
+      criteria.bodyTypes.length &&
+      !criteria.bodyTypes.includes(vehicle.bodyType)
+    ) {
+      return false;
+    }
+    if (
+      hasHardBrandOriginConstraint(criteria) &&
+      !vehicleMatchesBrandOriginPreferences(vehicle, criteria.preferredBrandOrigins)
+    ) {
+      return false;
+    }
+    if (hasHardBrandConstraint(criteria) && !vehicleMatchesBrandPreferences(vehicle, criteria.brandPreferences)) {
+      return false;
+    }
     if (!vehicleMatchesModelPreferences(vehicle, criteria.modelPreferences)) return false;
-    if (criteria.passengers && vehicle.seats < criteria.passengers) return false;
+    if (hasHardPassengerConstraint(criteria) && criteria.passengers && vehicle.seats < criteria.passengers) {
+      return false;
+    }
     if (criteria.avoidedBrands.some((brand) => sameBrand(brand, vehicle.make))) return false;
     if (criteria.mustHaveFeatures.length) {
       const normalizedFeatures = normalizeVehicleFeatures(vehicle.features, vehicle);

@@ -6,11 +6,15 @@ import type {
   Importance,
   Language,
   MissingCriteria,
+  OptimizationDirective,
   QualitativeSignal,
   TripNeed,
   UserCriteria,
   VehicleCondition
 } from "./types.ts";
+
+export const DEFAULT_BUDGET_MIN_EUR = 25_000;
+export const DEFAULT_BUDGET_MAX_EUR = 90_000;
 
 const germanSignals = [
   "ich",
@@ -205,6 +209,16 @@ const modelAliases: Array<[string, RegExp]> = [
   ["ZOE", /\bzoe\b/i]
 ];
 
+const optimizationDirectiveLabels: Record<OptimizationDirective, string> = {
+  best_value: "best value",
+  maximum_range: "maximum range",
+  most_reliable: "most reliable",
+  fastest_charging: "fastest charging",
+  lowest_running_cost: "lowest running cost",
+  best_family_fit: "best family fit",
+  performance: "performance"
+};
+
 export function emptyCriteria(rawPrompt = "", language: Language = "en"): UserCriteria {
   return {
     language,
@@ -231,8 +245,10 @@ export function emptyCriteria(rawPrompt = "", language: Language = "en"): UserCr
     reliabilityImportance: "medium",
     mustHaveFeatures: [],
     qualitativeSignals: [],
+    optimizationDirective: null,
     location: null,
-    rawPrompt
+    rawPrompt,
+    latestUserMessage: rawPrompt
   };
 }
 
@@ -274,11 +290,18 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
   const removals = extractRemovals(text);
 
   const budgetRange = removals.has("budget") ? { min: null, max: null } : extractBudgetRange(text);
-  const budgetMinEUR = removals.has("budget") ? null : budgetRange.min ?? base.budgetMinEUR;
+  const usesDefaultBudget = !removals.has("budget") && looksLikeNoBudgetLimit(text);
+  const budgetMinEUR = removals.has("budget")
+    ? null
+    : budgetRange.min ?? (usesDefaultBudget ? DEFAULT_BUDGET_MIN_EUR : base.budgetMinEUR);
   const budgetMaxEUR = removals.has("budget")
     ? null
-    : budgetRange.max ?? extractBudget(text, false) ?? base.budgetMaxEUR;
-  const monthlyBudgetEUR = removals.has("budget") ? null : extractBudget(text, true) ?? base.monthlyBudgetEUR;
+    : budgetRange.max ?? extractBudget(text, false) ?? (usesDefaultBudget ? DEFAULT_BUDGET_MAX_EUR : base.budgetMaxEUR);
+  const monthlyBudgetEUR = removals.has("budget")
+    ? null
+    : usesDefaultBudget
+      ? null
+      : extractBudget(text, true) ?? base.monthlyBudgetEUR;
   const dailyKm = removals.has("dailyKm") ? null : extractKm(text, "daily") ?? base.dailyKm;
   const mileageMaxKm = removals.has("mileage")
     ? null
@@ -334,6 +357,9 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
   const qualitativeSignals = removals.has("qualitative")
     ? []
     : mergeUnique(base.qualitativeSignals, extractQualitativeSignals(text));
+  const optimizationDirective = removals.has("optimization")
+    ? null
+    : extractOptimizationDirective(text) ?? base.optimizationDirective;
   const reliabilityImportance = deriveReliabilityImportance(text, qualitativeSignals, base.reliabilityImportance);
   const brandFit = deriveBrandFit(text, brandPreferences, base.brandFit);
 
@@ -362,8 +388,10 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
     reliabilityImportance,
     mustHaveFeatures,
     qualitativeSignals,
+    optimizationDirective,
     location,
-    rawPrompt: [base.rawPrompt, normalizedPrompt].filter(Boolean).join("\n")
+    rawPrompt: [base.rawPrompt, normalizedPrompt].filter(Boolean).join("\n"),
+    latestUserMessage: normalizedPrompt
   };
 }
 
@@ -434,7 +462,9 @@ export function getCriteriaReadiness(criteria: UserCriteria): CriteriaReadiness 
   );
 
   return {
-    readyToMatch: (groups.budget && collectedCriteriaCount >= 3) || hasExplicitInventoryLookup,
+    readyToMatch:
+      groups.budget &&
+      (collectedCriteriaCount >= 3 || hasExplicitInventoryLookup || Boolean(criteria.optimizationDirective)),
     collectedCriteriaCount,
     groups,
     missingCriteria
@@ -450,6 +480,7 @@ export function getCriteriaConfidence(criteria: UserCriteria) {
   if (criteria.rangeFloorKm || criteria.dailyKm) score += 0.06;
   if (criteria.mileageMaxKm || criteria.batterySoHMin) score += 0.05;
   if (criteria.qualitativeSignals.length) score += 0.05;
+  if (criteria.optimizationDirective) score += 0.05;
   return Math.min(0.95, Math.round(score * 100) / 100);
 }
 
@@ -476,6 +507,7 @@ export function criteriaSummary(criteria: UserCriteria) {
   if (criteria.tripNeeds.length) parts.push(criteria.tripNeeds.join(", "));
   if (criteria.chargingAccess !== "unknown") parts.push(`${criteria.chargingAccess} charging`);
   if (criteria.qualitativeSignals.length) parts.push(criteria.qualitativeSignals.join(", "));
+  if (criteria.optimizationDirective) parts.push(optimizationDirectiveLabels[criteria.optimizationDirective]);
   return parts;
 }
 
@@ -496,6 +528,7 @@ export type CriteriaChipKey =
   | "model"
   | "features"
   | "qualitative"
+  | "optimization"
   | "location";
 
 export type CriteriaChip = {
@@ -546,6 +579,9 @@ export function criteriaChips(criteria: UserCriteria): CriteriaChip[] {
   if (criteria.qualitativeSignals.length) {
     chips.push({ key: "qualitative", label: criteria.qualitativeSignals.join(", ") });
   }
+  if (criteria.optimizationDirective) {
+    chips.push({ key: "optimization", label: optimizationDirectiveLabels[criteria.optimizationDirective] });
+  }
   if (criteria.location) chips.push({ key: "location", label: criteria.location });
   return chips;
 }
@@ -582,6 +618,7 @@ export function removeCriteriaKey(criteria: UserCriteria, key: CriteriaChipKey):
   if (key === "model") next.modelPreferences = [];
   if (key === "features") next.mustHaveFeatures = [];
   if (key === "qualitative") next.qualitativeSignals = [];
+  if (key === "optimization") next.optimizationDirective = null;
   if (key === "location") next.location = null;
   return next;
 }
@@ -598,12 +635,14 @@ export function normalizeCriteriaShape(criteria: UserCriteria): UserCriteria {
     avoidedBrands: criteria.avoidedBrands ?? [],
     mustHaveFeatures: criteria.mustHaveFeatures ?? [],
     qualitativeSignals: criteria.qualitativeSignals ?? [],
+    optimizationDirective: criteria.optimizationDirective ?? null,
     mileageMaxKm: criteria.mileageMaxKm ?? null,
     mileageTargetKm: criteria.mileageTargetKm ?? null,
     batterySoHMin: criteria.batterySoHMin ?? null,
     batteryHealthRequired: criteria.batteryHealthRequired ?? false,
     brandFit: criteria.brandFit ?? "medium",
-    reliabilityImportance: criteria.reliabilityImportance ?? "medium"
+    reliabilityImportance: criteria.reliabilityImportance ?? "medium",
+    latestUserMessage: criteria.latestUserMessage ?? criteria.rawPrompt ?? ""
   };
 }
 
@@ -634,6 +673,7 @@ function hasVehiclePreferenceSignal(criteria: UserCriteria) {
       criteria.avoidedBrands.length ||
       criteria.mustHaveFeatures.length ||
       criteria.qualitativeSignals.length ||
+      criteria.optimizationDirective ||
       criteria.location
   );
 }
@@ -680,8 +720,17 @@ function extractRemovals(text: string) {
   }
   if (/\b(features|ausstattung|carplay|acc|tempomat|assist)\b/i.test(text)) removals.add("features");
   if (/\b(premium|reliable|zuverlässig|qualitative|tech|technology)\b/i.test(text)) removals.add("qualitative");
+  if (/\b(optimization|priority|prioritize|optimierung|prioritaet|priorität|wert|reichweite|performance)\b/i.test(text)) {
+    removals.add("optimization");
+  }
   if (/\b(location|ort|wien|graz|linz|salzburg|plz)\b/i.test(text)) removals.add("location");
   return removals;
+}
+
+export function looksLikeNoBudgetLimit(text: string) {
+  return /\b(no budget(?: limit)?|no price limit|no limit|unlimited budget|budget does(?:n'?t)? matter|price does(?:n'?t)? matter|kein budget(?:limit)?|kein limit|budget egal|preis egal)\b/i.test(
+    text
+  );
 }
 
 function extractBudgetRange(text: string) {
@@ -826,8 +875,11 @@ function extractCondition(text: string): VehicleCondition | "any" | null {
 }
 
 function extractPassengers(text: string) {
+  if (/\b(2|two)[-\s]?(seater|sitzer)\b/i.test(text)) return 2;
   const explicit = text.match(/(\d)\s?(people|persons|passengers|sitze|personen|kids|children|kinder)/i);
   if (explicit) return Number(explicit[1]);
+  const seatVerb = text.match(/\b(?:seat|seats|sitze?)\s?(\d)\b/i);
+  if (seatVerb) return Number(seatVerb[1]);
   if (/(family|familie|kinder|child|kids)/i.test(text)) return 4;
   return null;
 }
@@ -872,6 +924,86 @@ function extractQualitativeSignals(text: string): QualitativeSignal[] {
     signals.push("public_charging_fit");
   }
   return signals;
+}
+
+export function extractOptimizationDirective(text: string): OptimizationDirective | null {
+  if (/(best value|value for money|price[-\s]?to[-\s]?performance|price performance|bang for buck|preis[-\s]?leistung|preiswert|gutes angebot|bestes angebot)/i.test(text)) {
+    return "best_value";
+  }
+  if (/(maximum range|max(?:imum)? reichweite|maximale reichweite|most range|longest range|größte reichweite|groesste reichweite|hoechste reichweite|höchste reichweite)/i.test(text)) {
+    return "maximum_range";
+  }
+  if (/(most reliable|reliability first|zuverlässigst|zuverlaessigst|am zuverlässigsten|am zuverlaessigsten|haltbar(st)?)/i.test(text)) {
+    return "most_reliable";
+  }
+  if (/(fastest charging|best charging|schnellladen|schnellste ladung|beste ladeleistung|800v|800 volt)/i.test(text)) {
+    return "fastest_charging";
+  }
+  if (/(lowest running cost|low(?:est)? running costs|cheapest to run|niedrigste laufende kosten|niedrige kosten|verbrauch optimieren)/i.test(text)) {
+    return "lowest_running_cost";
+  }
+  if (/(best family fit|family fit|familienfreundlich|beste familie|familienauto|family car)/i.test(text)) {
+    return "best_family_fit";
+  }
+  if (/(performance|sporty|quick|fast acceleration|schnell|sportlich|beschleunigung|fahrspaß|fahrspass)/i.test(text)) {
+    return "performance";
+  }
+  return null;
+}
+
+export function constraintSourceText(criteria: UserCriteria) {
+  return (criteria.latestUserMessage || criteria.rawPrompt || "").trim();
+}
+
+export function hasHardRangeConstraint(criteria: UserCriteria) {
+  if (!criteria.rangeFloorKm) return false;
+  return /(?:\b\d{2,4}\s?(?:km|kilometer)\b[^.\n]{0,36}\b(?:range|reichweite|single charge|ladung|autobahn)\b|\b(?:range|reichweite|single charge|ladung|autobahn)\b[^.\n]{0,36}\b\d{2,4}\s?(?:km|kilometer)\b|\b(?:at least|minimum|min\.?|must|need|require|mindestens|min(?:dest)?|brauche|benötige|benoetige)\b[^.\n]{0,40}\b\d{2,4}\s?(?:km|kilometer)\b)/i.test(
+    constraintSourceText(criteria)
+  );
+}
+
+export function hasHardPassengerConstraint(criteria: UserCriteria) {
+  if (!criteria.passengers) return false;
+  return /(?:\b(?:must|need|needs|required|require|requires|only|at least|minimum|min\.?|mindestens|nur|brauche|benötige|benoetige)\b[^.\n]{0,36}\b\d\s?(?:seats?|sitze|personen|passengers)\b|\b(?:must|need|needs|required|require|requires|only|at least|minimum|min\.?|mindestens|nur|brauche|benötige|benoetige)\b[^.\n]{0,36}\b(?:seat|seats|sitze?)\s?\d\b|\b(?:2|two)[-\s]?(?:seater|sitzer)\b)/i.test(
+    constraintSourceText(criteria)
+  );
+}
+
+const exclusiveCue =
+  /\b(only|must|need|needs|required|require|requires|at least|minimum|min\.?|mindestens|nur|brauche|benötige|benoetige|ausschließlich|ausschliesslich)\b/i;
+
+export function hasHardBodyTypeConstraint(criteria: UserCriteria) {
+  if (!criteria.bodyTypes.length) return false;
+  const text = constraintSourceText(criteria);
+  return (
+    exclusiveCue.test(text) &&
+    /\b(suv|sedan|hatchback|wagon|van|compact|coupe|crossover|limousine|kombi|kleinwagen)\b/i.test(text)
+  );
+}
+
+export function hasHardConditionConstraint(criteria: UserCriteria) {
+  if (criteria.preferredCondition === "any") return false;
+  const text = constraintSourceText(criteria);
+  return exclusiveCue.test(text) && /\b(new|used|neu|gebraucht(?:e|es|er)?|new car|used car)\b/i.test(text);
+}
+
+export function hasHardBrandConstraint(criteria: UserCriteria) {
+  if (!criteria.brandPreferences.length) return false;
+  if (criteria.modelPreferences.length) return true;
+  const text = constraintSourceText(criteria);
+  return (
+    exclusiveCue.test(text) &&
+    criteria.brandPreferences.some((brand) => new RegExp(`\\b${escapeRegExp(brand)}\\b`, "i").test(text))
+  );
+}
+
+export function hasHardBrandOriginConstraint(criteria: UserCriteria) {
+  if (!criteria.preferredBrandOrigins.length) return false;
+  const text = constraintSourceText(criteria);
+  return (
+    exclusiveCue.test(text) &&
+    /\b(european|europe|europäisch|europaeisch|chinese|china|chinesisch|korean|korea|american|usa|us)\b/i.test(text)
+  );
 }
 
 function extractBodyTypes(text: string) {

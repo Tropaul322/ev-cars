@@ -135,9 +135,11 @@ test("brand focus narrows brand preferences", () => {
 });
 
 matchRoute("match request re-runs inventory after a brand focus follow-up", async () => {
-  const first = await runMatchRequest({
-    message: "American car like Ford or Tesla around 35k EUR with good range for trips"
-  });
+  const first = await answerOptimizationPrompt(
+    await runMatchRequest({
+      message: "American car like Ford or Tesla around 35k EUR with good range for trips"
+    })
+  );
   assert.equal(first.type, "matches");
 
   const second = await runMatchRequest({
@@ -152,9 +154,11 @@ matchRoute("match request re-runs inventory after a brand focus follow-up", asyn
 });
 
 matchRoute("match request shows listings when user asks to show them", async () => {
-  const first = await runMatchRequest({
-    message: "American car like Ford or Tesla around 35k EUR with good range for trips"
-  });
+  const first = await answerOptimizationPrompt(
+    await runMatchRequest({
+      message: "American car like Ford or Tesla around 35k EUR with good range for trips"
+    })
+  );
   assert.equal(first.type, "matches");
 
   const second = await runMatchRequest({
@@ -166,6 +170,18 @@ matchRoute("match request shows listings when user asks to show them", async () 
   assert.equal(second.type, "matches");
   assert.ok(second.recommendations.length > 0);
 });
+
+async function answerOptimizationPrompt(first: Awaited<ReturnType<typeof runMatchRequest>>) {
+  assert.equal(first.type, "clarification");
+  assert.equal(first.prompt?.key, "optimization");
+  return await runMatchRequest({
+    message: "Best value",
+    sessionId: first.sessionId,
+    previousCriteria: first.criteria,
+    criteriaPatch: { optimizationDirective: "best_value" },
+    currentPromptKey: "optimization"
+  });
+}
 
 test("capability and greeting fallbacks are available in German", () => {
   assert.match(fallbackCapabilityMessage({ language: "de" } as never), /FlowRyd/);

@@ -35,16 +35,15 @@ const catalog: Record<MissingCriteria, LocalizedStep> = {
       de: "Welches Budget passt für dich?"
     },
     explanation: {
-      en: "This is the most you'd want to spend on the car's purchase price. It's a hard limit, so I never show cars above it. Pick a range below, type an exact number, or choose no limit.",
-      de: "Das ist der maximale Kaufpreis, den du ausgeben möchtest. Es ist eine harte Grenze – teurere Autos zeige ich nie. Wähle eine Spanne, nenne eine genaue Zahl oder wähle kein Limit."
+      en: "This is the purchase-price range I should respect. It is a hard limit, so I never show cars above it. Pick a range below or type an exact number.",
+      de: "Das ist die Kaufpreis-Spanne, die ich einhalten soll. Es ist eine harte Grenze – teurere Autos zeige ich nie. Wähle eine Spanne oder nenne eine genaue Zahl."
     },
     selectMode: "single",
     options: [
       { id: "budget_under_25k", label: { en: "Under €25,000", de: "Unter 25.000 €" }, patch: { budgetMaxEUR: 25000 } },
       { id: "budget_25_40k", label: { en: "€25,000–40,000", de: "25.000–40.000 €" }, patch: { budgetMinEUR: 25000, budgetMaxEUR: 40000 } },
       { id: "budget_40_60k", label: { en: "€40,000–60,000", de: "40.000–60.000 €" }, patch: { budgetMaxEUR: 60000 } },
-      { id: "budget_over_60k", label: { en: "Over €60,000", de: "Über 60.000 €" }, patch: { budgetMaxEUR: 90000 } },
-      skipOption("budget_skip", "No budget limit", "Kein Budgetlimit")
+      { id: "budget_over_60k", label: { en: "€60,000–90,000", de: "60.000–90.000 €" }, patch: { budgetMinEUR: 60000, budgetMaxEUR: 90000 } }
     ]
   },
   use_case: {
@@ -115,6 +114,27 @@ const readyStep: { question: { en: string; de: string }; explanation: { en: stri
   }
 };
 
+const optimizationStep: LocalizedStep = {
+  question: {
+    en: "What should I optimize for first?",
+    de: "Worauf soll ich zuerst optimieren?"
+  },
+  explanation: {
+    en: "This keeps the first recommendation focused instead of rushing into a generic match.",
+    de: "So bleibt die erste Empfehlung gezielt, statt zu schnell generisch zu wirken."
+  },
+  selectMode: "single",
+  options: [
+    { id: "opt_best_value", label: { en: "Best value", de: "Bestes Preis-Leistungs-Verhältnis" }, patch: { optimizationDirective: "best_value" } },
+    { id: "opt_max_range", label: { en: "Maximum range", de: "Maximale Reichweite" }, patch: { optimizationDirective: "maximum_range" } },
+    { id: "opt_reliable", label: { en: "Reliability", de: "Zuverlässigkeit" }, patch: { optimizationDirective: "most_reliable" } },
+    { id: "opt_family", label: { en: "Family fit", de: "Familientauglichkeit" }, patch: { optimizationDirective: "best_family_fit" } },
+    { id: "opt_fast_charging", label: { en: "Fastest charging", de: "Schnellstes Laden" }, patch: { optimizationDirective: "fastest_charging" } },
+    { id: "opt_running_cost", label: { en: "Lowest running cost", de: "Niedrigste laufende Kosten" }, patch: { optimizationDirective: "lowest_running_cost" } },
+    { id: "opt_performance", label: { en: "Performance", de: "Fahrspaß / Performance" }, patch: { optimizationDirective: "performance" } }
+  ]
+};
+
 function localizeOption(option: LocalizedOption, language: Language): ClarificationOption {
   return {
     id: option.id,
@@ -147,6 +167,17 @@ export function getReadyPrompt(language: Language): ClarificationPrompt {
   };
 }
 
+export function getOptimizationPrompt(language: Language): ClarificationPrompt {
+  return {
+    key: "optimization",
+    question: optimizationStep.question[language],
+    explanation: optimizationStep.explanation[language],
+    selectMode: optimizationStep.selectMode,
+    options: optimizationStep.options.map((option) => localizeOption(option, language)),
+    showMatchAction: false
+  };
+}
+
 /**
  * Picks the next clarification prompt for the current criteria, skipping any
  * groups the user has explicitly waved off. Returns the ready prompt once every
@@ -165,7 +196,9 @@ export function getPromptExplanation(
   key: ClarificationPromptKey,
   language: Language
 ): string {
-  return key === "ready" ? readyStep.explanation[language] : catalog[key].explanation[language];
+  if (key === "ready") return readyStep.explanation[language];
+  if (key === "optimization") return optimizationStep.explanation[language];
+  return catalog[key].explanation[language];
 }
 
 export function isMissingCriteriaKey(value: unknown): value is MissingCriteria {

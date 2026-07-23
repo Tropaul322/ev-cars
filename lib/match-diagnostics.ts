@@ -12,6 +12,11 @@ export type MatchDiagnostics = {
   isNextBatch: boolean;
   criteriaChanged: boolean;
   searchOffset: number;
+  fallbackStages: string[];
+  timedOutStages: string[];
+  fallbackSource?: string;
+  sanityRejectedVehicles: number;
+  cachedAlternatives: number;
   selectionNotes: string[];
 };
 
@@ -27,6 +32,11 @@ export function buildMatchDiagnostics(input: {
   criteriaChanged: boolean;
   searchOffset: number;
   recommendations: MatchResult[];
+  fallbackStages?: string[];
+  timedOutStages?: string[];
+  fallbackSource?: string;
+  sanityRejectedVehicles?: number;
+  cachedAlternatives?: number;
 }): MatchDiagnostics {
   const selectionNotes = explainSelection(input);
 
@@ -42,6 +52,11 @@ export function buildMatchDiagnostics(input: {
     isNextBatch: input.isNextBatch,
     criteriaChanged: input.criteriaChanged,
     searchOffset: input.searchOffset,
+    fallbackStages: input.fallbackStages ?? [],
+    timedOutStages: input.timedOutStages ?? [],
+    fallbackSource: input.fallbackSource,
+    sanityRejectedVehicles: input.sanityRejectedVehicles ?? 0,
+    cachedAlternatives: input.cachedAlternatives ?? 0,
     selectionNotes
   };
 }
@@ -81,6 +96,11 @@ function explainSelection(input: {
   criteriaChanged: boolean;
   searchOffset: number;
   recommendations: MatchResult[];
+  fallbackStages?: string[];
+  timedOutStages?: string[];
+  fallbackSource?: string;
+  sanityRejectedVehicles?: number;
+  cachedAlternatives?: number;
 }) {
   const notes: string[] = [];
 
@@ -119,6 +139,22 @@ function explainSelection(input: {
   const duplicateModels = countDuplicateModels(input.recommendations);
   if (duplicateModels.length) {
     notes.push(`Listing diversity capped repeats for: ${duplicateModels.join(", ")}.`);
+  }
+
+  if (input.fallbackStages?.length) {
+    notes.push(`Fallback used for: ${input.fallbackStages.join(", ")}.`);
+  }
+
+  if (input.timedOutStages?.length) {
+    notes.push(`Timed out stages: ${input.timedOutStages.join(", ")}.`);
+  }
+
+  if ((input.sanityRejectedVehicles ?? 0) > 0) {
+    notes.push(`${input.sanityRejectedVehicles} candidate vehicles failed numeric sanity checks.`);
+  }
+
+  if ((input.cachedAlternatives ?? 0) > 0) {
+    notes.push(`${input.cachedAlternatives} cached alternatives are ready for instant reveal.`);
   }
 
   return notes;

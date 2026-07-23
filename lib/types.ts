@@ -1,10 +1,19 @@
 import type { MatchDiagnostics } from "./match-diagnostics.ts";
+import type { SearchCriteriaDebug } from "./search-criteria-debug.ts";
 
 export type Language = "de" | "en";
 export type VehicleCondition = "new" | "used";
 export type ChargingAccess = "home" | "work" | "public" | "none" | "unknown";
 export type TripNeed = "city" | "commute" | "road_trip" | "family" | "winter";
 export type Importance = "low" | "medium" | "high";
+export type OptimizationDirective =
+  | "best_value"
+  | "maximum_range"
+  | "most_reliable"
+  | "fastest_charging"
+  | "lowest_running_cost"
+  | "best_family_fit"
+  | "performance";
 
 export type QualitativeSignal =
   | "premium"
@@ -163,8 +172,11 @@ export type UserCriteria = {
   reliabilityImportance: Importance;
   mustHaveFeatures: Feature[];
   qualitativeSignals: QualitativeSignal[];
+  optimizationDirective: OptimizationDirective | null;
   location: string | null;
   rawPrompt: string;
+  /** Latest user turn only — used for exclusive-language hard-constraint detection. */
+  latestUserMessage: string;
 };
 
 export type CriteriaPatch = Partial<
@@ -174,7 +186,7 @@ export type CriteriaPatch = Partial<
   }
 >;
 
-export type ClarificationPromptKey = MissingCriteria | "ready";
+export type ClarificationPromptKey = MissingCriteria | "ready" | "optimization";
 
 export type ClarificationOption = {
   id: string;
@@ -272,6 +284,7 @@ export type MatchResponse =
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
       prompt?: ClarificationPrompt;
+      searchCriteriaDebug?: SearchCriteriaDebug;
     }
   | {
       type: "clarification";
@@ -284,6 +297,7 @@ export type MatchResponse =
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
       prompt?: ClarificationPrompt;
+      searchCriteriaDebug?: SearchCriteriaDebug;
     }
   | {
       type: "matches";
@@ -293,9 +307,13 @@ export type MatchResponse =
       criteria: UserCriteria;
       missingCriteria: MissingCriteria[];
       recommendations: MatchResult[];
+      alternativeRecommendations?: MatchResult[];
+      alternativesAvailable: boolean;
+      responseMode: "primary" | "alternatives";
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
       matchDiagnostics?: MatchDiagnostics;
+      searchCriteriaDebug?: SearchCriteriaDebug;
     }
   | {
       type: "no_matches";
@@ -308,8 +326,9 @@ export type MatchResponse =
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
       matchDiagnostics?: MatchDiagnostics;
+      searchCriteriaDebug?: SearchCriteriaDebug;
     };
-export type { MatchDiagnostics };
+export type { MatchDiagnostics, SearchCriteriaDebug };
 
 export type CompareVehicle = {
   vehicle: Vehicle;

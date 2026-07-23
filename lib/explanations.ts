@@ -6,6 +6,7 @@ import {
   openAiConfigured,
   openAiModel
 } from "./openai-provider.ts";
+import { PROMPT_GUARD_SYSTEM_NOTE } from "./prompt-guard.ts";
 import type { MatchResult, RejectedSummary, UserCriteria } from "./types.ts";
 
 type LlmExplanation = {
@@ -34,7 +35,8 @@ const explanationSystemPrompt =
   "Start with the practical fit and include concrete facts such as range, price or lease, body style, seats, cargo, drivetrain, charging/public-charging fit, tech, family or commute suitability, and availability only when those facts are provided. " +
   "Mention limitations or tradeoffs plainly, but keep the overall tone conversational rather than analytical. " +
   "Return JSON: {\"assistantMessage\":\"...\",\"explanations\":[{\"vehicleId\":\"...\",\"explanation\":\"...\"}]}. " +
-  "assistantMessage must briefly introduce the ranked listings and, when rejectedSummary is provided, mention the main reasons other vehicles were ruled out. Every provided vehicleId must have a matching explanation entry.";
+  "assistantMessage must briefly introduce the single best recommendation and, when rejectedSummary is provided, mention the main reasons other vehicles were ruled out. Every provided vehicleId must have a matching explanation entry. " +
+  PROMPT_GUARD_SYSTEM_NOTE;
 
 function llmEnabled() {
   return process.env.FLOWRYD_DISABLE_LLM !== "1" && openAiConfigured();
@@ -112,7 +114,7 @@ function llmExplanationsEnabled() {
   return process.env.FLOWRYD_ENABLE_LLM_EXPLANATIONS === "1" && llmEnabled();
 }
 
-function fallbackExplanation(match: MatchResult, criteria: UserCriteria) {
+export function fallbackExplanation(match: MatchResult, criteria: UserCriteria) {
   const language = criteria.language;
   const vehicleName = `${match.vehicle.make} ${match.vehicle.model}`;
   const range = `${match.vehicle.rangeKm.toLocaleString("de-AT")} km`;
@@ -363,4 +365,3 @@ function isLlmExplanation(value: unknown): value is LlmExplanation {
   const explanation = value as Partial<LlmExplanation>;
   return typeof explanation.vehicleId === "string" && typeof explanation.explanation === "string";
 }
-
