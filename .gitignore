@@ -4,6 +4,7 @@
 .env.*.local
 .next/
 node_modules/
+.worktrees/
 coverage/
 *.tsbuildinfo
 dist/
