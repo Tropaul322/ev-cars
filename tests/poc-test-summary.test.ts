@@ -346,13 +346,12 @@ test("live hybrid/structured search does not silently fall back to bundled seed 
 
 test("binding criteria cannot be skipped with 'no preference'", async () => {
   await assertLiveInventory();
-  const first = await runMatchRequest({
+  let current = await runMatchRequest({
     message: "Chinese brand EV under 40000"
   });
-  assert.equal(first.type, "clarification");
+  assert.equal(current.type, "clarification");
 
   // Walk to vehicle_preferences if needed, then try to skip it.
-  let current = first;
   if (current.prompt?.key === "budget") {
     current = await runMatchRequest({
       message: "Under 40000",
