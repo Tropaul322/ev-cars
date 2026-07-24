@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { createDocumentEmbedding, embeddingDimensions } from "../lib/embeddings.ts";
+import { openAiEmbeddingModel } from "../lib/openai-provider.ts";
 import { getSupabaseRestConfig } from "../lib/repositories/supabase-rest.ts";
 import type { KnowledgeTopic } from "../lib/types.ts";
 
@@ -463,10 +464,7 @@ async function buildKnowledgeChunks(documents: TrustedKnowledgeDocument[]): Prom
           chunkIndex: index,
           chunkCount: chunks.length,
           crawledAt: document.payload.crawledAt,
-          embeddingModel:
-            process.env.GEMINI_API_KEY
-              ? process.env.GEMINI_EMBEDDING_MODEL ?? "gemini-embedding-2"
-              : process.env.OPENAI_EMBEDDING_MODEL ?? "text-embedding-3-small",
+          embeddingModel: openAiEmbeddingModel(),
           embeddingDimensions: embeddingDimensions(),
           extracted: extractSignals(content, {
             id: document.payload.sourceId,

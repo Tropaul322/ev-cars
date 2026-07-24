@@ -1,9 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { createDocumentEmbedding, embeddingDimensions } from "../lib/embeddings.ts";
 import { getSupabaseRestConfig } from "../lib/repositories/supabase-rest.ts";
 import type { Vehicle } from "../lib/types.ts";
-import { buildVehicleEmbeddingText, vehicleTitle } from "../lib/vehicle-embedding-text.ts";
 import { inventorySources, selectSources } from "./config.ts";
 import {
   printRunSummary,
@@ -23,7 +21,6 @@ import type { ContextPage, CrawlOptions, CrawlSummary, InventorySourceConfig, Ra
 type VehicleUploadRow = {
   id: string;
   payload: Vehicle;
-  embedding: string | null;
 };
 
 type ExistingDedupeRow = {
@@ -39,12 +36,9 @@ for (const [key, value] of Object.entries(env)) {
 }
 
 const options = parseArgs(process.argv.slice(2));
-if (env.FLOWRYD_SKIP_EMBEDDINGS === "1" || options.skipEmbeddings) {
-  process.env.FLOWRYD_DISABLE_EMBEDDINGS = "1";
-}
 
 console.log(
-  `Crawl config: sources=${options.allSources ? "all" : [...options.sourceIds].join(",")}, maxListingsPerSource=${options.maxListingsPerSource}, fetcher=${options.fetcher}, outputOnly=${options.skipDb}, embeddings=${!options.skipEmbeddings}, mode=${options.offline ? "OFFLINE (cached HTML)" : "LIVE"}`
+  `Crawl config: sources=${options.allSources ? "all" : [...options.sourceIds].join(",")}, maxListingsPerSource=${options.maxListingsPerSource}, fetcher=${options.fetcher}, outputOnly=${options.skipDb}, vehicleEmbeddings=false, mode=${options.offline ? "OFFLINE (cached HTML)" : "LIVE"}`
 );
 
 if (options.listSources) {
@@ -175,8 +169,7 @@ if (crawl4aiExport) {
 
 const summary: CrawlSummary & {
   outputDir: string;
-  embeddingDimensions: number;
-  embeddingsEnabled: boolean;
+  vehicleEmbeddingsEnabled: false;
 } = {
   crawledAt,
   inventorySourcesAttempted: selectedSources.filter((source) => source.kind === "inventory").length,
@@ -187,8 +180,7 @@ const summary: CrawlSummary & {
   contextPagesScraped: contextPages.length,
   failures,
   outputDir,
-  embeddingDimensions: embeddingDimensions(),
-  embeddingsEnabled: process.env.FLOWRYD_DISABLE_EMBEDDINGS !== "1"
+  vehicleEmbeddingsEnabled: false
 };
 
 writeJson(path.join(outputDir, "latest.json"), {
@@ -265,18 +257,10 @@ function ragRecordsToContextPage(source: InventorySourceConfig, records: RagReco
 }
 
 async function buildVehicleRows(normalizedVehicles: Vehicle[]): Promise<VehicleUploadRow[]> {
-  const rows: VehicleUploadRow[] = [];
-  for (const vehicle of normalizedVehicles) {
-    const embedding = options.skipEmbeddings
-      ? null
-      : await createDocumentEmbedding(buildVehicleEmbeddingText(vehicle), vehicleTitle(vehicle));
-    rows.push({
-      id: vehicle.id,
-      payload: vehicle,
-      embedding: embedding ? `[${embedding.join(",")}]` : null
-    });
-  }
-  return rows;
+  return normalizedVehicles.map((vehicle) => ({
+    id: vehicle.id,
+    payload: vehicle
+  }));
 }
 
 async function upsert(table: "vehicles" | "knowledge_documents", rows: unknown[]) {

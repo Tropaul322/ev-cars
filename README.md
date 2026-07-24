@@ -8,8 +8,8 @@ explainable recommendations, and side-by-side comparison.
 - Next.js App Router + TypeScript frontend.
 - shadcn-style UI components in `components/ui`.
 - Deterministic EV criteria extraction, filtering, scoring, and TCO calculation.
-- Optional OpenAI-compatible explanation generation with deterministic fallback.
-- Supabase EU-ready REST repository, with seed-data fallback for local demos.
+- Optional OpenAI explanation generation with deterministic fallback.
+- Supabase EU-ready REST repository (runtime source of truth).
 - API routes for matching, vehicle lookup, comparison, and seed ingestion.
 - Node test runner coverage for parser, matching, TCO, and eval scenarios.
 - Repeatable scraper for the public FlowRyd static dashboard.
@@ -32,34 +32,107 @@ npm run dev
 
 ## Environment
 
-The app works with local seed data without environment variables.
+Supabase is required at runtime. Seed JSON under `data/` and `lib/data/seed-vehicles.ts`
+are ingest/test fixtures only — they are not used as a live data store.
+
+Required:
+
+```bash
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
+```
 
 Optional:
 
 ```bash
-GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-3.1-flash-lite
-GEMINI_EMBEDDING_MODEL=gemini-embedding-2
-GEMINI_EMBEDDING_DIMENSIONS=1536
 OPENAI_API_KEY=...
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o-mini
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=...
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_EMBEDDING_DIMENSIONS=1536
+FLOWRYD_VEHICLE_STRUCTURED_SEARCH=1
+FLOWRYD_VEHICLE_EMBEDDING_SEARCH=0
+FLOWRYD_VEHICLE_EMBEDDING_SEARCH_LIMIT=200
+FLOWRYD_VEHICLE_EMBEDDING_MIN_SIMILARITY=0.1
+FLOWRYD_MATCH_DEBUG=0
+FLOWRYD_SHOW_SEARCH_CRITERIA=0
 INGEST_ADMIN_TOKEN=...
+ADMIN_SESSION_SECRET=... # at least 32 random characters for signing admin sessions
 AUSTRIA_BEV_INCENTIVE_EUR=0
 FIRECRAWL_API_KEY=...
 ```
 
-Gemini is preferred for generated explanations when `GEMINI_API_KEY` is set.
-Gemini Embedding 2 is preferred for RAG embeddings when `GEMINI_API_KEY` is set;
-vectors are stored in Supabase `knowledge_chunks.embedding` (pgvector, 1536 dims).
-OpenAI-compatible explanations remain available when only `OPENAI_API_KEY` is
-configured. Both paths fall back to deterministic local explanations if the
-model call is unavailable.
+OpenAI is used for generated explanations, chat planning, criteria normalization,
+and embeddings when `OPENAI_API_KEY` is set; trusted knowledge vectors are
+stored in Supabase `knowledge_chunks.embedding` and optional vehicle vectors are
+stored in `vehicles.embedding` (pgvector, 1536 dims by default).
+Vehicle matching uses structured filters plus keyword/topic scoring by default.
+Set `FLOWRYD_VEHICLE_EMBEDDING_SEARCH=1` after populating vehicle embeddings to
+augment candidate retrieval with vector search, or set
+`FLOWRYD_VEHICLE_STRUCTURED_SEARCH=0` to disable structured Supabase filters.
+Set `FLOWRYD_MATCH_DEBUG=1` to attach match diagnostics to API responses and
+server logs. Set `FLOWRYD_SHOW_SEARCH_CRITERIA=1` to attach a searchable
+criteria debug panel showing extracted criteria and the filters applied during
+inventory search.
+LLM paths fall back to deterministic local behavior if the model call is
+unavailable.
 
 `AUSTRIA_BEV_INCENTIVE_EUR` defaults to `0` until the incentive source is
 verified before a staging demo.
+
+## Conversational explanations and hybrid search
+
+- `FLOWRYD_ENABLE_LLM_EXPLANATIONS=1` enables grounded LLM wording; deterministic explanations remain the fallback.
+- Keep `FLOWRYD_VEHICLE_EMBEDDING_SEARCH=1` only after vehicle embeddings and the hybrid migration are deployed.
+- Inspect explanation fallback rate, hard-constraint violations (must be zero), p95 match latency, Recall@K, NDCG@K, and catalog coverage after each ranking change.
+- Run `npm run eval` before deploying ranking or prompt changes.
+
+## Demo Registration Gate
+
+The alpha uses a lightweight capture gate before matching. Testers provide only
+name, email, and an Austrian PLZ or Bundesland, plus explicit consent. The app
+does not create passwords, SSO accounts, or saved-vehicle persistence from this
+flow.
+
+- `POST /api/demo-registration` validates and stores the tester record, then
+  sets an HTTP-only `flowryd_demo_registration` cookie.
+- `GET /api/demo-registration` returns the active tester status for the UI.
+- `DELETE /api/demo-registration` records `deletion_requested_at` and clears the
+  cookie, giving testers a documented deletion path from the demo access panel.
+- `POST /api/match` requires an active demo registration and uses the captured
+  location as the default matching location unless the chat turn supplies a
+  different location.
+
+For demos, use a Supabase project in an EU region and a server-side
+`SUPABASE_SERVICE_ROLE_KEY` so writes to `tester_registrations` stay in the
+configured EU data store.
+
+## Admin Panel
+
+The admin panel lives at `/admin` and is separate from the public demo UI.
+
+### Setup
+
+1. Apply the `admin_users` migration in `supabase/migrations/202606250001_add_admin_users.sql`.
+2. Set `ADMIN_SESSION_SECRET` in `.env.local` (32+ random characters).
+3. Create the first admin user:
+
+```bash
+npm run admin:create -- --email admin@example.com --password 'your-strong-password' --name 'Admin'
+```
+
+- `POST /api/admin/login` validates credentials against `admin_users` and sets an HTTP-only
+  `flowryd_admin_session` cookie (8-hour TTL).
+- `POST /api/admin/logout` clears the admin session.
+- Protected `/admin/*` pages and `/api/admin/*` routes require a valid admin session.
+
+Admin capabilities:
+
+- Browse all `tester_registrations` and open full chat histories.
+- Add vehicles via a multi-step wizard, edit existing vehicles, and soft-delete
+  by setting `available=false`.
+- Import vehicles from CSV (`public/templates/vehicles-sheet-template.csv`) and
+  generate embeddings for saved vehicles automatically.
 
 ## Scrape FlowRyd Dashboard
 
@@ -135,7 +208,22 @@ Outputs are also written locally for audit/review:
 
 Set `FLOWRYD_SKIP_EMBEDDINGS=1` or pass `--skip-embeddings` to upload text
 without vector embeddings. For usable semantic retrieval, keep embeddings
-enabled and configure `GEMINI_API_KEY` or `OPENAI_API_KEY`.
+enabled and configure `OPENAI_API_KEY`.
+
+## Vehicle Embeddings
+
+Apply `supabase/migrations/202606230001_add_vehicle_embeddings.sql`, then run:
+
+```bash
+npm run supabase:embed-vehicles -- --dry-run
+npm run supabase:embed-vehicles
+```
+
+The script uses `text-embedding-3-small` with 1536 dimensions by default,
+batches 64 vehicles per API call, and stores an input hash so unchanged vehicles
+are skipped on later runs. Pass `--force` to refresh every row, `--limit=100` to
+test a subset, `--from-supabase` for a DB-backed dry-run, or override `--model=`
+/ `--dimensions=` if you also update the Supabase vector dimension.
 
 ## Austrian Inventory Scraping
 
@@ -155,13 +243,13 @@ npm run inventory:list-sources
 Dry-run without DB writes:
 
 ```bash
-npm run inventory:crawl -- --dry-run --skip-embeddings --max-listings-per-source=10
+npm run inventory:crawl -- --dry-run --max-listings-per-source=10
 ```
 
 Run a subset:
 
 ```bash
-npm run inventory:crawl -- --source=willhaben_at_ev,autoscout24_at_ev_all --skip-embeddings
+npm run inventory:crawl -- --source=willhaben_at_ev,autoscout24_at_ev_all
 ```
 
 Re-parse cached HTML without network access:
@@ -199,4 +287,6 @@ Apply `supabase/migrations/202606090001_add_inventory_scraping_metadata.sql`
 before DB uploads. Scraped vehicles include listing URL, seller type, VIN when
 visible, high-resolution image URLs, manufacturer country, and deterministic
 dedupe keys. The `vehicles_dedupe_key_unique` index prevents duplicate scraped
-cars from being inserted when the same listing is rediscovered.
+cars from being inserted when the same listing is rediscovered. Vehicle uploads
+write payload rows only; run `npm run supabase:embed-vehicles` after inventory
+uploads when vehicle vector search is enabled.

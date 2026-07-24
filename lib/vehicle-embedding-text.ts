@@ -1,4 +1,5 @@
 import type { Feature, Vehicle } from "./types.ts";
+import { bodyTypeLexiconTokens, seatsLexiconTokens } from "./vehicle-search-lexicon.ts";
 
 const featureLabels: Record<Feature, string> = {
   adaptive_cruise_control: "adaptive cruise control acc tempomat",
@@ -22,6 +23,8 @@ export function vehicleTitle(vehicle: Vehicle) {
 }
 
 export function buildVehicleEmbeddingText(vehicle: Vehicle) {
+  const seatPhrases = seatsLexiconTokens(vehicle.seats).join(" ");
+  const bodyPhrases = bodyTypeLexiconTokens(vehicle.bodyType).join(" ");
   return [
     vehicleTitle(vehicle),
     vehicle.brand,
@@ -30,7 +33,8 @@ export function buildVehicleEmbeddingText(vehicle: Vehicle) {
     vehicle.trim,
     vehicle.year,
     vehicle.condition,
-    vehicle.bodyType,
+    bodyPhrases,
+    seatPhrases,
     vehicle.drivetrain,
     vehicle.location,
     vehicle.listingCountry,
@@ -41,7 +45,6 @@ export function buildVehicleEmbeddingText(vehicle: Vehicle) {
     `${vehicle.rangeKm} km range reichweite`,
     `${vehicle.efficiencyKwhPer100Km} kwh per 100 km efficiency`,
     `${vehicle.cargoLiters} cargo trunk kofferraum`,
-    `${vehicle.seats} seats`,
     vehicle.mileageKm ? `${vehicle.mileageKm} km mileage` : null,
     vehicle.batterySoH ? `${vehicle.batterySoH}% battery health` : null,
     vehicle.features.map((feature) => featureLabels[feature]).join(" "),

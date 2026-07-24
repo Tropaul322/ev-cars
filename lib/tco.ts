@@ -7,6 +7,7 @@ export const DEFAULT_ELECTRICITY_PRICE_EUR_PER_KWH = 0.28;
 export function calculateTco(vehicle: Vehicle, criteria: UserCriteria): TcoBreakdown {
   const annualKmAssumption = estimateAnnualKm(criteria);
   const incentive = getConfiguredIncentive(vehicle);
+  const monthlyVehiclePayment = estimateMonthlyVehiclePayment(vehicle);
   const monthlyEnergy =
     ((annualKmAssumption / 12) * vehicle.efficiencyKwhPer100Km * DEFAULT_ELECTRICITY_PRICE_EUR_PER_KWH) /
     100;
@@ -15,7 +16,7 @@ export function calculateTco(vehicle: Vehicle, criteria: UserCriteria): TcoBreak
     purchasePriceWithVAT: Math.max(0, vehicle.priceEUR - incentive),
     incentivesApplied: incentive,
     estimatedEnergyCostMonthly: Math.round(monthlyEnergy),
-    estimatedMonthlyTotal: Math.round((vehicle.monthlyLeaseEUR ?? vehicle.priceEUR / 60) + monthlyEnergy),
+    estimatedMonthlyTotal: Math.round(monthlyVehiclePayment + monthlyEnergy),
     leaseMonthly: vehicle.monthlyLeaseEUR,
     annualKmAssumption,
     electricityPriceEurPerKwh: DEFAULT_ELECTRICITY_PRICE_EUR_PER_KWH,
@@ -25,6 +26,10 @@ export function calculateTco(vehicle: Vehicle, criteria: UserCriteria): TcoBreak
         ? "Configured Austrian BEV incentive applied from AUSTRIA_BEV_INCENTIVE_EUR."
         : "No purchase incentive configured; verify Austrian public incentives before staging."
   };
+}
+
+export function estimateMonthlyVehiclePayment(vehicle: Vehicle) {
+  return vehicle.monthlyLeaseEUR ?? vehicle.priceEUR / 60;
 }
 
 export function estimateAnnualKm(criteria: UserCriteria) {

@@ -1,3 +1,12 @@
+import { generateMatchIntroMessage } from "./assistant-messages.ts";
+import { languageLabel, languageReplyInstruction } from "./criteria.ts";
+import {
+  createOpenAiChatCompletion,
+  openAiChatTimeout,
+  openAiConfigured,
+  openAiModel
+} from "./openai-provider.ts";
+import { PROMPT_GUARD_SYSTEM_NOTE } from "./prompt-guard.ts";
 import type { MatchResult, RejectedSummary, UserCriteria } from "./types.ts";
 
 type LlmExplanation = {
@@ -16,43 +25,41 @@ export type FinalRecommendationSelection = {
   recommendations: MatchResult[];
 };
 
-type GeminiGenerateContentResponse = {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{
-        text?: string;
-      }>;
-    };
-  }>;
-};
-
 const explanationSystemPrompt =
-  "You are FlowRyd, a friendly Austrian EV matching assistant texting a shopper. Choose 1 to 3 vehicles only from the provided candidate vehicleIds, never invent cars, and never override hard filters. " +
-  "Prefer diversity: avoid picking two near-identical make/model listings unless inventory is tiny. " +
-  "Write all text in the user's language from the language field. " +
+  "You are FlowRyd, an Austrian EV matching agent. The candidate vehicles are already ranked by match score. " +
+  "Write explanations only for the provided vehicleIds, never invent cars, and never override hard filters. " +
+  "Follow requiredResponseLanguage and responseLanguageInstruction for every user-facing string. " +
   "Use only provided vehicle facts and retrievedEvidence excerpts, but do not include evidence IDs, citation markers, or context annotations like [E1] or [E2] in assistantMessage or vehicle explanations. " +
   "Do not mention sources that are not provided. " +
   "Write each vehicle explanation like a helpful car salesperson texting a customer: natural, warm, specific, and easy to read. Use 2 to 3 short paragraphs separated by blank lines, no bullets, no headings, and no score-first phrasing. " +
   "Start with the practical fit and include concrete facts such as range, price or lease, body style, seats, cargo, drivetrain, charging/public-charging fit, tech, family or commute suitability, and availability only when those facts are provided. " +
   "Mention limitations or tradeoffs plainly, but keep the overall tone conversational rather than analytical. " +
-  "assistantMessage should feel like a short human reply introducing the shortlist (not 'Found N matching EVs'), and when rejectedSummary is provided mention the main reasons other vehicles were ruled out. " +
-  "Return JSON: {\"assistantMessage\":\"...\",\"selectedVehicleIds\":[\"...\"],\"explanations\":[{\"vehicleId\":\"...\",\"explanation\":\"...\"}]}. " +
-  "Every selected vehicleId must have a matching explanation entry.";
+  "Return JSON: {\"assistantMessage\":\"...\",\"explanations\":[{\"vehicleId\":\"...\",\"explanation\":\"...\"}]}. " +
+  "assistantMessage must briefly introduce the single best recommendation and, when rejectedSummary is provided, mention the main reasons other vehicles were ruled out. Every provided vehicleId must have a matching explanation entry. " +
+  PROMPT_GUARD_SYSTEM_NOTE;
 
 function llmEnabled() {
-  return process.env.FLOWRYD_DISABLE_LLM !== "1" && Boolean(process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY);
+  return process.env.FLOWRYD_DISABLE_LLM !== "1" && openAiConfigured();
 }
 
 export async function attachExplanations(
   matches: MatchResult[],
   criteria: UserCriteria
 ): Promise<MatchResult[]> {
-  const generated = await generateWithLlm(matches, criteria);
-  const byVehicle = new Map(generated.explanations.map((item) => [item.vehicleId, item.explanation]));
-
-  return matches.map((match) => ({
+  const withFallback = matches.map((match) => ({
     ...match,
-    explanation: byVehicle.get(match.vehicle.id) ?? fallbackExplanation(match, criteria)
+    explanation: fallbackExplanation(match, criteria)
+  }));
+
+  if (!llmExplanationsEnabled()) return withFallback;
+
+  const generated = await generateWithLlm(matches, criteria);
+  if (!generated.explanations.length) return withFallback;
+
+  const byVehicle = new Map(generated.explanations.map((item) => [item.vehicleId, item.explanation]));
+  return withFallback.map((match) => ({
+    ...match,
+    explanation: byVehicle.get(match.vehicle.id) ?? match.explanation
   }));
 }
 
@@ -63,32 +70,42 @@ export async function selectAndExplainMatches(
     maxRecommendations?: number;
     lowConfidenceQuestion?: string | null;
     rejectedSummary?: RejectedSummary[];
+    brandWiden?: boolean;
   } = {}
 ): Promise<FinalRecommendationSelection> {
-  const maxRecommendations = options.maxRecommendations ?? 3;
-  const generated = await generateWithLlm(matches.slice(0, 8), criteria, options.rejectedSummary ?? []);
-  const allowedIds = new Set(matches.map((match) => match.vehicle.id));
-  const selectedIds = (generated.selectedVehicleIds ?? [])
-    .filter((id) => allowedIds.has(id))
-    .slice(0, maxRecommendations);
-  const fallbackSelection = diversifyMatches(matches, maxRecommendations);
-  const selected = selectedIds.length
-    ? diversifyMatches(
-        selectedIds
-          .map((id) => matches.find((match) => match.vehicle.id === id))
-          .filter((match): match is MatchResult => Boolean(match)),
-        maxRecommendations,
-        matches
-      )
-    : fallbackSelection;
-  const byVehicle = new Map(generated.explanations.map((item) => [item.vehicleId, item.explanation]));
+  const maxRecommendations = options.maxRecommendations ?? 8;
+  const selected = matches.slice(0, maxRecommendations);
+  // Deterministic explanations keep matching fast; LLM rewrite is opt-in.
   const recommendations = selected.map((match) => ({
     ...match,
-    explanation: byVehicle.get(match.vehicle.id) ?? fallbackExplanation(match, criteria)
+    explanation: fallbackExplanation(match, criteria)
   }));
 
-  const assistantMessage =
-    generated.assistantMessage ?? fallbackAssistantMessage(recommendations, criteria, options.lowConfidenceQuestion);
+  if (llmExplanationsEnabled()) {
+    const generated = await generateWithLlm(selected.slice(0, 5), criteria, options.rejectedSummary ?? []);
+    if (generated.explanations.length) {
+      const byVehicle = new Map(generated.explanations.map((item) => [item.vehicleId, item.explanation]));
+      for (const match of recommendations) {
+        const rewritten = byVehicle.get(match.vehicle.id);
+        if (rewritten) match.explanation = rewritten;
+      }
+      if (generated.assistantMessage && !options.brandWiden) {
+        return {
+          assistantMessage: generated.assistantMessage,
+          recommendations
+        };
+      }
+    }
+  }
+
+  const assistantMessage = await generateMatchIntroMessage({
+    criteria,
+    recommendationCount: recommendations.length,
+    lowConfidenceQuestion: options.lowConfidenceQuestion,
+    rejectedSummary: options.rejectedSummary,
+    inventoryBrands: recommendations.map((m) => m.vehicle.make),
+    brandWiden: Boolean(options.brandWiden)
+  });
 
   return {
     assistantMessage,
@@ -96,7 +113,11 @@ export async function selectAndExplainMatches(
   };
 }
 
-function fallbackExplanation(match: MatchResult, criteria: UserCriteria) {
+function llmExplanationsEnabled() {
+  return process.env.FLOWRYD_ENABLE_LLM_EXPLANATIONS === "1" && llmEnabled();
+}
+
+export function fallbackExplanation(match: MatchResult, criteria: UserCriteria) {
   const language = criteria.language;
   const vehicleName = `${match.vehicle.make} ${match.vehicle.model}`;
   const range = `${match.vehicle.rangeKm.toLocaleString("de-AT")} km`;
@@ -198,7 +219,9 @@ function translateBodyType(bodyType: MatchResult["vehicle"]["bodyType"]) {
     suv: "SUV",
     crossover: "Crossover",
     wagon: "Kombi",
-    van: "Van"
+    van: "Van",
+    other: "Sonstige",
+    minibus: "Minibus"
   };
   return labels[bodyType];
 }
@@ -209,16 +232,8 @@ async function generateWithLlm(
   rejectedSummary: RejectedSummary[] = []
 ): Promise<LlmSelection> {
   if (!llmEnabled()) return { explanations: [] };
-
-  const first = await generateWithLlmOnce(matches, criteria, rejectedSummary);
-  if (hasUsableLlmSelection(first)) return first;
-
-  const retry = await generateWithLlmOnce(matches, criteria, rejectedSummary);
-  return hasUsableLlmSelection(retry) ? retry : first.explanations.length ? first : retry;
-}
-
-function hasUsableLlmSelection(selection: LlmSelection) {
-  return selection.explanations.length > 0 || Boolean(selection.assistantMessage);
+  // Single attempt — retries on timeout are the main latency spike.
+  return generateWithLlmOnce(matches, criteria, rejectedSummary);
 }
 
 async function generateWithLlmOnce(
@@ -226,86 +241,7 @@ async function generateWithLlmOnce(
   criteria: UserCriteria,
   rejectedSummary: RejectedSummary[] = []
 ): Promise<LlmSelection> {
-  if (process.env.GEMINI_API_KEY) {
-    return generateWithGemini(matches, criteria, rejectedSummary);
-  }
-
   return generateWithOpenAi(matches, criteria, rejectedSummary);
-}
-
-async function generateWithGemini(
-  matches: MatchResult[],
-  criteria: UserCriteria,
-  rejectedSummary: RejectedSummary[] = []
-): Promise<LlmSelection> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return { explanations: [] };
-
-  const baseUrl = process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta";
-  const model = process.env.GEMINI_MODEL ?? "gemini-3.1-flash-lite";
-  const modelPath = model.startsWith("models/") ? model : `models/${model}`;
-  const searchParams = new URLSearchParams({ key: apiKey });
-  const payload = {
-    systemInstruction: {
-      parts: [{ text: explanationSystemPrompt }]
-    },
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: JSON.stringify(buildExplanationInput(matches, criteria, rejectedSummary)) }]
-      }
-    ],
-    generationConfig: {
-      temperature: 0.2,
-      response_mime_type: "application/json",
-      response_schema: {
-        type: "OBJECT",
-        properties: {
-          assistantMessage: { type: "STRING" },
-          selectedVehicleIds: {
-            type: "ARRAY",
-            items: { type: "STRING" }
-          },
-          explanations: {
-            type: "ARRAY",
-            items: {
-              type: "OBJECT",
-              properties: {
-                vehicleId: { type: "STRING" },
-                explanation: { type: "STRING" }
-              },
-              required: ["vehicleId", "explanation"]
-            }
-          }
-        },
-        required: ["explanations"]
-      }
-    }
-  };
-
-  try {
-    const response = await fetch(
-      `${baseUrl.replace(/\/$/, "")}/${modelPath}:generateContent?${searchParams}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(5000)
-      }
-    );
-
-    if (!response.ok) return { explanations: [] };
-    const data = (await response.json()) as GeminiGenerateContentResponse;
-    const content = data.candidates?.[0]?.content?.parts
-      ?.map((part) => part.text ?? "")
-      .join("")
-      .trim();
-    return content ? parseLlmSelectionJson(content) : { explanations: [] };
-  } catch {
-    return { explanations: [] };
-  }
 }
 
 async function generateWithOpenAi(
@@ -313,43 +249,30 @@ async function generateWithOpenAi(
   criteria: UserCriteria,
   rejectedSummary: RejectedSummary[] = []
 ): Promise<LlmSelection> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return { explanations: [] };
-
-  const baseUrl = process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-  const payload = {
-    model,
-    temperature: 0.2,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content: explanationSystemPrompt
-      },
-      {
-        role: "user",
-        content: JSON.stringify(buildExplanationInput(matches, criteria, rejectedSummary))
-      }
-    ]
-  };
+  if (!openAiConfigured()) return { explanations: [] };
 
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
+    const response = await createOpenAiChatCompletion(
+      "match-explanation",
+      {
+        model: openAiModel(),
+        temperature: 0.2,
+        max_tokens: 1400,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: explanationSystemPrompt
+          },
+          {
+            role: "user",
+            content: JSON.stringify(buildExplanationInput(matches, criteria, rejectedSummary))
+          }
+        ]
       },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(4000)
-    });
-
-    if (!response.ok) return { explanations: [] };
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const content = data.choices?.[0]?.message?.content;
+      { timeout: openAiChatTimeout("match-explanation") }
+    );
+    const content = response.choices[0]?.message?.content;
     if (!content) return { explanations: [] };
     return parseLlmSelectionJson(content);
   } catch {
@@ -364,44 +287,45 @@ export function buildExplanationInput(
 ) {
   return {
     language: criteria.language,
-    criteria,
-    rejectedSummary,
+    requiredResponseLanguage: languageLabel(criteria.language),
+    responseLanguageInstruction: languageReplyInstruction(criteria.language),
+    criteriaSummary: [
+      criteria.budgetMaxEUR ? `budgetMaxEUR=${criteria.budgetMaxEUR}` : null,
+      criteria.budgetMinEUR ? `budgetMinEUR=${criteria.budgetMinEUR}` : null,
+      criteria.rangeFloorKm ? `rangeFloorKm=${criteria.rangeFloorKm}` : null,
+      criteria.bodyTypes.length ? `bodyTypes=${criteria.bodyTypes.join(",")}` : null,
+      criteria.brandPreferences.length ? `brands=${criteria.brandPreferences.join(",")}` : null,
+      criteria.modelPreferences.length ? `models=${criteria.modelPreferences.join(",")}` : null,
+      criteria.tripNeeds.length ? `tripNeeds=${criteria.tripNeeds.join(",")}` : null,
+      criteria.mustHaveFeatures.length ? `features=${criteria.mustHaveFeatures.join(",")}` : null
+    ].filter(Boolean),
+    rejectedSummary: rejectedSummary.slice(0, 3),
     matches: matches.slice(0, 5).map((match) => ({
       vehicleId: match.vehicle.id,
       vehicle: {
         make: match.vehicle.make,
         model: match.vehicle.model,
-        trim: match.vehicle.trim,
         year: match.vehicle.year,
         condition: match.vehicle.condition,
         bodyType: match.vehicle.bodyType,
         priceEUR: match.vehicle.priceEUR,
         monthlyLeaseEUR: match.vehicle.monthlyLeaseEUR,
         rangeKm: match.vehicle.rangeKm,
-        efficiencyKwhPer100Km: match.vehicle.efficiencyKwhPer100Km,
-        batteryKwh: match.vehicle.batteryKwh,
-        batterySoH: match.vehicle.batterySoH,
+        mileageKm: match.vehicle.mileageKm,
         drivetrain: match.vehicle.drivetrain,
         seats: match.vehicle.seats,
         cargoLiters: match.vehicle.cargoLiters,
-        features: match.vehicle.features,
-        warranty: match.vehicle.warranty,
+        features: match.vehicle.features.slice(0, 6),
         location: match.vehicle.location,
-        available: match.vehicle.available,
-        notes: match.vehicle.notes
+        available: match.vehicle.available
       },
       score: match.score,
-      ragScore: match.ragScore,
-      scoringBreakdown: match.scoringBreakdown,
-      tradeoffs: match.ruledOutReasons,
-      retrievedEvidence: match.ragEvidence.map((evidence, evidenceIndex) => ({
+      tradeoffs: match.ruledOutReasons.slice(0, 2),
+      retrievedEvidence: match.ragEvidence.slice(0, 1).map((evidence, evidenceIndex) => ({
         evidenceId: `E${evidenceIndex + 1}`,
-        sourceType: evidence.sourceType,
-        sourceId: evidence.sourceId,
         title: evidence.title,
-        sourceUrl: evidence.sourceUrl,
         topic: evidence.topic,
-        excerpt: evidence.excerpt,
+        excerpt: evidence.excerpt.slice(0, 140),
         score: evidence.score
       }))
     }))
@@ -443,47 +367,4 @@ function isLlmExplanation(value: unknown): value is LlmExplanation {
   if (!value || typeof value !== "object") return false;
   const explanation = value as Partial<LlmExplanation>;
   return typeof explanation.vehicleId === "string" && typeof explanation.explanation === "string";
-}
-
-function fallbackAssistantMessage(
-  recommendations: MatchResult[],
-  criteria: UserCriteria,
-  lowConfidenceQuestion?: string | null
-) {
-  const names = recommendations
-    .slice(0, 3)
-    .map((match) => `${match.vehicle.make} ${match.vehicle.model}`)
-    .filter((name, index, all) => all.indexOf(name) === index);
-  const nameText =
-    names.length <= 1
-      ? names[0] ?? (criteria.language === "de" ? "eine Option" : "an option")
-      : criteria.language === "de"
-        ? `${names.slice(0, -1).join(", ")} und ${names.at(-1)}`
-        : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-  const base =
-    criteria.language === "de"
-      ? `Hier sind ${recommendations.length} starke Treffer für dich: ${nameText}. Ich habe harte Limits wie Budget und Verfügbarkeit zuerst eingehalten.`
-      : `Here are ${recommendations.length} strong fits for you: ${nameText}. I respected hard limits like budget and availability first.`;
-  return lowConfidenceQuestion ? `${base} ${lowConfidenceQuestion}` : base;
-}
-
-function diversifyMatches(matches: MatchResult[], maxRecommendations: number, pool: MatchResult[] = matches) {
-  const selected: MatchResult[] = [];
-  const seenModels = new Set<string>();
-
-  for (const match of matches) {
-    const key = `${match.vehicle.make}|${match.vehicle.model}`.toLowerCase();
-    if (seenModels.has(key)) continue;
-    selected.push(match);
-    seenModels.add(key);
-    if (selected.length >= maxRecommendations) return selected;
-  }
-
-  for (const match of pool) {
-    if (selected.some((item) => item.vehicle.id === match.vehicle.id)) continue;
-    selected.push(match);
-    if (selected.length >= maxRecommendations) break;
-  }
-
-  return selected;
 }

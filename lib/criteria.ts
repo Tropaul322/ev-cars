@@ -6,33 +6,80 @@ import type {
   Importance,
   Language,
   MissingCriteria,
+  OptimizationDirective,
   QualitativeSignal,
   TripNeed,
   UserCriteria,
   VehicleCondition
 } from "./types.ts";
 
+export const DEFAULT_BUDGET_MIN_EUR = 25_000;
+export const DEFAULT_BUDGET_MAX_EUR = 60_000;
+
 const germanSignals = [
   "ich",
   "suche",
   "brauche",
   "reichweite",
-  "budget",
   "monat",
   "gebraucht",
+  "gebrauchter",
+  "gebrauchte",
+  "gebrauchtes",
   "neu",
+  "neuer",
+  "neue",
+  "neues",
   "wohnung",
   "pendeln",
   "taeglich",
+  "täglich",
   "autobahn",
   "familie",
   "kofferraum",
   "hallo",
+  "danke",
+  "bitte",
+  "ja",
+  "nein",
   "österreich",
-  "wien",
-  "graz",
-  "linz",
-  "salzburg"
+  "oesterreich",
+  "fuer",
+  "für",
+  "ohne",
+  "mit",
+  "bis"
+];
+
+const englishSignals = [
+  "i",
+  "need",
+  "looking",
+  "find",
+  "used",
+  "under",
+  "with",
+  "for",
+  "range",
+  "monthly",
+  "lease",
+  "commute",
+  "highway",
+  "family",
+  "trunk",
+  "hello",
+  "hi",
+  "thanks",
+  "thank",
+  "please",
+  "yes",
+  "no",
+  "without",
+  "public",
+  "home",
+  "work",
+  "city",
+  "mileage"
 ];
 
 const bodyTypeKeywords: Array<[BodyType, RegExp]> = [
@@ -54,7 +101,7 @@ const featureKeywords: Array<[Feature, RegExp]> = [
   ["wireless_charging", /\b(wireless charging|kabellos laden|induktiv)\b/i],
   ["heated_seats", /\b(heated seats|sitzheizung|beheizte sitze)\b/i],
   ["premium_audio", /\b(bose|harman|bowers|b&w|burmester|premium audio|guter sound)\b/i],
-  ["large_trunk", /\b(large trunk|big boot|gro(?:ß|ss)e[rmn]?\s+kofferraum|viel stauraum|kinderwagen|lots? of (?:trunk|boot|luggage|space))\b/i],
+  ["large_trunk", /\b(large trunk|big boot|großer kofferraum|grosser kofferraum|viel stauraum|kinderwagen)\b/i],
   ["heat_pump", /\b(heat pump|wärmepumpe)\b/i],
   ["awd", /\b(awd|allrad|winter|schnee|berge|ski)\b/i],
   ["voice_assistant", /\b(voice assistant|sprachassistent|sprachsteuerung)\b/i],
@@ -162,9 +209,20 @@ const modelAliases: Array<[string, RegExp]> = [
   ["ZOE", /\bzoe\b/i]
 ];
 
+const optimizationDirectiveLabels: Record<OptimizationDirective, string> = {
+  best_value: "best value",
+  maximum_range: "maximum range",
+  most_reliable: "most reliable",
+  fastest_charging: "fastest charging",
+  lowest_running_cost: "lowest running cost",
+  best_family_fit: "best family fit",
+  performance: "performance"
+};
+
 export function emptyCriteria(rawPrompt = "", language: Language = "en"): UserCriteria {
   return {
     language,
+    budgetMinEUR: null,
     budgetMaxEUR: null,
     monthlyBudgetEUR: null,
     dailyKm: null,
@@ -187,56 +245,63 @@ export function emptyCriteria(rawPrompt = "", language: Language = "en"): UserCr
     reliabilityImportance: "medium",
     mustHaveFeatures: [],
     qualitativeSignals: [],
+    optimizationDirective: null,
     location: null,
-    rawPrompt
+    rawPrompt,
+    latestUserMessage: rawPrompt
   };
 }
 
-export function detectLanguage(prompt: string): Language {
+function countLanguageSignals(prompt: string, signals: string[]) {
+  return signals.filter((signal) => new RegExp(`\\b${escapeRegExp(signal)}\\b`, "i").test(prompt)).length;
+}
+
+function detectPromptLanguage(prompt: string): Language | null {
   const normalized = prompt.toLowerCase();
   const hasGermanCharacter = /[äöüß]/i.test(prompt);
-  const germanHits = germanSignals.filter((signal) => normalized.includes(signal)).length;
-  return hasGermanCharacter || germanHits >= 2 ? "de" : "en";
+  if (hasGermanCharacter) return "de";
+
+  const germanHits = countLanguageSignals(normalized, germanSignals);
+  const englishHits = countLanguageSignals(normalized, englishSignals);
+  if (germanHits > englishHits && germanHits >= 1) return "de";
+  if (englishHits > germanHits && englishHits >= 1) return "en";
+  return null;
 }
 
-export function resolveLanguage(prompt: string, previous?: Language | null): Language {
-  const detected = detectLanguage(prompt);
-  if (!previous || previous === detected) return detected;
-
-  const strongNew = hasStrongLanguageSignal(prompt, detected);
-  const strongPrevious = hasStrongLanguageSignal(prompt, previous);
-  if (strongPrevious && !strongNew) return previous;
-  if (strongNew && !strongPrevious) return detected;
-
-  // Short follow-ups often reuse shared words like "Budget"/"Euro" — keep the conversation language.
-  if (prompt.trim().split(/\s+/).filter(Boolean).length <= 10) return previous;
-  return detected;
+export function detectLanguage(prompt: string, fallback: Language = "en"): Language {
+  return detectPromptLanguage(prompt) ?? fallback;
 }
 
-function hasStrongLanguageSignal(prompt: string, language: Language) {
-  const normalized = prompt.toLowerCase();
-  if (language === "de") {
-    return (
-      /[äöüß]/i.test(prompt) ||
-      germanSignals.filter((signal) => normalized.includes(signal)).length >= 2 ||
-      /\b(und|mit|ohne|bitte|maximal|mindestens|suche|brauche|reichweite|familie|auto|euro)\b/i.test(prompt)
-    );
-  }
-  return (
-    /\b(the|and|with|for|please|looking|need|under|family|commute|thanks|thank|hello|hey|hi|what|how)\b/i.test(prompt) &&
-    !/[äöüß]/i.test(prompt)
-  );
+export function languageLabel(language: Language): "English" | "German" {
+  return language === "de" ? "German" : "English";
+}
+
+export function languageReplyInstruction(language: Language): string {
+  const label = languageLabel(language);
+  const other = language === "de" ? "English" : "German";
+  return `The user's current message is in ${label}. You MUST write all user-facing text in ${label} only. Never respond in ${other}.`;
 }
 
 export function extractCriteria(prompt: string, previous?: UserCriteria): UserCriteria {
-  const language = resolveLanguage(prompt || previous?.rawPrompt || "", previous?.language ?? null);
+  const language = detectLanguage(prompt, previous?.language ?? "en");
   const base = previous ? normalizeCriteriaShape({ ...previous, language }) : emptyCriteria(prompt, language);
   const normalizedPrompt = prompt.trim();
   const text = normalizedPrompt.toLowerCase();
   const removals = extractRemovals(text);
 
-  const budgetMaxEUR = removals.has("budget") ? null : extractBudget(text, false) ?? base.budgetMaxEUR;
-  const monthlyBudgetEUR = removals.has("budget") ? null : extractBudget(text, true) ?? base.monthlyBudgetEUR;
+  const budgetRange = removals.has("budget") ? { min: null, max: null } : extractBudgetRange(text);
+  const usesDefaultBudget = !removals.has("budget") && looksLikeNoBudgetLimit(text);
+  const budgetMinEUR = removals.has("budget")
+    ? null
+    : budgetRange.min ?? (usesDefaultBudget ? DEFAULT_BUDGET_MIN_EUR : base.budgetMinEUR);
+  const budgetMaxEUR = removals.has("budget")
+    ? null
+    : budgetRange.max ?? extractBudget(text, false) ?? (usesDefaultBudget ? DEFAULT_BUDGET_MAX_EUR : base.budgetMaxEUR);
+  const monthlyBudgetEUR = removals.has("budget")
+    ? null
+    : usesDefaultBudget
+      ? null
+      : extractBudget(text, true) ?? base.monthlyBudgetEUR;
   const dailyKm = removals.has("dailyKm") ? null : extractKm(text, "daily") ?? base.dailyKm;
   const mileageMaxKm = removals.has("mileage")
     ? null
@@ -244,7 +309,10 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
   const mileageTargetKm = removals.has("mileage")
     ? null
     : extractMileageKm(text, "target") ?? inferMileagePreference(text).target ?? base.mileageTargetKm;
-  const rangeFloorKm = removals.has("range") ? null : extractKm(text, "range") ?? base.rangeFloorKm;
+  const tripNeeds = removals.has("use_case") ? [] : mergeUnique(base.tripNeeds, extractTripNeeds(text));
+  const rangeFloorKm = removals.has("range")
+    ? null
+    : extractKm(text, "range") ?? inferQualitativeRangeFloor(text, tripNeeds) ?? base.rangeFloorKm;
   const batteryHealth = extractBatteryHealth(text);
   const batterySoHMin = removals.has("battery") ? null : batteryHealth.min ?? base.batterySoHMin;
   const batteryHealthRequired = removals.has("battery")
@@ -255,38 +323,49 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
   const passengers = removals.has("passengers") ? null : extractPassengers(text) ?? base.passengers;
   const cargoNeeds = removals.has("cargo") ? null : extractCargoNeeds(text) ?? base.cargoNeeds;
   const extractedBodyTypes = extractBodyTypes(text);
-  const shouldReplaceBodyTypes = /\b(only|just|nur|ausschliesslich|ausschließlich)\b/i.test(text);
+  const shouldReplaceLists = hasReplaceIntent(text);
   const bodyTypes = removals.has("body")
     ? []
-    : shouldReplaceBodyTypes && extractedBodyTypes.length
+    : shouldReplaceLists && extractedBodyTypes.length
       ? extractedBodyTypes
       : mergeUnique(base.bodyTypes, extractedBodyTypes);
-  const tripNeeds = removals.has("use_case") ? [] : mergeUnique(base.tripNeeds, extractTripNeeds(text));
   const mustHaveFeatures = removals.has("features") ? [] : mergeUnique(base.mustHaveFeatures, extractFeatures(text));
-  const avoidedBrands = mergeUnique(base.avoidedBrands, extractAvoidedBrands(text));
-  const extractedBrands = extractBrandPreferences(text).filter(
-    (brand) => !avoidedBrands.some((avoided) => sameBrandName(avoided, brand))
-  );
+  const extractedBrands = extractBrandPreferences(text);
+  const brandFocus = looksLikeBrandFocusQuestion(normalizedPrompt);
   const brandPreferences = removals.has("brand")
     ? []
-    : mergeUnique(base.brandPreferences, extractedBrands).filter(
-        (brand) => !avoidedBrands.some((avoided) => sameBrandName(avoided, brand))
-      );
+    : shouldReplaceLists && extractedBrands.length
+      ? extractedBrands
+      : brandFocus && extractedBrands.length
+        ? extractedBrands
+        : mergeUnique(base.brandPreferences, extractedBrands);
   const preferredBrandOrigins = removals.has("origin")
     ? []
     : mergeUnique(base.preferredBrandOrigins, extractPreferredBrandOrigins(text));
+  const extractedModels = extractModelPreferences(normalizedPrompt);
   const modelPreferences = removals.has("model")
     ? []
-    : mergeUnique(base.modelPreferences, extractModelPreferences(normalizedPrompt));
+    : shouldReplaceLists && extractedModels.length
+      ? extractedModels
+      : shouldReplaceLists && extractedBrands.length
+        ? []
+        : brandFocus && extractedBrands.length && !extractedModels.length
+          ? []
+          : mergeUnique(base.modelPreferences, extractedModels);
+  const avoidedBrands = mergeUnique(base.avoidedBrands, extractAvoidedBrands(text));
   const location = removals.has("location") ? null : extractLocation(normalizedPrompt) ?? base.location;
   const qualitativeSignals = removals.has("qualitative")
     ? []
     : mergeUnique(base.qualitativeSignals, extractQualitativeSignals(text));
+  const optimizationDirective = removals.has("optimization")
+    ? null
+    : extractOptimizationDirective(text) ?? base.optimizationDirective;
   const reliabilityImportance = deriveReliabilityImportance(text, qualitativeSignals, base.reliabilityImportance);
   const brandFit = deriveBrandFit(text, brandPreferences, base.brandFit);
 
   return {
     ...base,
+    budgetMinEUR,
     budgetMaxEUR,
     monthlyBudgetEUR,
     dailyKm,
@@ -309,8 +388,10 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
     reliabilityImportance,
     mustHaveFeatures,
     qualitativeSignals,
+    optimizationDirective,
     location,
-    rawPrompt: [base.rawPrompt, normalizedPrompt].filter(Boolean).join("\n")
+    rawPrompt: [base.rawPrompt, normalizedPrompt].filter(Boolean).join("\n"),
+    latestUserMessage: normalizedPrompt
   };
 }
 
@@ -318,45 +399,38 @@ export function needsClarification(criteria: UserCriteria) {
   return !getCriteriaReadiness(criteria).readyToMatch;
 }
 
+const missingCriteriaPriority: MissingCriteria[] = [
+  "budget",
+  "use_case",
+  "charging_or_range",
+  "vehicle_preferences"
+];
+
 export function clarificationQuestion(criteria: UserCriteria) {
   const missing = getMissingCriteria(criteria);
-  const known = criteriaSummary(criteria);
-  const knownPrefix =
-    known.length > 0
-      ? criteria.language === "de"
-        ? `Alles klar${known.length ? ` (${known.slice(0, 3).join(", ")})` : ""}. `
-        : `Got it${known.length ? ` (${known.slice(0, 3).join(", ")})` : ""}. `
-      : "";
+  const target = missingCriteriaPriority.find((key) => missing.includes(key)) ?? "use_case";
 
-  if (missing.includes("budget")) {
-    if (criteria.language === "de") {
-      return `${knownPrefix}Welches Budget soll ich einhalten: maximaler Kaufpreis oder monatliche Leasingrate?`;
-    }
-
-    return `${knownPrefix}What budget should I respect: maximum purchase price or monthly lease target?`;
+  if (target === "budget") {
+    return criteria.language === "de"
+      ? "Welches Budget soll ich einhalten: maximaler Kaufpreis oder monatliche Leasingrate?"
+      : "What budget should I respect: maximum purchase price or monthly lease target?";
   }
 
-  if (missing.includes("use_case")) {
-    if (criteria.language === "de") {
-      return `${knownPrefix}Wofür soll das Auto vor allem passen: Stadt, Pendeln, Familie, Langstrecke oder Winter?`;
-    }
-
-    return `${knownPrefix}What should the car mainly fit: city driving, commuting, family use, road trips, or winter driving?`;
+  if (target === "charging_or_range") {
+    return criteria.language === "de"
+      ? "Wie sieht dein Laden aus: zu Hause, am Arbeitsplatz, oeffentlich oder gar nicht? Und wie viele km faehrst du pro Tag oder welche Mindestreichweite brauchst du?"
+      : "What does charging look like for you: home, work, public, or none? And how many km do you drive per day or what minimum range do you need?";
   }
 
-  if (missing.includes("charging_or_range")) {
-    if (criteria.language === "de") {
-      return `${knownPrefix}Wie lädst du vor allem (Wallbox, Arbeit, öffentlich) und welche Reichweite brauchst du ungefähr?`;
-    }
-
-    return `${knownPrefix}How will you mainly charge (home wallbox, work, or public) and roughly what range do you need?`;
+  if (target === "vehicle_preferences") {
+    return criteria.language === "de"
+      ? "Gibt es Karosserieform, Marke, Zustand oder Ausstattung, die dir wichtig sind?"
+      : "Are there body type, brand, condition, or feature preferences that matter to you?";
   }
 
-  if (criteria.language === "de") {
-    return `${knownPrefix}Hast du noch eine Präferenz zu Karosserie, Zustand (neu/gebraucht), Marke oder Ausstattung?`;
-  }
-
-  return `${knownPrefix}Any preference on body style, new vs used, brand, or must-have features?`;
+  return criteria.language === "de"
+    ? "Wofuer soll das Auto vor allem passen: Stadt, Pendeln, Familie, Langstrecke oder Winter?"
+    : "What should the car mainly fit: city driving, commuting, family use, road trips, or winter driving?";
 }
 
 export function getMissingCriteria(criteria: UserCriteria): MissingCriteria[] {
@@ -372,7 +446,7 @@ export type CriteriaReadiness = {
 
 export function getCriteriaReadiness(criteria: UserCriteria): CriteriaReadiness {
   const groups: Record<MissingCriteria, boolean> = {
-    budget: Boolean(criteria.budgetMaxEUR || criteria.monthlyBudgetEUR),
+    budget: Boolean(criteria.budgetMinEUR || criteria.budgetMaxEUR || criteria.monthlyBudgetEUR),
     use_case: hasUseCaseSignal(criteria),
     charging_or_range: hasChargingOrRangeSignal(criteria),
     vehicle_preferences: hasVehiclePreferenceSignal(criteria)
@@ -388,7 +462,9 @@ export function getCriteriaReadiness(criteria: UserCriteria): CriteriaReadiness 
   );
 
   return {
-    readyToMatch: (groups.budget && collectedCriteriaCount >= 3) || hasExplicitInventoryLookup,
+    readyToMatch:
+      groups.budget &&
+      (collectedCriteriaCount >= 3 || hasExplicitInventoryLookup || Boolean(criteria.optimizationDirective)),
     collectedCriteriaCount,
     groups,
     missingCriteria
@@ -397,19 +473,28 @@ export function getCriteriaReadiness(criteria: UserCriteria): CriteriaReadiness 
 
 export function getCriteriaConfidence(criteria: UserCriteria) {
   let score = 0.35;
-  if (criteria.budgetMaxEUR || criteria.monthlyBudgetEUR) score += 0.2;
+  if (criteria.budgetMinEUR || criteria.budgetMaxEUR || criteria.monthlyBudgetEUR) score += 0.2;
   if (hasUseCaseSignal(criteria)) score += 0.2;
   if (criteria.bodyTypes.length) score += 0.08;
   if (criteria.chargingAccess !== "unknown") score += 0.07;
   if (criteria.rangeFloorKm || criteria.dailyKm) score += 0.06;
   if (criteria.mileageMaxKm || criteria.batterySoHMin) score += 0.05;
   if (criteria.qualitativeSignals.length) score += 0.05;
+  if (criteria.optimizationDirective) score += 0.05;
   return Math.min(0.95, Math.round(score * 100) / 100);
 }
 
 export function criteriaSummary(criteria: UserCriteria) {
   const parts: string[] = [];
-  if (criteria.budgetMaxEUR) parts.push(`max EUR ${criteria.budgetMaxEUR.toLocaleString("de-AT")}`);
+  if (criteria.budgetMinEUR && criteria.budgetMaxEUR) {
+    parts.push(
+      `EUR ${criteria.budgetMinEUR.toLocaleString("de-AT")}–${criteria.budgetMaxEUR.toLocaleString("de-AT")}`
+    );
+  } else if (criteria.budgetMaxEUR) {
+    parts.push(`max EUR ${criteria.budgetMaxEUR.toLocaleString("de-AT")}`);
+  } else if (criteria.budgetMinEUR) {
+    parts.push(`from EUR ${criteria.budgetMinEUR.toLocaleString("de-AT")}`);
+  }
   if (criteria.monthlyBudgetEUR) parts.push(`monthly EUR ${criteria.monthlyBudgetEUR.toLocaleString("de-AT")}`);
   if (criteria.dailyKm) parts.push(`${criteria.dailyKm} km/day`);
   if (criteria.rangeFloorKm) parts.push(`${criteria.rangeFloorKm} km range`);
@@ -422,6 +507,7 @@ export function criteriaSummary(criteria: UserCriteria) {
   if (criteria.tripNeeds.length) parts.push(criteria.tripNeeds.join(", "));
   if (criteria.chargingAccess !== "unknown") parts.push(`${criteria.chargingAccess} charging`);
   if (criteria.qualitativeSignals.length) parts.push(criteria.qualitativeSignals.join(", "));
+  if (criteria.optimizationDirective) parts.push(optimizationDirectiveLabels[criteria.optimizationDirective]);
   return parts;
 }
 
@@ -442,6 +528,7 @@ export type CriteriaChipKey =
   | "model"
   | "features"
   | "qualitative"
+  | "optimization"
   | "location";
 
 export type CriteriaChip = {
@@ -451,8 +538,15 @@ export type CriteriaChip = {
 
 export function criteriaChips(criteria: UserCriteria): CriteriaChip[] {
   const chips: CriteriaChip[] = [];
-  if (criteria.budgetMaxEUR) {
+  if (criteria.budgetMinEUR && criteria.budgetMaxEUR) {
+    chips.push({
+      key: "budget",
+      label: `EUR ${criteria.budgetMinEUR.toLocaleString("de-AT")}–${criteria.budgetMaxEUR.toLocaleString("de-AT")}`
+    });
+  } else if (criteria.budgetMaxEUR) {
     chips.push({ key: "budget", label: `max EUR ${criteria.budgetMaxEUR.toLocaleString("de-AT")}` });
+  } else if (criteria.budgetMinEUR) {
+    chips.push({ key: "budget", label: `from EUR ${criteria.budgetMinEUR.toLocaleString("de-AT")}` });
   }
   if (criteria.monthlyBudgetEUR) {
     chips.push({ key: "budget", label: `monthly EUR ${criteria.monthlyBudgetEUR.toLocaleString("de-AT")}` });
@@ -485,6 +579,9 @@ export function criteriaChips(criteria: UserCriteria): CriteriaChip[] {
   if (criteria.qualitativeSignals.length) {
     chips.push({ key: "qualitative", label: criteria.qualitativeSignals.join(", ") });
   }
+  if (criteria.optimizationDirective) {
+    chips.push({ key: "optimization", label: optimizationDirectiveLabels[criteria.optimizationDirective] });
+  }
   if (criteria.location) chips.push({ key: "location", label: criteria.location });
   return chips;
 }
@@ -492,6 +589,7 @@ export function criteriaChips(criteria: UserCriteria): CriteriaChip[] {
 export function removeCriteriaKey(criteria: UserCriteria, key: CriteriaChipKey): UserCriteria {
   const next = normalizeCriteriaShape({ ...criteria });
   if (key === "budget") {
+    next.budgetMinEUR = null;
     next.budgetMaxEUR = null;
     next.monthlyBudgetEUR = null;
   }
@@ -520,6 +618,7 @@ export function removeCriteriaKey(criteria: UserCriteria, key: CriteriaChipKey):
   if (key === "model") next.modelPreferences = [];
   if (key === "features") next.mustHaveFeatures = [];
   if (key === "qualitative") next.qualitativeSignals = [];
+  if (key === "optimization") next.optimizationDirective = null;
   if (key === "location") next.location = null;
   return next;
 }
@@ -536,12 +635,14 @@ export function normalizeCriteriaShape(criteria: UserCriteria): UserCriteria {
     avoidedBrands: criteria.avoidedBrands ?? [],
     mustHaveFeatures: criteria.mustHaveFeatures ?? [],
     qualitativeSignals: criteria.qualitativeSignals ?? [],
+    optimizationDirective: criteria.optimizationDirective ?? null,
     mileageMaxKm: criteria.mileageMaxKm ?? null,
     mileageTargetKm: criteria.mileageTargetKm ?? null,
     batterySoHMin: criteria.batterySoHMin ?? null,
     batteryHealthRequired: criteria.batteryHealthRequired ?? false,
     brandFit: criteria.brandFit ?? "medium",
-    reliabilityImportance: criteria.reliabilityImportance ?? "medium"
+    reliabilityImportance: criteria.reliabilityImportance ?? "medium",
+    latestUserMessage: criteria.latestUserMessage ?? criteria.rawPrompt ?? ""
   };
 }
 
@@ -572,13 +673,44 @@ function hasVehiclePreferenceSignal(criteria: UserCriteria) {
       criteria.avoidedBrands.length ||
       criteria.mustHaveFeatures.length ||
       criteria.qualitativeSignals.length ||
+      criteria.optimizationDirective ||
       criteria.location
+  );
+}
+
+export function hasReplaceIntent(text: string) {
+  return /\b(only|just|nur|ausschliesslich|ausschließlich)\b/i.test(text);
+}
+
+export function looksLikeBrandFocusQuestion(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (
+    !/\b(what|how) about\b/i.test(trimmed) &&
+    !/\b(und\s+)?was ist mit\b/i.test(trimmed) &&
+    !/\b(what|how) about the\b/i.test(trimmed)
+  ) {
+    return false;
+  }
+  return extractBrandPreferences(trimmed).length > 0;
+}
+
+export function looksLikeBrandWidenRequest(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return (
+    /\b((what|which)\s+other\s+(car\s+)?brands?\b|\bother\s+(car\s+)?brands?\b|\bany\s+brand\b|\bany\s+make\b|\bbrand\s+doesn'?t\s+matter\b|\bno\s+brand\s+preference\b)/i.test(
+      trimmed
+    ) ||
+    /\b(andere\s+marken|welche\s+marken|egal\s+welche\s+marke|marke\s+egal|egal\s+welche\s+marke)\b/i.test(
+      trimmed
+    )
   );
 }
 
 function extractRemovals(text: string) {
   const removals = new Set<CriteriaChipKey>();
-  const hasRemoveIntent = /\b(remove|clear|delete|reset|ignore|egal|entferne|loesche|lösche)\b/i.test(text);
+  const hasRemoveIntent = /\b(remove|clear|delete|reset|ignore|forget|egal|entferne|loesche|lösche|vergiss)\b/i.test(text);
   if (!hasRemoveIntent) return removals;
 
   if (/\b(budget|preis|price|monthly|monat|leasing)\b/i.test(text)) removals.add("budget");
@@ -601,13 +733,49 @@ function extractRemovals(text: string) {
   }
   if (/\b(features|ausstattung|carplay|acc|tempomat|assist)\b/i.test(text)) removals.add("features");
   if (/\b(premium|reliable|zuverlässig|qualitative|tech|technology)\b/i.test(text)) removals.add("qualitative");
+  if (/\b(optimization|priority|prioritize|optimierung|prioritaet|priorität|wert|reichweite|performance)\b/i.test(text)) {
+    removals.add("optimization");
+  }
   if (/\b(location|ort|wien|graz|linz|salzburg|plz)\b/i.test(text)) removals.add("location");
   return removals;
 }
 
+export function looksLikeNoBudgetLimit(text: string) {
+  return /\b(no budget(?: limit)?|no price limit|no limit|unlimited budget|budget does(?:n'?t)? matter|price does(?:n'?t)? matter|kein budget(?:limit)?|kein limit|budget egal|preis egal)\b/i.test(
+    text
+  );
+}
+
+function extractBudgetRange(text: string) {
+  const rangePattern =
+    /(?:€|eur|euro)?\s*(\d{1,3}(?:[.,]\d{3})+|\d{1,3})\s*(k|tsd|000)?\s*(?:-|–|to|bis)\s*(\d{1,3}(?:[.,]\d{3})+|\d{1,3})\s*(k|tsd|000)?(?:\s*(?:€|eur|euro))?/gi;
+  const betweenPattern =
+    /between\s+(\d{1,3}(?:[.,]\d{3})+|\d{1,3})\s*(k|tsd|000)?\s+and\s+(\d{1,3}(?:[.,]\d{3})+|\d{1,3})\s*(k|tsd|000)?/gi;
+
+  for (const pattern of [rangePattern, betweenPattern]) {
+    const match = pattern.exec(text);
+    if (!match) continue;
+    const min = parseBudgetAmount(match[1], match[2]);
+    const max = parseBudgetAmount(match[3], match[4]);
+    if (min !== null && max !== null && min < max) {
+      return { min, max };
+    }
+  }
+
+  return { min: null, max: null };
+}
+
+function parseBudgetAmount(raw: string, suffix: string | undefined) {
+  const number = Number(raw.replace(/[.,]/g, ""));
+  if (!Number.isFinite(number)) return null;
+  const multiplier = suffix ? 1000 : number <= 120 ? 1000 : 1;
+  const value = number * multiplier;
+  if (value >= 10000 && value <= 150000) return value;
+  return null;
+}
+
 function extractBudget(text: string, monthly: boolean) {
-  // Word boundaries matter: "please" must not count as "lease".
-  const monthlyContext = /\b(month|monthly|lease|leasing|rate|monat|monatlich|leasingrate)\b/i;
+  const monthlyContext = /(month|monthly|lease|leasing|rate|monat|monatlich|leasingrate)/i;
   const amountPattern = /(?:€|eur|euro)?\s?(\d{1,3}(?:[.,]\d{3})+|\d{4,6}|\d{1,3})\s?(k|tsd|000)?\s?(?:€|eur|euro)?/gi;
   const matches = Array.from(text.matchAll(amountPattern));
 
@@ -638,7 +806,7 @@ function extractKm(text: string, mode: "daily" | "range") {
     const value = Number(match[1]);
     const isMileage = /(mileage|odometer|kilometerstand|km stand|km-stand|gelaufen|laufleistung|low km|wenig kilometer)/i.test(context);
     if (isMileage) continue;
-    const isDaily = /\b(daily|per day|a day|commut(?:e|es|er|ing)|pendel|tag|täglich|taeglich|arbeitsweg)\b/i.test(context);
+    const isDaily = /(daily|per day|a day|commute|pendel|tag|täglich|taeglich|arbeitsweg)/i.test(context);
     const isRange = /(range|reichweite|single charge|ladung|autobahn)/i.test(context);
     if (mode === "daily" && isDaily && value <= 400) return value;
     if (mode === "range" && (isRange || value > 250)) return value;
@@ -720,24 +888,19 @@ function extractCondition(text: string): VehicleCondition | "any" | null {
 }
 
 function extractPassengers(text: string) {
-  const explicit = text.match(
-    /(\d)\s?(people|persons|passengers|seats|sitze|personen|kids|children|kinder)|(?:we are|we're|wir sind)\s+(\d)/i
-  );
-  if (explicit) return Number(explicit[1] || explicit[3]);
+  if (/\b(2|two)[-\s]?(seater|sitzer)\b/i.test(text)) return 2;
+  const explicit = text.match(/(\d)\s?(people|persons|passengers|sitze|personen|kids|children|kinder)/i);
+  if (explicit) return Number(explicit[1]);
+  const seatVerb = text.match(/\b(?:seat|seats|sitze?)\s?(\d)\b/i);
+  if (seatVerb) return Number(seatVerb[1]);
   if (/(family|familie|kinder|child|kids)/i.test(text)) return 4;
   return null;
 }
 
 function extractCargoNeeds(text: string): UserCriteria["cargoNeeds"] {
-  if (
-    /(large trunk|big (?:boot|trunk)|lots? of (?:trunk|boot|cargo|luggage|space)|plenty of (?:trunk|boot|cargo|space)|viel stauraum|gro(?:ß|ss)e[rmn]?\s+kofferraum|viel kofferraum|kinderwagen|ski|luggage|gep[aä]ck)/i.test(
-      text
-    )
-  ) {
-    return "high";
-  }
-  if (/(some cargo|weekend bags|einkauf|medium trunk|stroller)/i.test(text)) return "medium";
-  if (/(easy parking|city only|kleinwagen)/i.test(text)) return "low";
+  if (/(large trunk|big boot|viel stauraum|großer kofferraum|grosser kofferraum|kinderwagen|ski)/i.test(text)) return "high";
+  if (/(some cargo|weekend bags|einkauf|medium trunk)/i.test(text)) return "medium";
+  if (/(easy parking|city only|stadt|klein)/i.test(text)) return "low";
   return null;
 }
 
@@ -755,11 +918,7 @@ function extractQualitativeSignals(text: string): QualitativeSignal[] {
   if (/(reliable|reliability|zuverlässig|zuverlaessig|haltbar|warranty|garantie)/i.test(text)) {
     signals.push("reliable");
   }
-  if (
-    /(road trip|langstrecke|autobahn|weekend|wochenende|urlaub|long range|gute reichweite|lange reichweite|good range)/i.test(
-      text
-    )
-  ) {
+  if (/(road trip|langstrecke|autobahn|weekend|wochenende|urlaub)/i.test(text)) {
     signals.push("road_trip_comfort");
   }
   if (/(fast charging|schnellladen|ladeleistung|800v|800 volt)/i.test(text)) {
@@ -771,13 +930,101 @@ function extractQualitativeSignals(text: string): QualitativeSignal[] {
   if (/(safety|safe|sicher|assistenz|totwinkel|lane|spur)/i.test(text)) {
     signals.push("safety");
   }
-  if (/(technology|tech|technik|software|ota|display|infotainment|connectivity|konnektivität)/i.test(text)) {
+  if (/(technology|tech|software|ota|display|infotainment|connectivity|konnektivität)/i.test(text)) {
     signals.push("technology");
   }
   if (/(public charging|öffentlich laden|oeffentlich laden|wohnung|apartment|keine wallbox|ohne wallbox)/i.test(text)) {
     signals.push("public_charging_fit");
   }
   return signals;
+}
+
+export function extractOptimizationDirective(text: string): OptimizationDirective | null {
+  if (/(best value|value for money|price[-\s]?to[-\s]?performance|price performance|bang for buck|preis[-\s]?leistung|preiswert|gutes angebot|bestes angebot)/i.test(text)) {
+    return "best_value";
+  }
+  if (/(maximum range|max(?:imum)? reichweite|maximale reichweite|most range|longest range|größte reichweite|groesste reichweite|hoechste reichweite|höchste reichweite)/i.test(text)) {
+    return "maximum_range";
+  }
+  if (/(most reliable|reliability first|zuverlässigst|zuverlaessigst|am zuverlässigsten|am zuverlaessigsten|haltbar(st)?)/i.test(text)) {
+    return "most_reliable";
+  }
+  if (/(fastest charging|best charging|schnellladen|schnellste ladung|beste ladeleistung|800v|800 volt)/i.test(text)) {
+    return "fastest_charging";
+  }
+  if (/(lowest running cost|low(?:est)? running costs|cheapest to run|niedrigste laufende kosten|niedrige kosten|verbrauch optimieren)/i.test(text)) {
+    return "lowest_running_cost";
+  }
+  if (/(best family fit|family fit|familienfreundlich|beste familie|familienauto|family car)/i.test(text)) {
+    return "best_family_fit";
+  }
+  if (/(performance|sporty|quick|fast acceleration|schnell|sportlich|beschleunigung|fahrspaß|fahrspass)/i.test(text)) {
+    return "performance";
+  }
+  return null;
+}
+
+export function constraintSourceText(criteria: UserCriteria) {
+  return (criteria.latestUserMessage || criteria.rawPrompt || "").trim();
+}
+
+export function hasHardRangeConstraint(criteria: UserCriteria) {
+  if (!criteria.rangeFloorKm) return false;
+  return /(?:\b\d{2,4}\s?(?:km|kilometer)\b[^.\n]{0,36}\b(?:range|reichweite|single charge|ladung|autobahn)\b|\b(?:range|reichweite|single charge|ladung|autobahn)\b[^.\n]{0,36}\b\d{2,4}\s?(?:km|kilometer)\b|\b(?:at least|minimum|min\.?|must|need|require|mindestens|min(?:dest)?|brauche|benötige|benoetige)\b[^.\n]{0,40}\b\d{2,4}\s?(?:km|kilometer)\b)/i.test(
+    constraintSourceText(criteria)
+  );
+}
+
+export function hasHardPassengerConstraint(criteria: UserCriteria) {
+  if (!criteria.passengers) return false;
+  return /(?:\b(?:must|need|needs|required|require|requires|only|at least|minimum|min\.?|mindestens|nur|brauche|benötige|benoetige)\b[^.\n]{0,36}\b\d\s?(?:seats?|sitze|personen|passengers)\b|\b(?:must|need|needs|required|require|requires|only|at least|minimum|min\.?|mindestens|nur|brauche|benötige|benoetige)\b[^.\n]{0,36}\b(?:seat|seats|sitze?)\s?\d\b|\b(?:2|two)[-\s]?(?:seater|sitzer)\b)/i.test(
+    constraintSourceText(criteria)
+  );
+}
+
+/** "2-seater" / "zweisitzer" / "only 2 seats" — prefer exact capacity, not merely seats >= N. */
+export function hasExactSeatPreference(criteria: UserCriteria) {
+  if (!criteria.passengers) return false;
+  return /\b(?:\d|two|three|four|five|six|zwei|drei|vier|fünf|fuenf|sechs)[-\s]?(?:seater|sitzer)\b|\b(?:only|nur)\s+\d\s?(?:seats?|sitze|personen)\b/i.test(
+    constraintSourceText(criteria)
+  );
+}
+
+const exclusiveCue =
+  /\b(only|must|need|needs|required|require|requires|at least|minimum|min\.?|mindestens|nur|brauche|benötige|benoetige|ausschließlich|ausschliesslich)\b/i;
+
+export function hasHardBodyTypeConstraint(criteria: UserCriteria) {
+  if (!criteria.bodyTypes.length) return false;
+  const text = constraintSourceText(criteria);
+  return (
+    exclusiveCue.test(text) &&
+    /\b(suv|sedan|hatchback|wagon|van|compact|coupe|crossover|limousine|kombi|kleinwagen)\b/i.test(text)
+  );
+}
+
+export function hasHardConditionConstraint(criteria: UserCriteria) {
+  if (criteria.preferredCondition === "any") return false;
+  const text = constraintSourceText(criteria);
+  return exclusiveCue.test(text) && /\b(new|used|neu|gebraucht(?:e|es|er)?|new car|used car)\b/i.test(text);
+}
+
+export function hasHardBrandConstraint(criteria: UserCriteria) {
+  if (!criteria.brandPreferences.length) return false;
+  if (criteria.modelPreferences.length) return true;
+  const text = constraintSourceText(criteria);
+  return (
+    exclusiveCue.test(text) &&
+    criteria.brandPreferences.some((brand) => new RegExp(`\\b${escapeRegExp(brand)}\\b`, "i").test(text))
+  );
+}
+
+export function hasHardBrandOriginConstraint(criteria: UserCriteria) {
+  if (!criteria.preferredBrandOrigins.length) return false;
+  const text = constraintSourceText(criteria);
+  return (
+    exclusiveCue.test(text) &&
+    /\b(european|europe|europäisch|europaeisch|chinese|china|chinesisch|korean|korea|american|usa|us)\b/i.test(text)
+  );
 }
 
 function extractBodyTypes(text: string) {
@@ -792,15 +1039,22 @@ function extractBodyTypes(text: string) {
 
 function extractTripNeeds(text: string): TripNeed[] {
   const tripNeeds: TripNeed[] = [];
-  if (/(city|urban|stadt|wien|graz|linz|salzburg)/i.test(text)) tripNeeds.push("city");
-  // "commuting" does not contain the substring "commute" (drop-e + ing).
-  if (/\b(commut(?:e|es|er|ing)|pendel(?:n|strecke)?|arbeitsweg|daily|täglich|taeglich)\b/i.test(text)) {
+  if (/(city|urban|stadt|stadtfahr|inner city|short trips?|errands?|einkauf|wien|graz|linz|salzburg)/i.test(text)) {
+    tripNeeds.push("city");
+  }
+  if (/(commute|commuting|pendel|arbeitsweg|daily|täglich|taeglich|office|work(?:ing)?)/i.test(text)) {
     tripNeeds.push("commute");
   }
-  if (/(road trip|autobahn|long (?:trip|range)|langstrecke|urlaub|weekend|wochenende)/i.test(text)) {
+  if (
+    /(road\s*trip|autobahn|long\s*(trip|drive|distance)|langstrecke|urlaub|weekend|wochenende|highway|motorway|vacation|holiday)/i.test(
+      text
+    ) ||
+    /(cruis|leisure|joy\s*rid|pleasure\s*driv|fun\s*driv|sightseeing|scenic|touring|spazier|ausflug)/i.test(text) ||
+    /(?:for\s+)?trips?|reisen|fahrten|travels?/i.test(text)
+  ) {
     tripNeeds.push("road_trip");
   }
-  if (/(family|familie|kinder|kids)/i.test(text)) tripNeeds.push("family");
+  if (/(family|familie|kinder|kids|children|school run)/i.test(text)) tripNeeds.push("family");
   if (/(winter|snow|schnee|berge|ski|alpen)/i.test(text)) tripNeeds.push("winter");
   return tripNeeds;
 }
@@ -819,6 +1073,12 @@ function extractBrandPreferences(text: string) {
 function extractPreferredBrandOrigins(text: string): BrandOrigin[] {
   const origins: BrandOrigin[] = [];
   if (/(chinese|china|chinesisch|chinesisches|chinesische)/i.test(text)) origins.push("china");
+  if (/(korean|korea|koreanisch|koreanische|koreanisches|suedkorea|südkorea|south korea)/i.test(text)) {
+    origins.push("korea");
+  }
+  if (/(american|usa|u\.s\.|united states|us-made|amerikanisch|amerikanische|amerikanisches)/i.test(text)) {
+    origins.push("us");
+  }
   if (/(european|europe|europäisch|europaeisch|europa)/i.test(text)) origins.push("europe");
   return Array.from(new Set(origins));
 }
@@ -834,31 +1094,10 @@ function extractModelPreferences(text: string) {
 function extractAvoidedBrands(text: string) {
   const avoided: string[] = [];
   for (const brand of brandNames) {
-    const brandPattern = escapeRegExp(brand.toLowerCase());
-    const pattern = new RegExp(
-      `\\b(?:not|avoid|no|kein|keine|ohne|except|ohne|without)\\s+${brandPattern}\\b|\\b${brandPattern}\\s+(?:is\\s+)?(?:out|excluded|no-go)\\b|\\blike\\s+(?:a\\s+)?${brandPattern}\\s+but\\s+not\\b`,
-      "i"
-    );
+    const pattern = new RegExp(`(not|avoid|no|kein|keine|ohne)\\s+${escapeRegExp(brand.toLowerCase())}`, "i");
     if (pattern.test(text)) avoided.push(brand);
   }
   return avoided;
-}
-
-function sameBrandName(left: string, right: string) {
-  const normalize = (value: string) => value.toLowerCase().replace(/[-\s]/g, "");
-  const leftNorm = normalize(left);
-  const rightNorm = normalize(right);
-  if (leftNorm === rightNorm) return true;
-  if ((leftNorm === "vw" || leftNorm === "volkswagen") && (rightNorm === "vw" || rightNorm === "volkswagen")) {
-    return true;
-  }
-  if (
-    (leftNorm === "mercedes" || leftNorm === "mercedesbenz") &&
-    (rightNorm === "mercedes" || rightNorm === "mercedesbenz")
-  ) {
-    return true;
-  }
-  return false;
 }
 
 function deriveBrandFit(text: string, brandPreferences: string[], previous: Importance): Importance {
@@ -883,11 +1122,19 @@ function deriveReliabilityImportance(
   return previous;
 }
 
+function inferQualitativeRangeFloor(text: string, tripNeeds: TripNeed[]) {
+  if (/(good range|long range|great range|strong range|gute reichweite|hohe reichweite|lange reichweite)/i.test(text)) {
+    return tripNeeds.includes("road_trip") ? 450 : 380;
+  }
+  return null;
+}
+
 function extractLocation(prompt: string) {
   const plz = prompt.match(/\b([1-9]\d{3})\b/);
   if (plz) return plz[1];
   const city = prompt.match(/\b(Vienna|Wien|Graz|Linz|Salzburg|Innsbruck|Klagenfurt)\b/i);
-  return city?.[1] ?? null;
+  if (!city?.[1]) return null;
+  return /^vienna$/i.test(city[1]) ? "Wien" : city[1];
 }
 
 function mergeUnique<T>(left: T[], right: T[]) {

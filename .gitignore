@@ -4,10 +4,15 @@
 .env.*.local
 .next/
 node_modules/
+.worktrees/
+.superpowers/
 coverage/
 *.tsbuildinfo
 dist/
-# inventory-scraping/
-inventory-scraping/cache/
-inventory-scraping/output/
-inventory-scraping/crawl4ai/.venv/
+inventory-scraping/
+data/1
+data/imports
+
+# inventory-scraping/cache/
+# inventory-scraping/output/
+# inventory-scraping/crawl4ai/.venv/

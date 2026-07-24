@@ -1,11 +1,31 @@
 import type { Vehicle, VehicleImage } from "./types.ts";
 
+export const VEHICLE_IMAGE_PLACEHOLDER = "/flowryd/vehicle-image-placeholder.svg";
+
 const hovedSuffix = /_hoved(?=\.(?:jpe?g|png|webp)(?:\?|$))/i;
 const thumbSuffix = /_thumb(?=\.(?:jpe?g|png|webp)(?:\?|$))/i;
 const decorativeWillhaben = /cache\.willhaben\.at\/campaigns-v2\//i;
 
 export function normalizeVehicleImageUrl(url: string) {
   return url.replace(hovedSuffix, "");
+}
+
+export function buildVehicleImageCandidates(images: string[]) {
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+
+  for (const image of images) {
+    const cleaned = normalizeVehicleImageUrl(image.trim());
+    if (!/^https?:\/\//i.test(cleaned)) continue;
+    if (decorativeWillhaben.test(cleaned)) continue;
+    if (thumbSuffix.test(cleaned)) continue;
+    if (seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    candidates.push(cleaned);
+  }
+
+  candidates.push(VEHICLE_IMAGE_PLACEHOLDER);
+  return candidates;
 }
 
 export function sanitizeVehicleImages(vehicle: Vehicle): Vehicle {

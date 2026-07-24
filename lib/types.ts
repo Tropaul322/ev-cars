@@ -1,8 +1,19 @@
+import type { MatchDiagnostics } from "./match-diagnostics.ts";
+import type { SearchCriteriaDebug } from "./search-criteria-debug.ts";
+
 export type Language = "de" | "en";
 export type VehicleCondition = "new" | "used";
 export type ChargingAccess = "home" | "work" | "public" | "none" | "unknown";
 export type TripNeed = "city" | "commute" | "road_trip" | "family" | "winter";
 export type Importance = "low" | "medium" | "high";
+export type OptimizationDirective =
+  | "best_value"
+  | "maximum_range"
+  | "most_reliable"
+  | "fastest_charging"
+  | "lowest_running_cost"
+  | "best_family_fit"
+  | "performance";
 
 export type QualitativeSignal =
   | "premium"
@@ -47,7 +58,9 @@ export type BodyType =
   | "suv"
   | "crossover"
   | "wagon"
-  | "van";
+  | "van"
+  | "other"
+  | "minibus";
 
 export type InventorySource =
   | "seed"
@@ -88,6 +101,11 @@ export type Vehicle = {
   priceEUR: number;
   priceLabel?: string;
   monthlyLeaseEUR: number | null;
+  leasingEligible?: boolean | null;
+  leaseDurationMonths?: number | null;
+  leaseAdvancePaymentEUR?: number | null;
+  leaseResidualValueEUR?: number | null;
+  leaseDetails?: string | null;
   condition: VehicleCondition;
   mileageKm: number | null;
   rangeKm: number;
@@ -120,8 +138,14 @@ export type Vehicle = {
   manufacturerCountry?: string;
   manufacturerCountryCode?: string;
   notes: string;
-  brandOrigin: "europe" | "china" | "other";
+  brandOrigin: "europe" | "china" | "korea" | "us" | "other";
   reviewTags: string[];
+  /** Set during embedding search; cosine similarity to the query vector (0–1). */
+  embeddingSimilarity?: number;
+  /** Set during hybrid text search; ts_rank_cd score from the query. */
+  textRank?: number;
+  /** Set during hybrid retrieval; reciprocal-rank-fusion score combining text and vector ranks. */
+  retrievalScore?: number;
   raw?: unknown;
 };
 
@@ -129,6 +153,7 @@ export type BrandOrigin = Vehicle["brandOrigin"];
 
 export type UserCriteria = {
   language: Language;
+  budgetMinEUR: number | null;
   budgetMaxEUR: number | null;
   monthlyBudgetEUR: number | null;
   dailyKm: number | null;
@@ -151,22 +176,60 @@ export type UserCriteria = {
   reliabilityImportance: Importance;
   mustHaveFeatures: Feature[];
   qualitativeSignals: QualitativeSignal[];
+  optimizationDirective: OptimizationDirective | null;
   location: string | null;
   rawPrompt: string;
+  /** Latest user turn only — used for exclusive-language hard-constraint detection. */
+  latestUserMessage: string;
+};
+
+export type CriteriaPatch = Partial<
+  Omit<UserCriteria, "language" | "rawPrompt"> & {
+    language: UserCriteria["language"];
+    remove: string[];
+  }
+>;
+
+export type ClarificationPromptKey = MissingCriteria | "ready" | "optimization";
+
+export type ClarificationOption = {
+  id: string;
+  label: string;
+  patch?: CriteriaPatch;
+  skip?: boolean;
+};
+
+export type ClarificationPrompt = {
+  key: ClarificationPromptKey;
+  question: string;
+  explanation: string;
+  selectMode: "single" | "multi";
+  options: ClarificationOption[];
+  showMatchAction: boolean;
 };
 
 export type ScoringBreakdown = {
   priceFit: number;
   rangeFit: number;
   efficiencyFit: number;
-  tcoFit: number;
   brandFit: number;
   cargoPassengerFit: number;
   reliabilityFit: number;
   featureFit: number;
-  personaFit: number;
-  batteryHealthFit: number;
-  semanticFit: number;
+};
+
+export type RecommendationReason = {
+  field: keyof Vehicle;
+  label: string;
+  value: string | number | boolean;
+};
+
+export type RecommendationReasonLedger = {
+  positiveReasons: RecommendationReason[];
+  tradeoffs: string[];
+  passedHardFilters: string[];
+  factorContributions: Partial<ScoringBreakdown>;
+  evidenceIds: string[];
 };
 
 export type TcoBreakdown = {
@@ -196,17 +259,23 @@ export type RagContext = {
   documents: RagEvidence[];
   vehicleEvidence: Record<string, RagEvidence[]>;
   vehicleScores: Record<string, number>;
-  vehicleEmbeddingScores: Record<string, number>;
   topicAffinity: Partial<Record<KnowledgeTopic, number>>;
 };
+
+export type MatchScoreSource = "rules" | "llm";
 
 export type MatchResult = {
   vehicle: Vehicle;
   score: number;
+  ruleScore?: number;
+  llmScore?: number;
+  scoreSource?: MatchScoreSource;
+  llmFitSummary?: string;
   ragScore: number;
   ragEvidence: RagEvidence[];
   hardFilterStatus: "passed";
   scoringBreakdown: ScoringBreakdown;
+  reasonLedger: RecommendationReasonLedger;
   explanation: string;
   ruledOutReasons: string[];
   tco: TcoBreakdown;
@@ -233,6 +302,8 @@ export type MatchResponse =
       recommendations: [];
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
+      prompt?: ClarificationPrompt;
+      searchCriteriaDebug?: SearchCriteriaDebug;
     }
   | {
       type: "clarification";
@@ -244,6 +315,8 @@ export type MatchResponse =
       recommendations: [];
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
+      prompt?: ClarificationPrompt;
+      searchCriteriaDebug?: SearchCriteriaDebug;
     }
   | {
       type: "matches";
@@ -253,8 +326,13 @@ export type MatchResponse =
       criteria: UserCriteria;
       missingCriteria: MissingCriteria[];
       recommendations: MatchResult[];
+      alternativeRecommendations?: MatchResult[];
+      alternativesAvailable: boolean;
+      responseMode: "primary" | "alternatives";
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
+      matchDiagnostics?: MatchDiagnostics;
+      searchCriteriaDebug?: SearchCriteriaDebug;
     }
   | {
       type: "no_matches";
@@ -266,7 +344,10 @@ export type MatchResponse =
       recommendations: [];
       ragCitations: RagEvidence[];
       rejectedSummary: RejectedSummary[];
+      matchDiagnostics?: MatchDiagnostics;
+      searchCriteriaDebug?: SearchCriteriaDebug;
     };
+export type { MatchDiagnostics, SearchCriteriaDebug };
 
 export type CompareVehicle = {
   vehicle: Vehicle;

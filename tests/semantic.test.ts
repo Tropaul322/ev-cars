@@ -33,13 +33,13 @@ test("scoreVehicleTopicAffinity boosts public-charging fit vehicles", () => {
   );
 });
 
-test("blendSemanticSignals prefers embedding scores when present", () => {
-  const withoutEmbedding = blendSemanticSignals({ keywordScore: 0.4, embeddingScore: 0, topicScore: 0.2 });
-  const withEmbedding = blendSemanticSignals({ keywordScore: 0.4, embeddingScore: 0.9, topicScore: 0.2 });
-  assert.ok(withEmbedding > withoutEmbedding);
+test("blendSemanticSignals weights keyword scores ahead of topic affinity", () => {
+  const keywordLed = blendSemanticSignals({ keywordScore: 0.7, topicScore: 0.2 });
+  const topicLed = blendSemanticSignals({ keywordScore: 0.2, topicScore: 0.7 });
+  assert.ok(keywordLed > topicLed);
 });
 
-test("buildRagContext exposes embedding and topic affinity fields", () => {
+test("buildRagContext exposes keyword vehicle scores and topic affinity fields", () => {
   const criteria = extractCriteria("Premium EV with public charging guidance under 45000 EUR.");
   const ragContext = buildRagContext({
     message: criteria.rawPrompt,
@@ -55,15 +55,9 @@ test("buildRagContext exposes embedding and topic affinity fields", () => {
         similarity: 0.82,
         payload: {}
       }
-    ],
-    embeddedVehicleMatches: [
-      {
-        vehicle: seedVehicles[0]!,
-        similarity: 0.76
-      }
     ]
   });
 
   assert.ok(Object.keys(ragContext.topicAffinity).length > 0);
-  assert.ok(ragContext.vehicleEmbeddingScores[seedVehicles[0]!.id] > 0);
+  assert.ok(Object.keys(ragContext.vehicleScores).length > 0);
 });

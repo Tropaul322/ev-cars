@@ -1,12 +1,5 @@
-import ragRows from "../../data/flowryd_site/rag.json" with { type: "json" };
 import type { KnowledgeTopic } from "../types.ts";
 import { getSupabaseRestConfig } from "./supabase-rest.ts";
-
-type RawRagRow = {
-  source: string;
-  heading: string;
-  text_excerpt: string;
-};
 
 export type KnowledgeDocument = {
   id: string;
@@ -47,30 +40,9 @@ type SupabaseKnowledgeChunkRow = {
   similarity?: number;
 };
 
-const localKnowledgeDocuments = (ragRows as RawRagRow[]).map((row, index) => ({
-  id: makeKnowledgeId(row, index),
-  source: row.source,
-  heading: row.heading,
-  content: row.text_excerpt,
-  topic: inferTopic(row.source, row.heading, row.text_excerpt),
-  language: inferLanguage(`${row.heading} ${row.text_excerpt}`),
-  sourceUrl: sourceUrlFromPayload(row),
-  payload: row
-}));
-
-const localKnowledgeChunks: KnowledgeChunk[] = localKnowledgeDocuments.map((document) => ({
-  ...document,
-  id: `chunk:${document.id}`,
-  documentId: document.id,
-  payload: {
-    kind: "knowledge_chunk",
-    document
-  }
-}));
-
 export async function listKnowledgeDocuments(): Promise<KnowledgeDocument[]> {
   const supabase = getSupabaseRestConfig();
-  if (!supabase) return localKnowledgeDocuments;
+  if (!supabase) return [];
 
   const params = new URLSearchParams({
     select: "id,source,heading,content,payload",
@@ -83,19 +55,18 @@ export async function listKnowledgeDocuments(): Promise<KnowledgeDocument[]> {
       headers: supabase.headers,
       next: { revalidate: 300 }
     });
-    if (!response.ok) return localKnowledgeDocuments;
+    if (!response.ok) return [];
 
     const rows = (await response.json()) as SupabaseKnowledgeDocumentRow[];
-    const documents = rows.map(normalizeKnowledgeDocument).filter(isKnowledgeDocument);
-    return documents.length ? documents : localKnowledgeDocuments;
+    return rows.map(normalizeKnowledgeDocument).filter(isKnowledgeDocument);
   } catch {
-    return localKnowledgeDocuments;
+    return [];
   }
 }
 
 export async function listKnowledgeChunks(): Promise<KnowledgeChunk[]> {
   const supabase = getSupabaseRestConfig();
-  if (!supabase) return localKnowledgeChunks;
+  if (!supabase) return [];
 
   const params = new URLSearchParams({
     select: "id,document_id,source,topic,language,heading,content,metadata",
@@ -108,12 +79,11 @@ export async function listKnowledgeChunks(): Promise<KnowledgeChunk[]> {
       headers: supabase.headers,
       next: { revalidate: 300 }
     });
-    if (!response.ok) return localKnowledgeChunks;
+    if (!response.ok) return [];
     const rows = (await response.json()) as SupabaseKnowledgeChunkRow[];
-    const chunks = rows.map(normalizeKnowledgeChunk).filter(isKnowledgeChunk);
-    return chunks.length ? chunks : localKnowledgeChunks;
+    return rows.map(normalizeKnowledgeChunk).filter(isKnowledgeChunk);
   } catch {
-    return localKnowledgeChunks;
+    return [];
   }
 }
 
@@ -185,10 +155,6 @@ function isKnowledgeChunk(value: unknown): value is KnowledgeChunk {
   return isKnowledgeDocument(value) && "documentId" in value;
 }
 
-function makeKnowledgeId(row: RawRagRow, index: number) {
-  return `flowryd-rag:${row.source}:${slug(`${index}-${row.heading}`)}`.slice(0, 220);
-}
-
 export function inferTopic(source: string, heading: string, content: string): KnowledgeTopic {
   const text = `${source} ${heading} ${content}`.toLowerCase();
   if (/(ladestellen|charging|ladeinfrastruktur|e-control|public charging)/i.test(text)) {
@@ -212,14 +178,6 @@ function inferLanguage(value: string): "de" | "en" {
     return "de";
   }
   return "en";
-}
-
-function slug(value: string) {
-  return value
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[^\w]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 function sourceUrlFromPayload(payload: unknown) {

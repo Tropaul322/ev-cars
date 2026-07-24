@@ -100,3 +100,207 @@
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgb(69 102 245 / 14%);
 }
+
+.ui-drawer-overlay {
+  background: rgb(0 0 0 / 80%);
+  inset: var(--flow-header-height) 0 var(--flow-bottom-nav-height) 0;
+  position: fixed;
+  z-index: 25;
+}
+
+.ui-drawer-content {
+  background: var(--background);
+  display: flex;
+  flex-direction: column;
+  outline: none;
+  position: fixed;
+  z-index: 26;
+}
+
+.ui-drawer-content[data-vaul-drawer-direction="bottom"] {
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+  bottom: 0;
+  height: auto;
+  inset-inline: 0;
+  margin-top: 6rem;
+  max-height: 96vh;
+}
+
+.ui-drawer-content[data-vaul-drawer-direction="right"] {
+  border: 1px solid var(--border);
+  border-radius: 0;
+  border-right: 0;
+  box-shadow: -12px 0 40px rgb(0 0 0 / 14%);
+  height: calc(100dvh - var(--flow-header-height) - var(--flow-bottom-nav-height));
+  inset: var(--flow-header-height) 0 var(--flow-bottom-nav-height) auto;
+  margin-top: 0;
+  max-height: none;
+  width: min(520px, 100vw);
+}
+
+.ui-drawer-content[data-vaul-drawer-direction="right"] .ui-drawer-handle {
+  display: none;
+}
+
+.ui-drawer-handle {
+  background: var(--border);
+  border-radius: 999px;
+  flex-shrink: 0;
+  height: 8px;
+  margin: 16px auto 0;
+  width: 100px;
+}
+
+.ui-drawer-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  text-align: left;
+}
+
+.ui-drawer-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.ui-drawer-description {
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.ui-drawer-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  padding: 16px;
+}
+
+.sr-only {
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+[data-vaul-drawer] {
+  animation-duration: 0.45s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.ui-drawer-content[data-vaul-drawer] {
+  touch-action: pan-y;
+}
+
+[data-vaul-drawer][data-state="closed"] {
+  animation-fill-mode: forwards;
+  pointer-events: none;
+}
+
+[data-vaul-drawer][data-vaul-snap-points="false"][data-vaul-drawer-direction="right"][data-state="open"] {
+  animation-name: ui-drawer-slide-from-right;
+}
+
+[data-vaul-drawer][data-vaul-snap-points="false"][data-vaul-drawer-direction="right"][data-state="closed"] {
+  animation-duration: 0.4s;
+  animation-name: ui-drawer-slide-to-right;
+}
+
+[data-vaul-drawer][data-vaul-snap-points="false"][data-vaul-drawer-direction="bottom"][data-state="open"] {
+  animation-name: ui-drawer-slide-from-bottom;
+}
+
+[data-vaul-drawer][data-vaul-snap-points="false"][data-vaul-drawer-direction="bottom"][data-state="closed"] {
+  animation-name: ui-drawer-slide-to-bottom;
+}
+
+[data-vaul-overlay][data-vaul-snap-points="false"] {
+  animation-duration: 0.3s;
+  animation-timing-function: ease;
+}
+
+[data-vaul-overlay][data-vaul-snap-points="false"][data-state="open"] {
+  animation-name: ui-drawer-fade-in;
+}
+
+[data-vaul-overlay][data-state="closed"] {
+  animation-duration: 0.3s;
+  animation-fill-mode: forwards;
+  animation-name: ui-drawer-fade-out;
+  pointer-events: none;
+}
+
+@keyframes ui-drawer-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ui-drawer-fade-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes ui-drawer-slide-from-right {
+  from {
+    opacity: 0.92;
+    transform: translate3d(var(--initial-transform, 100%), 0, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes ui-drawer-slide-to-right {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    opacity: 0.88;
+    transform: translate3d(var(--initial-transform, 100%), 0, 0);
+  }
+}
+
+@keyframes ui-drawer-slide-from-bottom {
+  from {
+    transform: translate3d(0, var(--initial-transform, 100%), 0);
+  }
+
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes ui-drawer-slide-to-bottom {
+  to {
+    transform: translate3d(0, var(--initial-transform, 100%), 0);
+  }
+}

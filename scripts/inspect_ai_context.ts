@@ -71,17 +71,15 @@ console.log(
   JSON.stringify(
     {
       language: context.language,
-      criteria: context.criteria,
+      criteriaSummary: context.criteriaSummary,
       rejectedSummary: context.rejectedSummary,
       ragTopicAffinity: ragContext.topicAffinity,
       matches: context.matches.map((match) => ({
         vehicleId: match.vehicleId,
         vehicle: `${match.vehicle.make} ${match.vehicle.model}`,
         score: match.score,
-        ragScore: match.ragScore,
         evidence: match.retrievedEvidence.map((evidence) => ({
           evidenceId: evidence.evidenceId,
-          sourceType: evidence.sourceType,
           topic: evidence.topic,
           title: evidence.title,
           score: evidence.score,
