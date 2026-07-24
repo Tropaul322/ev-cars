@@ -504,12 +504,16 @@ export function fallbackMatchIntroMessage(
     brands.length === 0
       ? ""
       : criteria.language === "de"
-        ? ` Andere Marken in diesen Treffern: ${brands.join(", ")}.`
-        : ` Other brands in these results: ${brands.join(", ")}.`;
+        ? ` Dabei sind unter anderem ${brands.slice(0, 3).join(", ")}.`
+        : ` That includes makes like ${brands.slice(0, 3).join(", ")}.`;
   const base =
     criteria.language === "de"
-      ? `${recommendationCount} passende E-Auto${recommendationCount === 1 ? "" : "s"} gefunden.${brandSentence}`
-      : `Found ${recommendationCount} matching EV${recommendationCount === 1 ? "" : "s"}.${brandSentence}`;
+      ? recommendationCount === 1
+        ? `Ich habe ein starkes Match für dich.${brandSentence}`
+        : `Ich habe ${recommendationCount} passende E-Autos für dich.${brandSentence}`
+      : recommendationCount === 1
+        ? `I found a strong match for you.${brandSentence}`
+        : `I found ${recommendationCount} matching EVs for you.${brandSentence}`;
   return lowConfidenceQuestion ? `${base} ${lowConfidenceQuestion}` : base;
 }
 

@@ -14,8 +14,10 @@ export type RecommendationExplanationInput = {
 };
 
 export const recommendationExplanationSystemPrompt =
-  "You explain cached EV recommendations. do not search, do not add vehicles, and use only supplied facts. " +
+  "You explain cached EV recommendations like a helpful car advisor texting a customer. " +
+  "Do not search, do not add vehicles, and use only supplied facts. " +
   "Answer the user's question using only the supplied criteria, vehicle facts, deterministic reason ledger, and RAG evidence. " +
+  "Lead with the practical fit, mention 2-3 concrete facts (price, range, body, features, use-case fit), and note one honest tradeoff when available. " +
   "Do not infer or invent facts. Do not disclose raw scores, factor contributions, or rankings. " +
   "Return only JSON: {\"answer\":\"...\"}.";
 

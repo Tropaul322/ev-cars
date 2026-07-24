@@ -219,7 +219,7 @@ const scenarios: Scenario[] = [
     description: "After a match, ask why it was recommended",
     turns: [
       {
-        message: "Compact city EV under 30000 EUR, CarPlay, mostly short trips in Graz.",
+        message: "Compact city EV under 30000 EUR, CarPlay, home wallbox, mostly short trips in Graz.",
         autoAnswerOptimization: true,
         expect: {
           types: ["clarification", "matches"],
@@ -230,6 +230,7 @@ const scenarios: Scenario[] = [
         message: "Why did you recommend this one?",
         expect: {
           types: ["chat", "matches"],
+          messageExcludes: [/no longer see the earlier recommendations/i],
           soft: { avoidFormLanguage: true, avoidReintroduce: true, maxMessageLength: 700 }
         }
       }
@@ -420,16 +421,33 @@ async function maybeAnswerOptimization(
   turn: ScenarioTurn
 ): Promise<MatchResponse> {
   if (!turn.autoAnswerOptimization) return response;
-  if (response.type !== "clarification" || response.prompt?.key !== "optimization") {
-    return response;
+
+  let current = response;
+  for (let step = 0; step < 5; step++) {
+    if (current.type !== "clarification" || !current.prompt) break;
+
+    if (current.prompt.key === "optimization") {
+      current = await runMatchRequest({
+        message: "Best value",
+        sessionId: current.sessionId,
+        previousCriteria: current.criteria,
+        criteriaPatch: { optimizationDirective: "best_value" },
+        currentPromptKey: "optimization"
+      });
+      continue;
+    }
+
+    const option = current.prompt.options.find((item) => !item.skip && item.patch);
+    if (!option?.patch) break;
+    current = await runMatchRequest({
+      message: option.label,
+      sessionId: current.sessionId,
+      previousCriteria: current.criteria,
+      criteriaPatch: option.patch,
+      currentPromptKey: current.prompt.key
+    });
   }
-  return runMatchRequest({
-    message: "Best value",
-    sessionId: response.sessionId,
-    previousCriteria: response.criteria,
-    criteriaPatch: { optimizationDirective: "best_value" },
-    currentPromptKey: "optimization"
-  });
+  return current;
 }
 
 async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
@@ -447,6 +465,24 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       currentPromptKey: previous && "prompt" in previous ? previous.prompt?.key : undefined,
       intent: turn.intent,
       conversationHistory,
+      selectedVehicleIds:
+        previous && "recommendations" in previous
+          ? [
+              ...(previous.type === "matches"
+                ? previous.recommendations.flatMap((match) => [
+                    match.vehicle.id,
+                    ...(match.vehicle.listingUrl ? [match.vehicle.listingUrl] : [])
+                  ])
+                : [])
+            ]
+          : undefined,
+      cachedRecommendations:
+        previous?.type === "matches"
+          ? [
+              ...previous.recommendations,
+              ...(previous.alternativeRecommendations ?? [])
+            ]
+          : undefined,
       ...(turn.criteriaPatch ? { criteriaPatch: turn.criteriaPatch as never } : {})
     });
 
