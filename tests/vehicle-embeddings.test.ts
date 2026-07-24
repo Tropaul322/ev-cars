@@ -32,6 +32,7 @@ test("buildVehicleEmbeddingText includes bilingual 2-seat and body aliases", () 
   const vehicle = buildDefaultVehicle({
     make: "Mazda",
     model: "MX-30",
+    year: 2024,
     notes: "Fun city EV"
   });
   const text = buildVehicleEmbeddingText({ ...vehicle, seats: 2, bodyType: "other" });
@@ -40,7 +41,7 @@ test("buildVehicleEmbeddingText includes bilingual 2-seat and body aliases", () 
 });
 
 test("buildVehicleEmbeddingText marks family capacity for 5+ seats", () => {
-  const vehicle = buildDefaultVehicle({ make: "Skoda", model: "Enyaq" });
+  const vehicle = buildDefaultVehicle({ make: "Skoda", model: "Enyaq", year: 2024 });
   const text = buildVehicleEmbeddingText({ ...vehicle, seats: 5, bodyType: "suv" });
   assert.match(text, /5 seats/);
   assert.match(text, /familienauto|family/i);

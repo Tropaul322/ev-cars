@@ -556,7 +556,7 @@ test("brand-widen clears brands and grounds intro in match makes", async () => {
 
   if (data.type === "matches") {
     const makes = [...new Set(data.recommendations.map((r) => r.vehicle.make))];
-    assert.equal(data.criteria.brandPreferences.includes("Ford"), false);
+    assert.equal((data.criteria.brandPreferences as string[]).includes("Ford"), false);
     if (makes.length) {
       assert.ok(
         makes.some((make) => data.assistantMessage.toLowerCase().includes(make.toLowerCase())),
@@ -918,7 +918,7 @@ test("2-seater phrasing prioritizes exact seat count over larger cars", () => {
     id: "exact-two-seater",
     make: "Test",
     model: "Roadster",
-    bodyType: "coupe",
+    bodyType: "other",
     seats: 2,
     cargoLiters: 120,
     priceEUR: 45000,

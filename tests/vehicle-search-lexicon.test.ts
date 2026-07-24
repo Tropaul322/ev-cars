@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyCriteria } from "../lib/criteria.ts";
+import type { TripNeed } from "../lib/types.ts";
 import {
   bodyTypeLexiconTokens,
   expandVehicleSearchLexicon,
@@ -45,7 +46,7 @@ test("expandVehicleSearchLexicon expands sporty + 2-seater message", () => {
 test("expandVehicleSearchLexicon expands city commute DE/EN", () => {
   const criteria = {
     ...emptyCriteria("Stadtpendeln"),
-    tripNeeds: ["city", "commute"] as const,
+    tripNeeds: ["city", "commute"] as TripNeed[],
     chargingAccess: "public" as const
   };
   const { ftsTokens, embeddingPhrases } = expandVehicleSearchLexicon(criteria, "small city car Vienna");

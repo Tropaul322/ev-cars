@@ -260,7 +260,7 @@ test("hybrid RPC receives ftsQuery as query_text", async () => {
     await searchVehicles(criteria, "sporty 2 seater");
     assert.ok(posted);
     const expectedFts = buildVehicleFtsQuery(criteria, "sporty 2 seater");
-    assert.equal(posted.query_text, expectedFts);
+    assert.equal((posted as Record<string, unknown>).query_text, expectedFts);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalUrl === undefined) delete process.env.SUPABASE_URL;
