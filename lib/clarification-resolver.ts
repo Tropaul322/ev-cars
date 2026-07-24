@@ -40,7 +40,14 @@ const optionSynonyms: Record<string, RegExp[]> = {
   body_sedan: [/\b(sedan|limousine|saloon)\b/i],
   body_wagon: [/\b(wagon|estate|kombi|touring)\b/i],
   body_van: [/\b(van|minivan|transporter|bus)\b/i],
-  vehicle_preferences_skip: [/\b(any body|any style|open to all|alles ok)\b/i]
+  vehicle_preferences_skip: [/\b(any body|any style|open to all|alles ok)\b/i],
+  range_250: [/\b(250|200|city)\b/i],
+  range_350: [/\b(350|300)\b/i],
+  range_450: [/\b(450|400)\b/i],
+  range_550: [/\b(550|500|600)\b/i],
+  wish_status: [/\bstatus\b/i, /\bprestige\b/i, /\bansehen\b/i],
+  wish_freedom: [/\bfreedom\b/i, /\bfreiheit\b/i],
+  wish_childhood: [/\bchildhood\b/i, /\bkindheit\b/i, /\berinnerungen?\b/i]
 };
 
 /**
@@ -144,6 +151,9 @@ function extractPatchForPrompt(message: string, promptKey: ClarificationPromptKe
       if (extracted.mustHaveFeatures.length) patch.mustHaveFeatures = extracted.mustHaveFeatures;
       if (extracted.qualitativeSignals.length) patch.qualitativeSignals = extracted.qualitativeSignals;
       return Object.keys(patch).length ? patch : null;
+    }
+    case "personal_wish": {
+      return extracted.personalWish ? { personalWish: extracted.personalWish } : null;
     }
     case "optimization": {
       return extracted.optimizationDirective

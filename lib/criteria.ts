@@ -7,6 +7,7 @@ import type {
   Language,
   MissingCriteria,
   OptimizationDirective,
+  PersonalWish,
   QualitativeSignal,
   TripNeed,
   UserCriteria,
@@ -219,6 +220,12 @@ const optimizationDirectiveLabels: Record<OptimizationDirective, string> = {
   performance: "performance"
 };
 
+const personalWishLabels: Record<PersonalWish, string> = {
+  status: "status",
+  freedom: "freedom",
+  childhood_memories: "childhood memories"
+};
+
 export function emptyCriteria(rawPrompt = "", language: Language = "en"): UserCriteria {
   return {
     language,
@@ -246,6 +253,7 @@ export function emptyCriteria(rawPrompt = "", language: Language = "en"): UserCr
     mustHaveFeatures: [],
     qualitativeSignals: [],
     optimizationDirective: null,
+    personalWish: null,
     location: null,
     rawPrompt,
     latestUserMessage: rawPrompt
@@ -360,6 +368,9 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
   const optimizationDirective = removals.has("optimization")
     ? null
     : extractOptimizationDirective(text) ?? base.optimizationDirective;
+  const personalWish = removals.has("personal_wish")
+    ? null
+    : extractPersonalWish(text) ?? base.personalWish;
   const reliabilityImportance = deriveReliabilityImportance(text, qualitativeSignals, base.reliabilityImportance);
   const avoidedLower = new Set(avoidedBrands.map((brand) => brand.toLowerCase()));
   const preferredBrands = brandPreferences.filter((brand) => !avoidedLower.has(brand.toLowerCase()));
@@ -391,6 +402,7 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
     mustHaveFeatures,
     qualitativeSignals,
     optimizationDirective,
+    personalWish,
     location,
     rawPrompt: [base.rawPrompt, normalizedPrompt].filter(Boolean).join("\n"),
     latestUserMessage: normalizedPrompt
@@ -403,14 +415,15 @@ export function needsClarification(criteria: UserCriteria) {
 
 const missingCriteriaPriority: MissingCriteria[] = [
   "budget",
-  "use_case",
+  "vehicle_preferences",
   "charging_or_range",
-  "vehicle_preferences"
+  "personal_wish",
+  "use_case"
 ];
 
 export function clarificationQuestion(criteria: UserCriteria) {
   const missing = getMissingCriteria(criteria);
-  const target = missingCriteriaPriority.find((key) => missing.includes(key)) ?? "use_case";
+  const target = missingCriteriaPriority.find((key) => missing.includes(key)) ?? "vehicle_preferences";
 
   if (target === "budget") {
     return criteria.language === "de"
@@ -420,14 +433,20 @@ export function clarificationQuestion(criteria: UserCriteria) {
 
   if (target === "charging_or_range") {
     return criteria.language === "de"
-      ? "Wie sieht dein Laden aus: zu Hause, am Arbeitsplatz, oeffentlich oder gar nicht? Und wie viele km faehrst du pro Tag oder welche Mindestreichweite brauchst du?"
-      : "What does charging look like for you: home, work, public, or none? And how many km do you drive per day or what minimum range do you need?";
+      ? "Welche Mindestreichweite brauchst du, oder wie viele km faehrst du pro Tag?"
+      : "What minimum range do you need, or how many km do you drive per day?";
   }
 
   if (target === "vehicle_preferences") {
     return criteria.language === "de"
-      ? "Gibt es Karosserieform, Marke, Zustand oder Ausstattung, die dir wichtig sind?"
-      : "Are there body type, brand, condition, or feature preferences that matter to you?";
+      ? "Welche Karosserieform passt am besten: SUV, Limousine, Kompakt, Kombi oder Van?"
+      : "Which body style fits best: SUV, sedan, compact, wagon, or van?";
+  }
+
+  if (target === "personal_wish") {
+    return criteria.language === "de"
+      ? "Was ist dir emotional wichtiger: Status, Freiheit oder Kindheitserinnerungen?"
+      : "What matters more emotionally: status, freedom, or fond childhood memories?";
   }
 
   return criteria.language === "de"
@@ -447,26 +466,27 @@ export type CriteriaReadiness = {
 };
 
 export function getCriteriaReadiness(criteria: UserCriteria): CriteriaReadiness {
+  // Binding minimum criteria (PoC Test Summary §4): budget, body type, range, personal wish.
+  // Brand/origin alone must not unlock matching.
   const groups: Record<MissingCriteria, boolean> = {
     budget: Boolean(criteria.budgetMinEUR || criteria.budgetMaxEUR || criteria.monthlyBudgetEUR),
-    use_case: hasUseCaseSignal(criteria),
-    charging_or_range: hasChargingOrRangeSignal(criteria),
-    vehicle_preferences: hasVehiclePreferenceSignal(criteria)
+    vehicle_preferences: hasBodyTypeSignal(criteria),
+    charging_or_range: hasRangeSignal(criteria),
+    personal_wish: Boolean(criteria.personalWish),
+    // Optional enrichment — collected when present but not required to match.
+    use_case: hasUseCaseSignal(criteria)
   };
-  const collectedCriteriaCount = Object.values(groups).filter(Boolean).length;
-  const missingCriteria = (Object.entries(groups) as Array<[MissingCriteria, boolean]>)
-    .filter(([, present]) => !present)
-    .map(([key]) => key);
-  const hasExplicitInventoryLookup = Boolean(
-    criteria.brandPreferences.length ||
-      criteria.preferredBrandOrigins.length ||
-      criteria.modelPreferences?.length
-  );
+  const bindingKeys: MissingCriteria[] = [
+    "budget",
+    "vehicle_preferences",
+    "charging_or_range",
+    "personal_wish"
+  ];
+  const collectedCriteriaCount = bindingKeys.filter((key) => groups[key]).length;
+  const missingCriteria = bindingKeys.filter((key) => !groups[key]);
 
   return {
-    readyToMatch:
-      groups.budget &&
-      (collectedCriteriaCount >= 3 || hasExplicitInventoryLookup || Boolean(criteria.optimizationDirective)),
+    readyToMatch: missingCriteria.length === 0,
     collectedCriteriaCount,
     groups,
     missingCriteria
@@ -531,6 +551,7 @@ export type CriteriaChipKey =
   | "features"
   | "qualitative"
   | "optimization"
+  | "personal_wish"
   | "location";
 
 export type CriteriaChip = {
@@ -584,6 +605,9 @@ export function criteriaChips(criteria: UserCriteria): CriteriaChip[] {
   if (criteria.optimizationDirective) {
     chips.push({ key: "optimization", label: optimizationDirectiveLabels[criteria.optimizationDirective] });
   }
+  if (criteria.personalWish) {
+    chips.push({ key: "personal_wish", label: personalWishLabels[criteria.personalWish] });
+  }
   if (criteria.location) chips.push({ key: "location", label: criteria.location });
   return chips;
 }
@@ -621,6 +645,7 @@ export function removeCriteriaKey(criteria: UserCriteria, key: CriteriaChipKey):
   if (key === "features") next.mustHaveFeatures = [];
   if (key === "qualitative") next.qualitativeSignals = [];
   if (key === "optimization") next.optimizationDirective = null;
+  if (key === "personal_wish") next.personalWish = null;
   if (key === "location") next.location = null;
   return next;
 }
@@ -638,6 +663,7 @@ export function normalizeCriteriaShape(criteria: UserCriteria): UserCriteria {
     mustHaveFeatures: criteria.mustHaveFeatures ?? [],
     qualitativeSignals: criteria.qualitativeSignals ?? [],
     optimizationDirective: criteria.optimizationDirective ?? null,
+    personalWish: criteria.personalWish ?? null,
     mileageMaxKm: criteria.mileageMaxKm ?? null,
     mileageTargetKm: criteria.mileageTargetKm ?? null,
     batterySoHMin: criteria.batterySoHMin ?? null,
@@ -657,13 +683,23 @@ function hasUseCaseSignal(criteria: UserCriteria) {
   );
 }
 
+/** Binding body-type signal — brand/origin alone must not satisfy vehicle_preferences. */
+function hasBodyTypeSignal(criteria: UserCriteria) {
+  return criteria.bodyTypes.length > 0;
+}
+
+/** Binding range signal — charging access alone must not satisfy charging_or_range. */
+function hasRangeSignal(criteria: UserCriteria) {
+  return Boolean(criteria.rangeFloorKm || criteria.dailyKm);
+}
+
 function hasChargingOrRangeSignal(criteria: UserCriteria) {
-  return Boolean(criteria.chargingAccess !== "unknown" || criteria.rangeFloorKm || criteria.dailyKm);
+  return hasRangeSignal(criteria) || criteria.chargingAccess !== "unknown";
 }
 
 function hasVehiclePreferenceSignal(criteria: UserCriteria) {
   return Boolean(
-    criteria.bodyTypes.length ||
+    hasBodyTypeSignal(criteria) ||
       criteria.preferredCondition !== "any" ||
       criteria.mileageMaxKm ||
       criteria.mileageTargetKm ||
@@ -737,6 +773,9 @@ function extractRemovals(text: string) {
   if (/\b(premium|reliable|zuverlässig|qualitative|tech|technology)\b/i.test(text)) removals.add("qualitative");
   if (/\b(optimization|priority|prioritize|optimierung|prioritaet|priorität|wert|reichweite|performance)\b/i.test(text)) {
     removals.add("optimization");
+  }
+  if (/\b(personal wish|wish|status|freedom|freiheit|childhood|kindheit|erinnerung)\b/i.test(text)) {
+    removals.add("personal_wish");
   }
   if (/\b(location|ort|wien|graz|linz|salzburg|plz)\b/i.test(text)) removals.add("location");
   return removals;
@@ -968,6 +1007,23 @@ export function extractOptimizationDirective(text: string): OptimizationDirectiv
   }
   if (/(performance|sporty|quick|fast acceleration|schnell|sportlich|beschleunigung|fahrspaß|fahrspass)/i.test(text)) {
     return "performance";
+  }
+  return null;
+}
+
+export function extractPersonalWish(text: string): PersonalWish | null {
+  if (
+    /\b(fond\s+)?childhood(\s+memories?)?\b/i.test(text) ||
+    /\bkindheit(s)?(erinnerungen?)?\b/i.test(text) ||
+    /\berinnerungen?\s+an\s+die\s+kindheit\b/i.test(text)
+  ) {
+    return "childhood_memories";
+  }
+  if (/\bfreedom\b/i.test(text) || /\bfreiheit\b/i.test(text)) {
+    return "freedom";
+  }
+  if (/\bstatus\b/i.test(text) || /\bprestige\b/i.test(text) || /\bansehen\b/i.test(text)) {
+    return "status";
   }
   return null;
 }

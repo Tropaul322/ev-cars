@@ -27,7 +27,14 @@ export type QualitativeSignal =
   | "technology"
   | "public_charging_fit";
 
-export type MissingCriteria = "budget" | "use_case" | "charging_or_range" | "vehicle_preferences";
+export type PersonalWish = "status" | "freedom" | "childhood_memories";
+
+export type MissingCriteria =
+  | "budget"
+  | "use_case"
+  | "charging_or_range"
+  | "vehicle_preferences"
+  | "personal_wish";
 export type KnowledgeTopic =
   | "review"
   | "technical_spec"
@@ -177,6 +184,8 @@ export type UserCriteria = {
   mustHaveFeatures: Feature[];
   qualitativeSignals: QualitativeSignal[];
   optimizationDirective: OptimizationDirective | null;
+  /** Emotional driver: status, freedom, or fond childhood memories. */
+  personalWish: PersonalWish | null;
   location: string | null;
   rawPrompt: string;
   /** Latest user turn only — used for exclusive-language hard-constraint detection. */
@@ -275,6 +284,8 @@ export type MatchResult = {
   ragEvidence: RagEvidence[];
   hardFilterStatus: "passed";
   scoringBreakdown: ScoringBreakdown;
+  /** Normalized weights used for the weighted match % (sum ≈ 1). */
+  scoringWeights?: ScoringBreakdown;
   reasonLedger: RecommendationReasonLedger;
   explanation: string;
   ruledOutReasons: string[];

@@ -100,8 +100,8 @@ export async function selectAndExplainMatches(
 
   const assistantMessage = await generateMatchIntroMessage({
     criteria,
-    recommendationCount: recommendations.length,
-    lowConfidenceQuestion: options.lowConfidenceQuestion,
+    recommendationCount: Math.min(recommendations.length, 1),
+    lowConfidenceQuestion: null,
     rejectedSummary: options.rejectedSummary,
     inventoryBrands: recommendations.map((m) => m.vehicle.make),
     brandWiden: Boolean(options.brandWiden)

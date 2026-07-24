@@ -113,6 +113,7 @@ export function matchVehicles(
       ragEvidence: getRagEvidenceForVehicle(vehicle, options.ragContext),
       hardFilterStatus: "passed",
       scoringBreakdown,
+      scoringWeights: { ...weights },
       explanation: "",
       ruledOutReasons: summarizeTradeoffs(vehicle, criteria, scoringBreakdown),
       tco
@@ -280,6 +281,19 @@ export function deriveWeights(criteria: UserCriteria, vehicles: Vehicle[]): Weig
     weights.featureFit += 0.08;
     weights.brandFit += 0.05;
     weights.rangeFit += 0.04;
+  }
+
+  if (criteria.personalWish === "status") {
+    weights.brandFit += 0.1;
+    weights.featureFit += 0.04;
+  }
+  if (criteria.personalWish === "freedom") {
+    weights.rangeFit += 0.1;
+    weights.efficiencyFit += 0.04;
+  }
+  if (criteria.personalWish === "childhood_memories") {
+    weights.reliabilityFit += 0.1;
+    weights.cargoPassengerFit += 0.04;
   }
 
   const total = Object.values(weights).reduce((sum, value) => sum + value, 0);

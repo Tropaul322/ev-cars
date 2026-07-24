@@ -106,19 +106,13 @@ export type MatchServiceRequest = {
   selectedVehicleIds?: string[];
 };
 
-/** Soft priority follow-up after matches — skip once the user already chose an optimization. */
-const PRIORITY_QUALITATIVE_SIGNALS = new Set(["low_mileage", "premium", "road_trip_comfort"]);
-
+/** Soft priority follow-up after matches — disabled; keep match announcements single-purpose. */
 export function shouldAskLowConfidencePriorityQuestion(
-  confidence: number,
-  criteria: UserCriteria,
-  missingCriteria: MissingCriteria[]
+  _confidence: number,
+  _criteria: UserCriteria,
+  _missingCriteria: MissingCriteria[]
 ) {
-  if (criteria.optimizationDirective) return false;
-  if (criteria.qualitativeSignals.some((signal) => PRIORITY_QUALITATIVE_SIGNALS.has(signal))) {
-    return false;
-  }
-  return confidence < 0.72 && missingCriteria.includes("use_case");
+  return false;
 }
 
 export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchResponse> {
@@ -439,12 +433,13 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       trigger === "ev_question");
 
   const readyToSearch =
-    promptForTurn.key === "ready" && readiness.groups.budget && hasMeaningfulCriteria(criteria);
+    promptForTurn.key === "ready" && readiness.readyToMatch && hasMeaningfulCriteria(criteria);
 
   const wantsMatch =
     !isChatTurn &&
     !forceFirstTurnOptimization &&
     readiness.groups.budget &&
+    readiness.readyToMatch &&
     (readyToSearch ||
       body.intent === "show_matches" ||
       trigger === "show_matches" ||
@@ -453,17 +448,13 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       isNextBatch ||
       (!hasPriorContext &&
         !firstTurnMustClarify &&
-        (hasInventoryLookup(criteria) ||
-          readiness.readyToMatch ||
-          (promptForTurn.key === "ready" && hasMeaningfulCriteria(criteria)))) ||
+        readiness.readyToMatch) ||
       (!hasPriorContext &&
         firstTurnMustClarify &&
         promptForTurn.key === "ready" &&
         Boolean(criteria.optimizationDirective) &&
-        (hasInventoryLookup(criteria) || readiness.readyToMatch || hasMeaningfulCriteria(criteria))) ||
-      (hasPriorContext &&
-        criteriaChanged &&
-        (readiness.readyToMatch || hasInventoryLookup(criteria))));
+        readiness.readyToMatch) ||
+      (hasPriorContext && criteriaChanged && readiness.readyToMatch));
 
   if (!wantsMatch) {
     let prompt: ClarificationPrompt | undefined;
@@ -798,8 +789,8 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     : undefined;
   const assistantMessage = appendLowConfidenceQuestion(
     finalSelection.assistantMessage ||
-      fallbackMatchIntroMessage(criteria, recommendations.length, lowConfidenceQuestion, inventoryBrands),
-    lowConfidenceQuestion
+      fallbackMatchIntroMessage(criteria, recommendations.length, null, inventoryBrands),
+    null
   );
   const responseDiagnostics = buildMatchDiagnostics({
     embeddingQueryStatus:

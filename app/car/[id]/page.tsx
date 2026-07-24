@@ -299,6 +299,7 @@ function snapshotFromVehicle(vehicle: Vehicle): SavedCarSnapshot {
     match: null,
     range: `${formatNumber(vehicle.rangeKm)} km`,
     mileage: vehicle.mileageKm === null ? null : `${formatNumber(vehicle.mileageKm)} km`,
+    listingUrl: vehicle.listingUrl ?? null,
   };
 }
 
