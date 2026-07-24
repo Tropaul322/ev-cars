@@ -373,15 +373,25 @@ function scoreFeatures(vehicle: Vehicle, criteria: UserCriteria) {
 
 function scoreBrand(vehicle: Vehicle, criteria: UserCriteria) {
   if (criteria.avoidedBrands.some((brand) => sameBrand(brand, vehicle.make))) return 0;
-  if (!criteria.brandPreferences.length) {
-    if (criteria.qualitativeSignals.includes("premium") && premiumMakes.has(normalizeBrand(vehicle.make))) return 88;
-    return 76;
+
+  if (criteria.brandPreferences.length) {
+    const brandScore = criteria.brandPreferences.some((brand) => vehicleMatchesBrandPreference(vehicle, brand))
+      ? 100
+      : 52;
+    if (criteria.modelPreferences.length && vehicleMatchesModelPreferences(vehicle, criteria.modelPreferences)) {
+      return Math.max(brandScore, 96);
+    }
+    return brandScore;
   }
-  const brandScore = criteria.brandPreferences.some((brand) => vehicleMatchesBrandPreference(vehicle, brand)) ? 100 : 52;
-  if (criteria.modelPreferences.length && vehicleMatchesModelPreferences(vehicle, criteria.modelPreferences)) {
-    return Math.max(brandScore, 96);
+
+  // Soft brand-origin preferences (e.g. "Chinese brand") must reach scoring with the
+  // same ~100 vs ~52 gap used for brand preferences — never ignore them when soft.
+  if (criteria.preferredBrandOrigins.length) {
+    return vehicleMatchesBrandOriginPreferences(vehicle, criteria.preferredBrandOrigins) ? 100 : 52;
   }
-  return brandScore;
+
+  if (criteria.qualitativeSignals.includes("premium") && premiumMakes.has(normalizeBrand(vehicle.make))) return 88;
+  return 76;
 }
 
 function scoreCargoPassengers(vehicle: Vehicle, criteria: UserCriteria) {

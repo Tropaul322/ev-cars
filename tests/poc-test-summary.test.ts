@@ -375,6 +375,27 @@ test("binding criteria cannot be skipped with 'no preference'", async () => {
   assert.equal(getCriteriaReadiness(skipped.criteria).readyToMatch, false);
 });
 
+test("soft brand-origin preference ranks matching origins above others", async () => {
+  const vehicles = await assertLiveInventory();
+  const criteria: UserCriteria = {
+    ...emptyCriteria("Chinese brand SUV under 50000 with 350 km freedom", "en"),
+    budgetMaxEUR: 50000,
+    bodyTypes: ["suv"],
+    rangeFloorKm: 350,
+    personalWish: "freedom",
+    preferredBrandOrigins: ["china"]
+  };
+  const { recommendations } = matchVehicles(vehicles, criteria, 5);
+  assert.ok(recommendations.length > 0);
+  assert.equal(recommendations[0].vehicle.brandOrigin, "china");
+  assert.equal(recommendations[0].scoringBreakdown.brandFit, 100);
+  const nonChina = recommendations.find((match) => match.vehicle.brandOrigin !== "china");
+  if (nonChina) {
+    assert.equal(nonChina.scoringBreakdown.brandFit, 52);
+    assert.ok(recommendations[0].score >= nonChina.score);
+  }
+});
+
 test("next clarification after budget+origin asks for body/range/wish — not ready", () => {
   const criteria: UserCriteria = {
     ...emptyCriteria("Chinese under 40k", "en"),
