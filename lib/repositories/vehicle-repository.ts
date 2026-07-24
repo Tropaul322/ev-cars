@@ -49,11 +49,12 @@ const VEHICLE_SELECT = "id,payload";
 
 export async function listVehicles(): Promise<Vehicle[]> {
   const vehicles = await fetchSupabaseVehicles();
-  if (vehicles) return vehicles;
+  if (vehicles?.length) return vehicles;
   matchDebugWarn("vehicle-repository.list-unavailable", {
-    reason: "supabase-list-unavailable"
+    reason: vehicles ? "supabase-list-empty" : "supabase-list-unavailable",
+    fallback: "bundled-catalog"
   });
-  return [];
+  return listBundledVehicles();
 }
 
 export type VehicleSearchOptions = {
@@ -71,17 +72,19 @@ export async function searchVehicles(
   if (!structuredEnabled && !embeddingEnabled) {
     matchDebug("vehicle-repository.search-disabled", {
       structuredEnabled,
-      embeddingEnabled
+      embeddingEnabled,
+      fallback: "bundled-catalog"
     });
-    return [];
+    return searchBundledVehicles(criteria, options);
   }
 
   const supabase = getSupabaseRestConfig();
   if (!supabase) {
     matchDebugWarn("vehicle-repository.search-unavailable", {
-      reason: "supabase-unconfigured"
+      reason: "supabase-unconfigured",
+      fallback: "bundled-catalog"
     });
-    return [];
+    return searchBundledVehicles(criteria, options);
   }
 
   const embeddingQuery = buildVehicleEmbeddingQuery(criteria, message);
@@ -264,6 +267,26 @@ async function fetchSupabaseVehicles(): Promise<Vehicle[] | null> {
   } catch {
     return null;
   }
+}
+
+/** Offline / unconfigured fallback: curated seed + checked-in FlowRyd inventory. */
+function listBundledVehicles(): Vehicle[] {
+  const bundled = normalizeSupabaseVehicles(allVehicles);
+  matchDebug("vehicle-repository.list-bundled", { vehicles: bundled.length });
+  return bundled;
+}
+
+function searchBundledVehicles(criteria: UserCriteria, options: VehicleSearchOptions = {}): Vehicle[] {
+  const filtered = filterVehiclesForSearch(listBundledVehicles(), criteria);
+  const offset = options.offset ?? 0;
+  const paged = offset > 0 ? filtered.slice(offset) : filtered;
+  matchDebug("vehicle-repository.search-bundled", {
+    filteredVehicles: filtered.length,
+    returnedVehicles: paged.length,
+    searchOffset: offset,
+    queryFilters: summarizeVehicleSearchFilters(criteria)
+  });
+  return paged;
 }
 
 function normalizeSupabaseVehicles(vehicles: Vehicle[]) {

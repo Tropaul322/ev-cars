@@ -422,25 +422,28 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
 
   const nextPrompt = nextClarificationPrompt(criteria, skippedKeys);
   // Chip-only first messages still clarify once; criteriaOverride is an intentional force path.
+  // If the opening message already named an optimization (best value, family fit, …), search immediately.
   const firstTurnMustClarify = !hasPriorContext && !body.criteriaOverride;
-  const promptForTurn =
-    firstTurnMustClarify && nextPrompt.key === "ready"
-      ? getOptimizationPrompt(criteria.language)
-      : nextPrompt;
+  const forceFirstTurnOptimization =
+    firstTurnMustClarify && nextPrompt.key === "ready" && !criteria.optimizationDirective;
+  const promptForTurn = forceFirstTurnOptimization
+    ? getOptimizationPrompt(criteria.language)
+    : nextPrompt;
 
   const isChatTurn =
     !body.criteriaPatch &&
     !brandWiden &&
     (trigger === "small_talk" ||
       trigger === "meta" ||
-      (trigger === "ev_question" && !criteriaChanged));
+      // Knowledge questions stay conversational even if incidental feature words were parsed.
+      trigger === "ev_question");
 
   const readyToSearch =
     promptForTurn.key === "ready" && readiness.groups.budget && hasMeaningfulCriteria(criteria);
 
   const wantsMatch =
     !isChatTurn &&
-    !firstTurnMustClarify &&
+    !forceFirstTurnOptimization &&
     readiness.groups.budget &&
     (readyToSearch ||
       body.intent === "show_matches" ||
@@ -449,9 +452,15 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       trigger === "brand_focus" ||
       isNextBatch ||
       (!hasPriorContext &&
+        !firstTurnMustClarify &&
         (hasInventoryLookup(criteria) ||
           readiness.readyToMatch ||
           (promptForTurn.key === "ready" && hasMeaningfulCriteria(criteria)))) ||
+      (!hasPriorContext &&
+        firstTurnMustClarify &&
+        promptForTurn.key === "ready" &&
+        Boolean(criteria.optimizationDirective) &&
+        (hasInventoryLookup(criteria) || readiness.readyToMatch || hasMeaningfulCriteria(criteria))) ||
       (hasPriorContext &&
         criteriaChanged &&
         (readiness.readyToMatch || hasInventoryLookup(criteria))));
@@ -545,14 +554,28 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     pipelineFallbacks,
     async () => {
       const candidateVehicles = await searchVehicles(criteria, body.message, { offset: searchOffset });
-      const vehiclesForScoring = candidateVehicles.length ? candidateVehicles : await listVehicles();
-      if (!candidateVehicles.length) pipelineFallbacks.fallbackSource = "full_catalog_list";
+      let scoringSource = candidateVehicles;
+      let usedFallbackList = candidateVehicles.length === 0;
+      if (!scoringSource.length) {
+        scoringSource = await listVehicles();
+        usedFallbackList = true;
+      }
+      // Next-batch with a tiny hybrid/structured hit list often exhausts after one reveal.
+      // Expand to the full catalog so "show more" can keep browsing under the same criteria.
+      if (isNextBatch && shownVehicleIds.size && scoringSource.length <= CACHED_RECOMMENDATION_LIMIT) {
+        const catalog = await listVehicles();
+        if (catalog.length > scoringSource.length) {
+          scoringSource = catalog;
+          usedFallbackList = true;
+          if (!pipelineFallbacks.fallbackSource) pipelineFallbacks.fallbackSource = "next_batch_catalog_expand";
+        }
+      }
       return {
         candidateVehicles,
-        scoringVehicles: dedupeVehiclesForMatching(vehiclesForScoring),
+        scoringVehicles: dedupeVehiclesForMatching(scoringSource),
         structuredHits: candidateVehicles.length,
         embeddingHits: candidateVehicles.filter((vehicle) => (vehicle.embeddingSimilarity ?? 0) > 0).length,
-        usedFallbackList: candidateVehicles.length === 0
+        usedFallbackList
       };
     },
     () => ({
@@ -579,7 +602,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
 
   const sanePool = filterVehiclesWithSanityChecks(retrieved.scoringVehicles);
   const candidateVehicles = retrieved.candidateVehicles;
-  const scoringVehicles = sanePool.vehicles;
+  let scoringVehicles = sanePool.vehicles;
   const structuredHits = retrieved.structuredHits;
   const embeddingHits = retrieved.embeddingHits;
   matchDebug("candidate-pool", {
@@ -592,9 +615,19 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     usedFallbackList: retrieved.usedFallbackList,
     sanityRejectedVehicles: sanePool.rejectedCount
   });
-  const nextBatchVehicles = isNextBatch
+  let nextBatchVehicles = isNextBatch
     ? scoringVehicles.filter((vehicle) => !vehicleHasShownKey(vehicle, shownVehicleIds))
     : scoringVehicles;
+  if (isNextBatch && shownVehicleIds.size && nextBatchVehicles.length === 0) {
+    const catalog = filterVehiclesWithSanityChecks(await listVehicles()).vehicles.filter(
+      (vehicle) => !vehicleHasShownKey(vehicle, shownVehicleIds)
+    );
+    if (catalog.length) {
+      scoringVehicles = filterVehiclesWithSanityChecks(await listVehicles()).vehicles;
+      nextBatchVehicles = catalog;
+      if (!pipelineFallbacks.fallbackSource) pipelineFallbacks.fallbackSource = "next_batch_catalog_expand";
+    }
+  }
   const matchingCandidates = limitVehiclesPerModel(nextBatchVehicles, criteria, MATCH_MODEL_CANDIDATE_LIMIT);
   matchDebug("matching-candidates", {
     sessionId,

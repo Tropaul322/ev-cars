@@ -26,11 +26,12 @@ type NoMatchesInput = AssistantMessageInput & {
 };
 
 const assistantMessageSystemPromptBase =
-  "You are FlowRyd, a friendly Austrian EV shopping assistant. Write natural, conversational user-facing text. " +
+  "You are FlowRyd, a friendly Austrian EV shopping assistant. Write natural, conversational user-facing text — like a knowledgeable friend who happens to know cars, not a form wizard or call-center script. " +
   "Return only JSON: {\"message\":\"...\"}. " +
   "When conversationContinues is true, treat this as an ongoing chat: do not re-introduce yourself, repeat who FlowRyd is, or replay your full capability pitch unless the user explicitly asks again. " +
-  "For greetings, clarifications, and nudges keep replies under 300 characters. " +
-  "For conversational answers (kind=conversational) or no-match explanations you may use up to 500 characters.";
+  "Never mention buttons, chips, menus, or UI controls. " +
+  "For greetings, clarifications, and nudges keep replies under 280 characters. " +
+  "For conversational answers (kind=conversational) or no-match explanations you may use up to 520 characters.";
 
 function llmEnabled() {
   return process.env.FLOWRYD_DISABLE_LLM !== "1" && openAiConfigured();
@@ -68,7 +69,7 @@ export async function generateChatGreeting(input: {
     "chat_greeting",
     {
       task: continues
-        ? "Reply warmly to the user's latest message only — like continuing a chat with a friend. Acknowledge what they said (thanks, ok, nice, etc.) in one short beat. Do NOT re-introduce yourself or mention FlowRyd by name. Do NOT repeat your capabilities or invite them to start searching unless they ask. Keep it light and forward-moving."
+        ? "Reply warmly to the user's latest message only — like continuing a chat with a friend. Acknowledge what they said (thanks, ok, nice, etc.) in one short beat. Do NOT re-introduce yourself or mention FlowRyd by name. Do NOT ask a new shopping question, repeat the previous criteria question, or push budget/use-case follow-ups unless they clearly asked to continue searching. Keep it light and brief."
         : "Reply warmly and conversationally to the user's message — like a friendly chat, not a form. If they greet you or ask how you are, respond naturally first. Briefly mention you're FlowRyd and can help find an EV when they're ready, but do NOT immediately ask for budget or push criteria questions unless they already started sharing preferences.",
       message: input.message,
       language: input.criteria.language,
@@ -134,7 +135,7 @@ export async function generateClarificationResponse(input: {
     "clarification_natural",
     {
       task:
-        "Ask the user the guideQuestion in a natural, chat-like way. If knownCriteria is not empty, briefly acknowledge what you already know before asking. Never copy guideQuestion word-for-word — rephrase it.",
+        "Ask the user the guideQuestion in a natural, chat-like way. Stay faithful to the intent of guideQuestion — if it asks where they charge, ask about charging location (home/work/public), not about range targets. If knownCriteria is not empty, briefly acknowledge what you already know in a few words before asking. Never copy guideQuestion word-for-word — rephrase it. Ask exactly one question.",
       message: input.message,
       language: input.criteria.language,
       guideQuestion: input.catalogQuestion,
@@ -192,7 +193,7 @@ export async function generateConversationalResponse(input: {
     "conversational",
     {
       task:
-        "Reply naturally to the user's message. If it is a general EV or shopping question, answer it directly from your knowledge. If stepContext is provided and the question relates to the current matching step, you may use it as background — but do not paste it verbatim and do not force the user back into a form-like flow. Do not ask them to tap buttons or chips. Keep it conversational." +
+        "Reply naturally to the user's message. If it is a general EV or shopping question, answer it directly and helpfully from your knowledge (Austrian/EU context when relevant: winters, wallboxes, Autobahn, Förderungen). Give a concrete takeaway, not a vague hedge. If stepContext is provided and the question relates to the current matching step, you may use it as background — but do not paste it verbatim and do not force the user back into a form-like flow. Do not ask them to tap buttons or chips. Keep it conversational. End with at most one optional soft offer to continue the search — never a mandatory criteria interrogation." +
         (continues
           ? " This chat is already underway — do not re-introduce yourself or repeat your opening pitch."
           : ""),
@@ -299,10 +300,10 @@ export async function generateMatchIntroMessage(input: {
 
   const generated = await generateMessage("match_intro", {
     task:
-      "Briefly introduce the ranked EV listings in a natural conversational way. Do not reuse a fixed template. Mention hard filters only if relevant, without the phrase \"hard limits like budget, availability, and explicit range\". Add the lowConfidenceQuestion only when it is a non-null string; otherwise do not invent a priority follow-up." +
+      "Briefly introduce the ranked EV listings like a helpful advisor texting a customer. Sound specific and warm — reference the user's budget, use case, or must-haves when present. Do not reuse a fixed template. Do not say \"hard limits\" or \"hard filters\". Mention tradeoffs only if rejectedSummary is non-empty and useful. Add the lowConfidenceQuestion only when it is a non-null string; otherwise do not invent a priority follow-up." +
       brandRule +
       widenRule +
-      " Never invent car brands that are absent from inventoryBrands.",
+      " Never invent car brands that are absent from inventoryBrands. Prefer naming the top result's situation over listing every brand.",
     language: input.criteria.language,
     recommendationCount: input.recommendationCount,
     lowConfidenceQuestion: input.lowConfidenceQuestion ?? null,
@@ -465,8 +466,8 @@ export function fallbackChatGreeting(
 ) {
   if (conversationContinues(conversationHistory)) {
     return criteria.language === "de"
-      ? "Alles klar! Sag Bescheid, wenn du mit der E-Auto-Suche starten willst — oder frag einfach weiter."
-      : "Sounds good! Tell me when you want to start your EV search — or just keep chatting.";
+      ? "Gern geschehen! Sag einfach Bescheid, wenn du weitermachen willst."
+      : "You're welcome! Just say the word whenever you want to keep going.";
   }
   if (criteria.language === "de") {
     return "Hey! Mir geht's gut, danke der Nachfrage. Ich bin FlowRyd — wenn du magst, erzähl mir später einfach von Budget, Alltag und Wünschen für dein E-Auto.";
@@ -503,12 +504,16 @@ export function fallbackMatchIntroMessage(
     brands.length === 0
       ? ""
       : criteria.language === "de"
-        ? ` Andere Marken in diesen Treffern: ${brands.join(", ")}.`
-        : ` Other brands in these results: ${brands.join(", ")}.`;
+        ? ` Dabei sind unter anderem ${brands.slice(0, 3).join(", ")}.`
+        : ` That includes makes like ${brands.slice(0, 3).join(", ")}.`;
   const base =
     criteria.language === "de"
-      ? `${recommendationCount} passende E-Auto${recommendationCount === 1 ? "" : "s"} gefunden.${brandSentence}`
-      : `Found ${recommendationCount} matching EV${recommendationCount === 1 ? "" : "s"}.${brandSentence}`;
+      ? recommendationCount === 1
+        ? `Ich habe ein starkes Match für dich.${brandSentence}`
+        : `Ich habe ${recommendationCount} passende E-Autos für dich.${brandSentence}`
+      : recommendationCount === 1
+        ? `I found a strong match for you.${brandSentence}`
+        : `I found ${recommendationCount} matching EVs for you.${brandSentence}`;
   return lowConfidenceQuestion ? `${base} ${lowConfidenceQuestion}` : base;
 }
 

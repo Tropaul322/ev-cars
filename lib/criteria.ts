@@ -101,9 +101,9 @@ const featureKeywords: Array<[Feature, RegExp]> = [
   ["wireless_charging", /\b(wireless charging|kabellos laden|induktiv)\b/i],
   ["heated_seats", /\b(heated seats|sitzheizung|beheizte sitze)\b/i],
   ["premium_audio", /\b(bose|harman|bowers|b&w|burmester|premium audio|guter sound)\b/i],
-  ["large_trunk", /\b(large trunk|big boot|großer kofferraum|grosser kofferraum|viel stauraum|kinderwagen)\b/i],
-  ["heat_pump", /\b(heat pump|wärmepumpe)\b/i],
-  ["awd", /\b(awd|allrad|winter|schnee|berge|ski)\b/i],
+  // large_trunk is scored via cargoNeeds — do not hard-require the feature tag
+  ["heat_pump", /\b(heat pump|wärmepumpe|waermepumpe)\b/i],
+  ["awd", /\b(awd|all[\s-]?wheel(?:\s+drive)?|4wd|4x4|allrad(?:antrieb)?)\b/i],
   ["voice_assistant", /\b(voice assistant|sprachassistent|sprachsteuerung)\b/i],
   ["reliable_connectivity", /\b(ota|bluetooth|wi-fi|wifi|usb-c|connectivity|konnektivität)\b/i]
 ];
@@ -361,7 +361,9 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
     ? null
     : extractOptimizationDirective(text) ?? base.optimizationDirective;
   const reliabilityImportance = deriveReliabilityImportance(text, qualitativeSignals, base.reliabilityImportance);
-  const brandFit = deriveBrandFit(text, brandPreferences, base.brandFit);
+  const avoidedLower = new Set(avoidedBrands.map((brand) => brand.toLowerCase()));
+  const preferredBrands = brandPreferences.filter((brand) => !avoidedLower.has(brand.toLowerCase()));
+  const brandFit = deriveBrandFit(text, preferredBrands, base.brandFit);
 
   return {
     ...base,
@@ -380,7 +382,7 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
     cargoNeeds,
     preferredCondition,
     bodyTypes,
-    brandPreferences,
+    brandPreferences: preferredBrands,
     preferredBrandOrigins,
     modelPreferences,
     avoidedBrands,
@@ -898,7 +900,13 @@ function extractPassengers(text: string) {
 }
 
 function extractCargoNeeds(text: string): UserCriteria["cargoNeeds"] {
-  if (/(large trunk|big boot|viel stauraum|großer kofferraum|grosser kofferraum|kinderwagen|ski)/i.test(text)) return "high";
+  if (
+    /(large trunk|big boot|big cargo|large cargo|viel stauraum|großer kofferraum|grosser kofferraum|kinderwagen|ski)/i.test(
+      text
+    )
+  ) {
+    return "high";
+  }
   if (/(some cargo|weekend bags|einkauf|medium trunk)/i.test(text)) return "medium";
   if (/(easy parking|city only|stadt|klein)/i.test(text)) return "low";
   return null;
@@ -965,7 +973,28 @@ export function extractOptimizationDirective(text: string): OptimizationDirectiv
 }
 
 export function constraintSourceText(criteria: UserCriteria) {
-  return (criteria.latestUserMessage || criteria.rawPrompt || "").trim();
+  const latest = (criteria.latestUserMessage || "").trim();
+  const raw = (criteria.rawPrompt || "").trim();
+  if (!latest) return raw;
+  if (!raw || raw === latest) return latest;
+  // Thin chip / nudge replies must not wipe exclusivity established earlier in the thread.
+  // Real pivots ("only Ford", "actually a 2-seater") still win via the latest message.
+  if (isThinConstraintReply(latest)) return raw;
+  return latest;
+}
+
+function isThinConstraintReply(message: string) {
+  const words = message.split(/\s+/).filter(Boolean);
+  if (
+    /^(best value|maximum range|reliability|family fit|fastest charging|lowest running cost|performance|bestes preis(?:-leistungs-verhältnis)?|maximale reichweite|zuverlässigkeit|familientauglichkeit|schnellstes laden|niedrigste laufende kosten|fahrspaß|fahrspass)\b/i.test(
+      message
+    )
+  ) {
+    return true;
+  }
+  // One/two-word chip taps ("Thanks", "SUV", "Home charging") stay thin; longer soft follow-ups
+  // like "preferably something efficient" must redefine exclusivity from the latest turn.
+  return words.length <= 2;
 }
 
 export function hasHardRangeConstraint(criteria: UserCriteria) {
@@ -990,14 +1019,22 @@ export function hasExactSeatPreference(criteria: UserCriteria) {
   );
 }
 
+/** Quantity / floor language — used for range and seats. */
 const exclusiveCue =
   /\b(only|must|need|needs|required|require|requires|at least|minimum|min\.?|mindestens|nur|brauche|benötige|benoetige|ausschließlich|ausschliesslich)\b/i;
+
+/**
+ * Strong exclusivity for body / condition / brand / origin.
+ * Bare "need/brauche" is everyday shopping language ("I need a compact EV") and must stay soft.
+ */
+const strictExclusiveCue =
+  /\b(only|just|must(?:\s+be)?|required|require|requires|has to be|needs to be|mindestens|nur|ausschließlich|ausschliesslich)\b/i;
 
 export function hasHardBodyTypeConstraint(criteria: UserCriteria) {
   if (!criteria.bodyTypes.length) return false;
   const text = constraintSourceText(criteria);
   return (
-    exclusiveCue.test(text) &&
+    strictExclusiveCue.test(text) &&
     /\b(suv|sedan|hatchback|wagon|van|compact|coupe|crossover|limousine|kombi|kleinwagen)\b/i.test(text)
   );
 }
@@ -1005,7 +1042,7 @@ export function hasHardBodyTypeConstraint(criteria: UserCriteria) {
 export function hasHardConditionConstraint(criteria: UserCriteria) {
   if (criteria.preferredCondition === "any") return false;
   const text = constraintSourceText(criteria);
-  return exclusiveCue.test(text) && /\b(new|used|neu|gebraucht(?:e|es|er)?|new car|used car)\b/i.test(text);
+  return strictExclusiveCue.test(text) && /\b(new|used|neu|gebraucht(?:e|es|er)?|new car|used car)\b/i.test(text);
 }
 
 export function hasHardBrandConstraint(criteria: UserCriteria) {
@@ -1013,7 +1050,7 @@ export function hasHardBrandConstraint(criteria: UserCriteria) {
   if (criteria.modelPreferences.length) return true;
   const text = constraintSourceText(criteria);
   return (
-    exclusiveCue.test(text) &&
+    strictExclusiveCue.test(text) &&
     criteria.brandPreferences.some((brand) => new RegExp(`\\b${escapeRegExp(brand)}\\b`, "i").test(text))
   );
 }
@@ -1022,7 +1059,7 @@ export function hasHardBrandOriginConstraint(criteria: UserCriteria) {
   if (!criteria.preferredBrandOrigins.length) return false;
   const text = constraintSourceText(criteria);
   return (
-    exclusiveCue.test(text) &&
+    strictExclusiveCue.test(text) &&
     /\b(european|europe|europäisch|europaeisch|chinese|china|chinesisch|korean|korea|american|usa|us)\b/i.test(text)
   );
 }
@@ -1064,9 +1101,12 @@ function extractFeatures(text: string) {
 }
 
 function extractBrandPreferences(text: string) {
-  const explicit = brandNames.filter((brand) =>
-    new RegExp(`\\b${escapeRegExp(brand.toLowerCase())}\\b`, "i").test(text)
-  );
+  const avoided = new Set(extractAvoidedBrands(text).map((brand) => brand.toLowerCase()));
+  const explicit = brandNames.filter((brand) => {
+    if (avoided.has(brand.toLowerCase())) return false;
+    if (isBrandMentionNegated(text, brand)) return false;
+    return new RegExp(`\\b${escapeRegExp(brand.toLowerCase())}\\b`, "i").test(text);
+  });
   return Array.from(new Set(explicit));
 }
 
@@ -1094,10 +1134,18 @@ function extractModelPreferences(text: string) {
 function extractAvoidedBrands(text: string) {
   const avoided: string[] = [];
   for (const brand of brandNames) {
-    const pattern = new RegExp(`(not|avoid|no|kein|keine|ohne)\\s+${escapeRegExp(brand.toLowerCase())}`, "i");
-    if (pattern.test(text)) avoided.push(brand);
+    if (isBrandMentionNegated(text, brand)) avoided.push(brand);
   }
   return avoided;
+}
+
+/** True when a brand appears in a negation / exclusion phrase. */
+function isBrandMentionNegated(text: string, brand: string) {
+  const escaped = escapeRegExp(brand.toLowerCase());
+  return new RegExp(
+    `\\b(?:not|avoid|avoiding|without|except|no|kein|keine|keinen|keinem|ohne|nicht)\\s+${escaped}\\b|\\b${escaped}\\s+(?:is\\s+)?(?:out|excluded|vermeiden)\\b|\\bno\\s+${escaped}\\s+please\\b`,
+    "i"
+  ).test(text);
 }
 
 function deriveBrandFit(text: string, brandPreferences: string[], previous: Importance): Importance {

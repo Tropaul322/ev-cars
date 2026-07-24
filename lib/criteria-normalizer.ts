@@ -86,6 +86,10 @@ Core rules:
 8. Brand-only previousCriteria + new seats/body/sport/family profile without naming that brand → treat as pivot: do not keep brandPreferences/modelPreferences; server also resets topic filters.
 9. Mild refinements (budget, features, charging only) keep prior brandPreferences.
 10. "other brands" / "any brand" / "andere Marken" → criteriaPatch.remove: ["brand","model"] (and empty brand/model lists). Do NOT invent bodyTypes, tripNeeds, passengers, or optimizationDirective on brand-widen — only clear brand/model.
+11. Negated brands ("no Tesla", "ohne VW", "avoid Ford", "kein BMW") go in avoidedBrands ONLY — never brandPreferences.
+12. Knowledge questions about features (heat pumps, charging, incentives) are NOT criteria updates — return {} / empty patch.
+13. "large trunk" / "großer Kofferraum" → cargoNeeds: "high". Do not put large_trunk in mustHaveFeatures.
+14. Winter / mountains / snow imply tripNeeds, not mustHaveFeatures awd, unless the user explicitly asks for AWD/allrad.
 
 Modification modes:
 - ADD (default): append to list fields or update scalars without dropping unrelated prior values.
@@ -246,9 +250,20 @@ export function applyCriteriaPatch(
   if (deterministic.brandPreferences.length && !replaceIntent) {
     criteria.brandPreferences = mergeUnique(criteria.brandPreferences, deterministic.brandPreferences);
   }
+  if (deterministic.avoidedBrands.length) {
+    criteria.avoidedBrands = mergeUnique(criteria.avoidedBrands, deterministic.avoidedBrands);
+  }
 
   for (const removal of patch.remove ?? []) {
     applyRemoval(criteria, removal);
+  }
+
+  // Negated brands must never remain as preferences.
+  if (criteria.avoidedBrands.length && criteria.brandPreferences.length) {
+    const avoided = new Set(criteria.avoidedBrands.map((brand) => brand.toLowerCase()));
+    criteria.brandPreferences = criteria.brandPreferences.filter(
+      (brand) => !avoided.has(brand.toLowerCase())
+    );
   }
 
   return criteria;
