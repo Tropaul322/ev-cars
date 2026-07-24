@@ -201,6 +201,14 @@ export function getHardFilterReasons(vehicle: Vehicle, criteria: UserCriteria) {
   if (hasHardPassengerConstraint(criteria) && criteria.passengers && vehicle.seats < criteria.passengers) {
     reasons.push(`only ${vehicle.seats} seats`);
   }
+  // Exact capacity language ("2-seater") must not keep ordinary 5-seat hatchbacks/SUVs.
+  if (
+    hasExactSeatPreference(criteria) &&
+    criteria.passengers &&
+    vehicle.seats > criteria.passengers
+  ) {
+    reasons.push(`has ${vehicle.seats} seats, not a ${criteria.passengers}-seater`);
+  }
   if (criteria.mustHaveFeatures.length) {
     const normalizedFeatures = normalizeVehicleFeatures(vehicle.features, vehicle);
     const missingFeatures = criteria.mustHaveFeatures.filter((feature) => !normalizedFeatures.includes(feature));
@@ -294,6 +302,12 @@ export function deriveWeights(criteria: UserCriteria, vehicles: Vehicle[]): Weig
   if (criteria.personalWish === "childhood_memories") {
     weights.reliabilityFit += 0.1;
     weights.cargoPassengerFit += 0.04;
+  }
+  // Soft origin preferences (e.g. "made in China") must outweigh mild body near-misses.
+  if (criteria.preferredBrandOrigins.length) {
+    weights.brandFit += 0.12;
+    weights.cargoPassengerFit -= 0.04;
+    weights.priceFit -= 0.04;
   }
 
   const total = Object.values(weights).reduce((sum, value) => sum + value, 0);
@@ -412,7 +426,10 @@ function scoreCargoPassengers(vehicle: Vehicle, criteria: UserCriteria) {
     score += vehicle.seats >= 5 && vehicle.cargoLiters >= 440 ? 14 : -18;
   }
   if (criteria.bodyTypes.length && !hasHardBodyTypeConstraint(criteria)) {
-    score += criteria.bodyTypes.includes(vehicle.bodyType) ? 14 : -22;
+    // When the user also named a brand origin, keep near-miss bodies eligible without
+    // wiping the origin preference (many Chinese crossovers are typed as "other").
+    const bodyMissPenalty = criteria.preferredBrandOrigins.length ? -8 : -22;
+    score += criteria.bodyTypes.includes(vehicle.bodyType) ? 14 : bodyMissPenalty;
   }
   return clamp(score, 20, 100);
 }

@@ -438,8 +438,9 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     !brandWiden &&
     (trigger === "small_talk" ||
       trigger === "meta" ||
-      // Knowledge questions stay conversational even if incidental feature words were parsed.
-      trigger === "ev_question");
+      // Knowledge questions stay conversational unless the turn already named an
+      // optimization directive (best value / max range / …) — those must shop.
+      (trigger === "ev_question" && !criteria.optimizationDirective));
 
   const readyToSearch =
     promptForTurn.key === "ready" && readiness.readyToMatch && hasMeaningfulCriteria(criteria);
@@ -896,6 +897,7 @@ export function filterVehiclesWithSanityChecks(vehicles: Vehicle[]) {
 }
 
 function isSaneVehicleForScoring(vehicle: Vehicle) {
+  const minPowerKw = vehicle.seats <= 2 ? 5 : 20;
   return (
     isFiniteNumberInRange(vehicle.priceEUR, 1_000, 250_000) &&
     isFiniteNumberInRange(vehicle.rangeKm, 80, 900) &&
@@ -903,7 +905,7 @@ function isSaneVehicleForScoring(vehicle: Vehicle) {
     isFiniteNumberInRange(vehicle.batteryKwh, 10, 220) &&
     isFiniteNumberInRange(vehicle.seats, 1, 9) &&
     isFiniteNumberInRange(vehicle.cargoLiters, 0, 3_000) &&
-    isFiniteNumberInRange(vehicle.powerKw, 20, 1_000) &&
+    isFiniteNumberInRange(vehicle.powerKw, minPowerKw, 1_000) &&
     // Missing SoH is common on marketplace payloads (undefined/null) — treat as unknown, not insane.
     (vehicle.batterySoH == null || isFiniteNumberInRange(vehicle.batterySoH, 50, 100))
   );

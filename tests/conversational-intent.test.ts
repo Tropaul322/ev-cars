@@ -51,6 +51,11 @@ test("detects casual small talk and greetings", () => {
   assert.equal(classifyConversationTurn("What charging options are there?"), "ev_question");
   assert.equal(classifyConversationTurn("What about Ford?"), "criteria");
   assert.equal(classifyConversationTurn("Ok can you show them?"), "show_matches");
+  assert.equal(
+    classifyConversationTurn("Which electric vehicle gives me the best price-to-performance ratio right now?"),
+    "criteria"
+  );
+  assert.equal(looksLikeEvQuestion("Which electric vehicle gives me the best price-to-performance ratio right now?"), false);
   assert.equal(isExplicitShowMatches("Ok can you show them?"), true);
   assert.equal(looksLikeBrandFocusQuestion("What about Ford?"), true);
   assert.equal(looksLikeEvQuestion("What charging options are there?"), true);

@@ -1,4 +1,4 @@
-import { extractCriteria, looksLikeBrandFocusQuestion, looksLikeBrandWidenRequest } from "./criteria.ts";
+import { extractCriteria, extractOptimizationDirective, looksLikeBrandFocusQuestion, looksLikeBrandWidenRequest } from "./criteria.ts";
 import { sanitizeCriteriaPatch } from "./criteria-normalizer.ts";
 import { PROMPT_GUARD_SYSTEM_NOTE } from "./prompt-guard.ts";
 import type { LlmConversationTurn } from "./llm-conversation.ts";
@@ -182,6 +182,8 @@ export function looksLikeEvQuestion(message: string) {
   if (!trimmed) return false;
   if (isCasualSmallTalk(trimmed) || isAssistantMetaQuestion(trimmed)) return false;
   if (looksLikeShoppingIntent(trimmed)) return false;
+  // Optimization directives are shopping instructions, not general EV Q&A.
+  if (extractOptimizationDirective(trimmed)) return false;
 
   const isQuestion =
     trimmed.endsWith("?") ||
@@ -194,7 +196,7 @@ export function looksLikeEvQuestion(message: string) {
 }
 
 function looksLikeShoppingIntent(message: string) {
-  return /\b(find( me)?|show( me)?|looking for|need|search|suche|zeig( mir)?|brauch(e)?|findest du|kannst du .*finden)\b/i.test(
+  return /\b(find( me)?|show( me)?|looking for|need|search|suche|zeig( mir)?|brauch(e)?|findest du|kannst du .*finden|price[-\s]?to[-\s]?performance|value for money|best value|preis[-\s]?leistung)\b/i.test(
     message
   );
 }

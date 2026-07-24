@@ -285,12 +285,20 @@ test("extracts optimization directives in English and German", () => {
     ["beste Ladeleistung und Schnellladen", "fastest_charging"],
     ["niedrigste laufende Kosten", "lowest_running_cost"],
     ["familienfreundlich mit viel Platz", "best_family_fit"],
-    ["sportlich mit Fahrspass", "performance"]
+    ["sportlich mit Fahrspass", "performance"],
+    ["Maximum possible range, budget is irrelevant", "maximum_range"],
+    ["forget the family car, show me a fun 2-seater sports EV instead", "performance"],
+    ["Which EV gives the best price-to-performance ratio?", "best_value"]
   ];
 
   for (const [message, directive] of cases) {
     assert.equal(extractCriteria(message).optimizationDirective, directive, message);
   }
+});
+
+test("no-budget phrasing covers money-is-not-the-concern variants", () => {
+  assert.equal(extractCriteria("money is not the main concern, maximum range").budgetMaxEUR, 60000);
+  assert.equal(extractCriteria("budget is irrelevant, max range EV").budgetMinEUR, 25000);
 });
 
 test("no budget answers apply the default working range", () => {
@@ -912,7 +920,7 @@ test("family-inferred passengers are soft but explicit seat constraints are hard
   );
 });
 
-test("2-seater phrasing prioritizes exact seat count over larger cars", () => {
+test("2-seater phrasing hard-rejects larger cars from the pool", () => {
   const template = seedVehicles[0];
   assert.ok(template);
   const twoSeatRoadster: Vehicle = {
@@ -947,12 +955,14 @@ test("2-seater phrasing prioritizes exact seat count over larger cars", () => {
   assert.equal(hasExactSeatPreference(criteria), true);
 
   const result = matchVehicles([fiveSeatFamily, twoSeatRoadster], criteria, 2);
-  assert.equal(result.recommendations.length, 2);
+  assert.equal(result.recommendations.length, 1);
   assert.equal(result.recommendations[0]?.vehicle.id, "exact-two-seater");
-  assert.equal(result.recommendations[1]?.vehicle.id, "larger-five-seater");
   assert.ok(
-    (result.recommendations[0]?.score ?? 0) > (result.recommendations[1]?.score ?? 0),
-    "exact 2-seater should outscore larger fallback"
+    result.rejected.some(
+      (item) =>
+        item.vehicle.id === "larger-five-seater" &&
+        item.reasons.some((reason) => /not a 2-seater|has 5 seats/i.test(reason))
+    )
   );
 });
 

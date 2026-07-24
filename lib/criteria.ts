@@ -759,7 +759,7 @@ function extractRemovals(text: string) {
 }
 
 export function looksLikeNoBudgetLimit(text: string) {
-  return /\b(no budget(?: limit)?|no price limit|no limit|unlimited budget|budget does(?:n'?t)? matter|price does(?:n'?t)? matter|kein budget(?:limit)?|kein limit|budget egal|preis egal)\b/i.test(
+  return /\b(no budget(?: limit)?|no price limit|no limit|unlimited budget|budget does(?:n'?t)? matter|budget is irrelevant|price does(?:n'?t)? matter|money (?:is|does)(?:\s+not|n't) (?:the main )?concern|money does(?:n'?t)? matter|kein budget(?:limit)?|kein limit|budget egal|preis egal|geld (?:spielt )?keine rolle)\b/i.test(
     text
   );
 }
@@ -917,7 +917,7 @@ function extractPassengers(text: string) {
 
 function extractCargoNeeds(text: string): UserCriteria["cargoNeeds"] {
   if (
-    /(large trunk|big boot|big cargo|large cargo|viel stauraum|großer kofferraum|grosser kofferraum|kinderwagen|ski)/i.test(
+    /(large trunk|big boot|big cargo|large cargo|viel stauraum|großer kofferraum|grosser kofferraum|kinderwagen|ski|mountain\s*bike|bike\s*rack|fahrrad|e-?bike|stroller)/i.test(
       text
     )
   ) {
@@ -964,28 +964,47 @@ function extractQualitativeSignals(text: string): QualitativeSignal[] {
 }
 
 export function extractOptimizationDirective(text: string): OptimizationDirective | null {
-  if (/(best value|value for money|price[-\s]?to[-\s]?performance|price performance|bang for buck|preis[-\s]?leistung|preiswert|gutes angebot|bestes angebot)/i.test(text)) {
+  const cleaned = stripNegatedTopicPhrases(text);
+
+  // Value-for-money before performance so "price-to-performance" is not misread as sporty.
+  if (/(best value|value for money|price[-\s]?to[-\s]?performance|price performance|bang for buck|preis[-\s]?leistung|preiswert|gutes angebot|bestes angebot)/i.test(cleaned)) {
     return "best_value";
   }
-  if (/(maximum range|max(?:imum)? reichweite|maximale reichweite|most range|longest range|größte reichweite|groesste reichweite|hoechste reichweite|höchste reichweite)/i.test(text)) {
-    return "maximum_range";
-  }
-  if (/(most reliable|reliability first|zuverlässigst|zuverlaessigst|am zuverlässigsten|am zuverlaessigsten|haltbar(st)?)/i.test(text)) {
-    return "most_reliable";
-  }
-  if (/(fastest charging|best charging|schnellladen|schnellste ladung|beste ladeleistung|800v|800 volt)/i.test(text)) {
+  if (/(fastest charging|best charging|schnellladen|schnellste ladung|beste ladeleistung|800v|800 volt)/i.test(cleaned)) {
     return "fastest_charging";
   }
-  if (/(lowest running cost|low(?:est)? running costs|cheapest to run|niedrigste laufende kosten|niedrige kosten|verbrauch optimieren)/i.test(text)) {
-    return "lowest_running_cost";
-  }
-  if (/(best family fit|family fit|familienfreundlich|beste familie|familienauto|family car)/i.test(text)) {
-    return "best_family_fit";
-  }
-  if (/(performance|sporty|quick|fast acceleration|schnell|sportlich|beschleunigung|fahrspaß|fahrspass)/i.test(text)) {
+  // Sports / performance before family so "forget the family car … sports EV" resolves correctly.
+  // Keep "schnell" as a whole word so Schnellladen is not misread as sporty.
+  if (/(?:\bperformance\b|\bsporty\b|\bsports?\b|quick|fast acceleration|\bschnell\b|sportlich|beschleunigung|fahrspaß|fahrspass)/i.test(cleaned)) {
     return "performance";
   }
+  if (
+    /(maximum(?:\s+\w+){0,2}\s+range|max(?:imum)? reichweite|maximale reichweite|most range|longest range|possible range|größte reichweite|groesste reichweite|hoechste reichweite|höchste reichweite)/i.test(
+      cleaned
+    )
+  ) {
+    return "maximum_range";
+  }
+  if (/(most reliable|reliability first|zuverlässigst|zuverlaessigst|am zuverlässigsten|am zuverlaessigsten|haltbar(st)?)/i.test(cleaned)) {
+    return "most_reliable";
+  }
+  if (/(lowest running cost|low(?:est)? running costs|cheapest to run|niedrigste laufende kosten|niedrige kosten|verbrauch optimieren)/i.test(cleaned)) {
+    return "lowest_running_cost";
+  }
+  if (/(best family fit|family fit|familienfreundlich|beste familie|familienauto|family car)/i.test(cleaned)) {
+    return "best_family_fit";
+  }
   return null;
+}
+
+/** Drop phrases that were explicitly abandoned (forget X / instead of X) before directive extraction. */
+function stripNegatedTopicPhrases(text: string) {
+  return text
+    .replace(
+      /\b(?:forget(?:\s+(?:about|the|that|previous))?|statt|statt dessen|instead of|rather than|nicht mehr)\b[^.\n]{0,48}\b(?:family(?:\s+car)?|familie|familienauto|suv|kids?|kinder)\b/gi,
+      " "
+    )
+    .replace(/\b(?:forget that|vergiss das)\b/gi, " ");
 }
 
 export function extractPersonalWish(text: string): PersonalWish | null {
