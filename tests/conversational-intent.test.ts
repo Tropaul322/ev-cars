@@ -175,13 +175,13 @@ test("match request answers casual greetings conversationally without budget chi
 test("match request keeps capability answers during an active clarification flow", async () => {
   const first = await runMatchRequest({ message: "Budget 40000 EUR" });
   assert.equal(first.type, "clarification");
-  assert.equal(first.prompt?.key, "use_case");
+  assert.equal(first.prompt?.key, "vehicle_preferences");
 
   const second = await runMatchRequest({
     message: "what can it do",
     sessionId: first.sessionId,
     previousCriteria: first.criteria,
-    currentPromptKey: "use_case"
+    currentPromptKey: "vehicle_preferences"
   });
 
   assert.equal(second.type, "chat");
@@ -239,16 +239,59 @@ matchRoute("match request shows listings when user asks to show them", async () 
 });
 
 async function answerOptimizationPrompt(first: Awaited<ReturnType<typeof runMatchRequest>>) {
-  if (first.type === "matches" || first.type === "no_matches") return first;
-  assert.equal(first.type, "clarification");
-  assert.equal(first.prompt?.key, "optimization");
-  return await runMatchRequest({
-    message: "Best value",
-    sessionId: first.sessionId,
-    previousCriteria: first.criteria,
-    criteriaPatch: { optimizationDirective: "best_value" },
-    currentPromptKey: "optimization"
-  });
+  let current = first;
+  for (let turn = 0; turn < 8; turn += 1) {
+    if (current.type === "matches" || current.type === "no_matches") return current;
+    assert.equal(current.type, "clarification");
+    const key = current.prompt?.key;
+    assert.ok(key);
+
+    if (key === "optimization") {
+      return await runMatchRequest({
+        message: "Best value",
+        sessionId: current.sessionId,
+        previousCriteria: current.criteria,
+        criteriaPatch: { optimizationDirective: "best_value" },
+        currentPromptKey: "optimization"
+      });
+    }
+
+    if (key === "vehicle_preferences") {
+      current = await runMatchRequest({
+        message: "SUV",
+        sessionId: current.sessionId,
+        previousCriteria: current.criteria,
+        criteriaPatch: { bodyTypes: ["suv"] },
+        currentPromptKey: "vehicle_preferences"
+      });
+      continue;
+    }
+
+    if (key === "charging_or_range") {
+      current = await runMatchRequest({
+        message: "at least 400 km range",
+        sessionId: current.sessionId,
+        previousCriteria: current.criteria,
+        criteriaPatch: { rangeFloorKm: 400 },
+        currentPromptKey: "charging_or_range"
+      });
+      continue;
+    }
+
+    if (key === "personal_wish") {
+      current = await runMatchRequest({
+        message: "freedom",
+        sessionId: current.sessionId,
+        previousCriteria: current.criteria,
+        criteriaPatch: { personalWish: "freedom" },
+        currentPromptKey: "personal_wish"
+      });
+      continue;
+    }
+
+    throw new Error(`unhandled clarification key in answerOptimizationPrompt: ${key}`);
+  }
+  throw new Error("answerOptimizationPrompt exceeded clarification budget");
 }
 
 test("capability and greeting fallbacks are available in German", () => {

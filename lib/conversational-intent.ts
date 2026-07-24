@@ -133,6 +133,12 @@ export function isAssistantMetaQuestion(message: string) {
 export function isCasualSmallTalk(message: string) {
   const text = message.trim();
   if (!text) return false;
+  // Short body-style / wish answers during clarification (e.g. "SUV") are criteria, not chat.
+  if (
+    /^(suv|van|ev|sedan|kombi|wagon|status|freedom|freiheit|yes|ja|no|nein)$/i.test(text)
+  ) {
+    return false;
+  }
   if (text.length <= 3) return true;
   if (isExplicitShowMatches(text) || looksLikeAlternativesRequest(text) || looksLikeBrandFocusQuestion(text)) {
     return false;

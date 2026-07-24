@@ -106,12 +106,15 @@ export type MatchServiceRequest = {
   selectedVehicleIds?: string[];
 };
 
-/** Soft priority follow-up after matches — disabled; keep match announcements single-purpose. */
+/** Soft priority follow-ups after matches are disabled (PoC test-summary bug). */
 export function shouldAskLowConfidencePriorityQuestion(
-  _confidence: number,
-  _criteria: UserCriteria,
-  _missingCriteria: MissingCriteria[]
+  confidence: number,
+  criteria: UserCriteria,
+  missingCriteria: MissingCriteria[]
 ) {
+  void confidence;
+  void criteria;
+  void missingCriteria;
   return false;
 }
 
@@ -744,35 +747,19 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     );
   }
 
-  const needsLowConfidenceQuestion = shouldAskLowConfidencePriorityQuestion(
-    confidence,
-    criteria,
-    missingCriteria
-  );
   const explanationLimit = Math.min(resolveRecommendationLimit(criteria), CACHED_RECOMMENDATION_LIMIT);
-  const [lowConfidenceQuestion, finalSelection] = await Promise.all([
-    needsLowConfidenceQuestion
-      ? withPipelineFallback(
-          "low_confidence",
-          deadline,
-          pipelineFallbacks,
-          () => generateLowConfidenceQuestion(criteria, conversationHistory),
-          () => null
-        )
-      : Promise.resolve(null),
-    withPipelineFallback(
-      "select_explain",
-      deadline,
-      pipelineFallbacks,
-      () =>
-        selectAndExplainMatches(diversifiedRecommendations, criteria, {
-          maxRecommendations: explanationLimit,
-          rejectedSummary,
-          brandWiden
-        }),
-      () => fallbackSelection(diversifiedRecommendations, criteria, explanationLimit, brandWiden)
-    )
-  ]);
+  const finalSelection = await withPipelineFallback(
+    "select_explain",
+    deadline,
+    pipelineFallbacks,
+    () =>
+      selectAndExplainMatches(diversifiedRecommendations, criteria, {
+        maxRecommendations: explanationLimit,
+        rejectedSummary,
+        brandWiden
+      }),
+    () => fallbackSelection(diversifiedRecommendations, criteria, explanationLimit, brandWiden)
+  );
 
   const cachedRecommendations = addPrimaryRecommendationJustification(
     finalSelection.recommendations.slice(0, CACHED_RECOMMENDATION_LIMIT),

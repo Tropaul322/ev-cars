@@ -80,7 +80,7 @@ async function answerUntilMatch(
       continue;
     }
 
-    if (key === "vehicle_preferences" || key === "body_type") {
+    if (key === "vehicle_preferences") {
       current = await runMatchRequest({
         message: "SUV",
         sessionId: current.sessionId,
@@ -91,7 +91,7 @@ async function answerUntilMatch(
       continue;
     }
 
-    if (key === "charging_or_range" || key === "range") {
+    if (key === "charging_or_range") {
       current = await runMatchRequest({
         message: "at least 400 km range",
         sessionId: current.sessionId,

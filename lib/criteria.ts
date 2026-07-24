@@ -693,29 +693,6 @@ function hasRangeSignal(criteria: UserCriteria) {
   return Boolean(criteria.rangeFloorKm || criteria.dailyKm);
 }
 
-function hasChargingOrRangeSignal(criteria: UserCriteria) {
-  return hasRangeSignal(criteria) || criteria.chargingAccess !== "unknown";
-}
-
-function hasVehiclePreferenceSignal(criteria: UserCriteria) {
-  return Boolean(
-    hasBodyTypeSignal(criteria) ||
-      criteria.preferredCondition !== "any" ||
-      criteria.mileageMaxKm ||
-      criteria.mileageTargetKm ||
-      criteria.batterySoHMin ||
-      criteria.batteryHealthRequired ||
-      criteria.brandPreferences.length ||
-      criteria.preferredBrandOrigins.length ||
-      criteria.modelPreferences?.length ||
-      criteria.avoidedBrands.length ||
-      criteria.mustHaveFeatures.length ||
-      criteria.qualitativeSignals.length ||
-      criteria.optimizationDirective ||
-      criteria.location
-  );
-}
-
 export function hasReplaceIntent(text: string) {
   return /\b(only|just|nur|ausschliesslich|ausschließlich)\b/i.test(text);
 }
