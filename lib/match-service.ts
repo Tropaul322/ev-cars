@@ -3,7 +3,6 @@ import {
   generateChatGreeting,
   generateClarificationResponse,
   generateConversationalResponse,
-  generateLowConfidenceQuestion,
   generateNoMatchesMessage,
   generateNoMoreMatchesMessage,
   generateNudgeResponse,
