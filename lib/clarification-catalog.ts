@@ -88,8 +88,8 @@ const catalog: Record<MissingCriteria, LocalizedStep> = {
       de: "Bevorzugst du eine Karosserieform? (mehrere möglich)"
     },
     explanation: {
-      en: "This is the shape of the car — an SUV for space and height, a compact for easy city parking, a sedan, a wagon for cargo, or a van for maximum room. Pick any that appeal, or skip if you're open to anything.",
-      de: "Es geht um die Form des Autos – ein SUV für Platz und Höhe, ein Kompakter fürs einfache Parken, eine Limousine, ein Kombi für Stauraum oder ein Van für maximalen Platz. Wähle, was dir gefällt, oder überspringe, wenn du offen bist."
+      en: "This is the shape of the car — an SUV for space and height, a compact for easy city parking, a sedan, a wagon for cargo, or a van for maximum room. Pick the body styles that appeal.",
+      de: "Es geht um die Form des Autos – ein SUV für Platz und Höhe, ein Kompakter fürs einfache Parken, eine Limousine, ein Kombi für Stauraum oder ein Van für maximalen Platz. Wähle die Formen, die dir gefallen."
     },
     selectMode: "multi",
     options: [
