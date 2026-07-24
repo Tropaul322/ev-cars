@@ -265,6 +265,8 @@ function scoreCargoPassengers(vehicle: Vehicle, criteria: UserCriteria) {
   if (criteria.tripNeeds.includes("family")) {
     score += vehicle.seats >= 5 && vehicle.cargoLiters >= 440 ? 14 : -18;
   }
+  if (criteria.tripNeeds.includes("commute") && vehicle.seats < 4) score -= 20;
+  if (criteria.tripNeeds.includes("city") && vehicle.seats <= 2 && criteria.cargoNeeds !== "low") score -= 12;
   return clamp(score, 20, 100);
 }
 

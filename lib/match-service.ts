@@ -52,7 +52,9 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     });
     const assistantMessage =
       agentPlan.assistantMessage ??
-      "Hey, how can I help you today? Tell me your EV budget, use case, charging or range needs, and one preference.";
+      (criteria.language === "de"
+        ? "Hey! Ich helfe dir bei der E-Auto-Suche in Österreich. Sag mir Budget, Nutzung und Lade-/Reichweitenbedarf."
+        : "Hey! I help you find EVs in Austria. Tell me your budget, use case, and charging or range needs.");
     return {
       type: "chat",
       sessionId,
@@ -215,18 +217,18 @@ function noMatchesMessage(criteria: UserCriteria, rejectedSummary: RejectedSumma
   const mainReason = rejectedSummary[0]?.reason;
   if (criteria.language === "de") {
     return mainReason
-      ? `Ich finde mit diesen harten Grenzen kein passendes E-Auto. Der stärkste Blocker ist: ${mainReason}.`
-      : "Ich finde mit diesen harten Grenzen kein passendes E-Auto. Lockere bitte Budget, Reichweite, Kilometerstand oder Karosserieform.";
+      ? `Mit diesen harten Grenzen finde ich aktuell nichts Passendes. Der stärkste Blocker: ${mainReason}. Wenn du magst, lockern wir Budget, Reichweite oder eine andere harte Anforderung.`
+      : "Mit diesen harten Grenzen finde ich aktuell kein passendes E-Auto. Lockere gerne Budget, Reichweite, Kilometerstand oder Karosserieform.";
   }
   return mainReason
-    ? `I could not find a matching EV inside those hard limits. The biggest blocker is: ${mainReason}.`
-    : "I could not find a matching EV inside those hard limits. Try relaxing budget, range, mileage, or body type.";
+    ? `I couldn't find an EV inside those hard limits. Biggest blocker: ${mainReason}. Want to relax budget, range, or another hard constraint?`
+    : "I couldn't find an EV inside those hard limits. Try relaxing budget, range, mileage, or body type.";
 }
 
 function noMoreMatchesMessage(criteria: UserCriteria) {
   return criteria.language === "de"
-    ? "Ich habe dir alle passenden Autos aus dieser Suche bereits gezeigt. Wenn du mehr Auswahl willst, lockere bitte Budget, Reichweite, Karosserieform oder andere harte Kriterien."
-    : "I have already shown all matching cars for this search. To get more options, try relaxing budget, range, body type, or another hard filter.";
+    ? "Das waren alle passenden Autos aus dieser Suche. Für mehr Auswahl können wir Budget, Reichweite, Karosserie oder eine andere harte Anforderung lockern."
+    : "That's all the matching cars from this search. To see more options, we can relax budget, range, body type, or another hard filter.";
 }
 
 function lowConfidenceQuestion(criteria: UserCriteria) {

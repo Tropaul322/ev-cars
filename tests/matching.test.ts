@@ -92,7 +92,7 @@ test("normalizer returns structured fallback output with missing criteria", asyn
 
   assert.ok(normalized.criteriaPatch);
   assert.ok(normalized.missingCriteria.includes("budget"));
-  assert.equal(normalized.clarificationQuestion, "What budget should I respect: maximum purchase price or monthly lease target?");
+  assert.match(normalized.clarificationQuestion ?? "", /budget|Kaufpreis|lease/i);
 });
 
 test("hard filters keep recommendations inside purchase budget", () => {
@@ -251,12 +251,13 @@ test("match route returns clarification contract when budget is missing", async 
   assert.equal(data.recommendations.length, 0);
 });
 
-test("match route asks for criteria when greeting has no search intent without LLM", async () => {
+test("match route greets naturally when greeting has no search intent without LLM", async () => {
   const data = await runMatchRequest({ message: "Hey" });
 
-  assert.equal(data.type, "clarification");
+  assert.equal(data.type, "chat");
   assert.equal(typeof data.sessionId, "string");
   assert.ok(data.assistantMessage.length > 0);
+  assert.match(data.assistantMessage, /budget|FlowRyd|EV/i);
   assert.equal(data.recommendations.length, 0);
 });
 

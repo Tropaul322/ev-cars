@@ -54,7 +54,7 @@ const featureKeywords: Array<[Feature, RegExp]> = [
   ["wireless_charging", /\b(wireless charging|kabellos laden|induktiv)\b/i],
   ["heated_seats", /\b(heated seats|sitzheizung|beheizte sitze)\b/i],
   ["premium_audio", /\b(bose|harman|bowers|b&w|burmester|premium audio|guter sound)\b/i],
-  ["large_trunk", /\b(large trunk|big boot|großer kofferraum|grosser kofferraum|viel stauraum|kinderwagen)\b/i],
+  ["large_trunk", /\b(large trunk|big boot|gro(?:ß|ss)e[rmn]?\s+kofferraum|viel stauraum|kinderwagen|lots? of (?:trunk|boot|luggage|space))\b/i],
   ["heat_pump", /\b(heat pump|wärmepumpe)\b/i],
   ["awd", /\b(awd|allrad|winter|schnee|berge|ski)\b/i],
   ["voice_assistant", /\b(voice assistant|sprachassistent|sprachsteuerung)\b/i],
@@ -199,8 +199,37 @@ export function detectLanguage(prompt: string): Language {
   return hasGermanCharacter || germanHits >= 2 ? "de" : "en";
 }
 
+export function resolveLanguage(prompt: string, previous?: Language | null): Language {
+  const detected = detectLanguage(prompt);
+  if (!previous || previous === detected) return detected;
+
+  const strongNew = hasStrongLanguageSignal(prompt, detected);
+  const strongPrevious = hasStrongLanguageSignal(prompt, previous);
+  if (strongPrevious && !strongNew) return previous;
+  if (strongNew && !strongPrevious) return detected;
+
+  // Short follow-ups often reuse shared words like "Budget"/"Euro" — keep the conversation language.
+  if (prompt.trim().split(/\s+/).filter(Boolean).length <= 10) return previous;
+  return detected;
+}
+
+function hasStrongLanguageSignal(prompt: string, language: Language) {
+  const normalized = prompt.toLowerCase();
+  if (language === "de") {
+    return (
+      /[äöüß]/i.test(prompt) ||
+      germanSignals.filter((signal) => normalized.includes(signal)).length >= 2 ||
+      /\b(und|mit|ohne|bitte|maximal|mindestens|suche|brauche|reichweite|familie|auto|euro)\b/i.test(prompt)
+    );
+  }
+  return (
+    /\b(the|and|with|for|please|looking|need|under|family|commute|thanks|thank|hello|hey|hi|what|how)\b/i.test(prompt) &&
+    !/[äöüß]/i.test(prompt)
+  );
+}
+
 export function extractCriteria(prompt: string, previous?: UserCriteria): UserCriteria {
-  const language = detectLanguage(prompt || previous?.rawPrompt || "");
+  const language = resolveLanguage(prompt || previous?.rawPrompt || "", previous?.language ?? null);
   const base = previous ? normalizeCriteriaShape({ ...previous, language }) : emptyCriteria(prompt, language);
   const normalizedPrompt = prompt.trim();
   const text = normalizedPrompt.toLowerCase();
@@ -234,14 +263,21 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
       : mergeUnique(base.bodyTypes, extractedBodyTypes);
   const tripNeeds = removals.has("use_case") ? [] : mergeUnique(base.tripNeeds, extractTripNeeds(text));
   const mustHaveFeatures = removals.has("features") ? [] : mergeUnique(base.mustHaveFeatures, extractFeatures(text));
-  const brandPreferences = removals.has("brand") ? [] : mergeUnique(base.brandPreferences, extractBrandPreferences(text));
+  const avoidedBrands = mergeUnique(base.avoidedBrands, extractAvoidedBrands(text));
+  const extractedBrands = extractBrandPreferences(text).filter(
+    (brand) => !avoidedBrands.some((avoided) => sameBrandName(avoided, brand))
+  );
+  const brandPreferences = removals.has("brand")
+    ? []
+    : mergeUnique(base.brandPreferences, extractedBrands).filter(
+        (brand) => !avoidedBrands.some((avoided) => sameBrandName(avoided, brand))
+      );
   const preferredBrandOrigins = removals.has("origin")
     ? []
     : mergeUnique(base.preferredBrandOrigins, extractPreferredBrandOrigins(text));
   const modelPreferences = removals.has("model")
     ? []
     : mergeUnique(base.modelPreferences, extractModelPreferences(normalizedPrompt));
-  const avoidedBrands = mergeUnique(base.avoidedBrands, extractAvoidedBrands(text));
   const location = removals.has("location") ? null : extractLocation(normalizedPrompt) ?? base.location;
   const qualitativeSignals = removals.has("qualitative")
     ? []
@@ -284,19 +320,43 @@ export function needsClarification(criteria: UserCriteria) {
 
 export function clarificationQuestion(criteria: UserCriteria) {
   const missing = getMissingCriteria(criteria);
+  const known = criteriaSummary(criteria);
+  const knownPrefix =
+    known.length > 0
+      ? criteria.language === "de"
+        ? `Alles klar${known.length ? ` (${known.slice(0, 3).join(", ")})` : ""}. `
+        : `Got it${known.length ? ` (${known.slice(0, 3).join(", ")})` : ""}. `
+      : "";
+
   if (missing.includes("budget")) {
     if (criteria.language === "de") {
-      return "Welches Budget soll ich einhalten: maximaler Kaufpreis oder monatliche Leasingrate?";
+      return `${knownPrefix}Welches Budget soll ich einhalten: maximaler Kaufpreis oder monatliche Leasingrate?`;
     }
 
-    return "What budget should I respect: maximum purchase price or monthly lease target?";
+    return `${knownPrefix}What budget should I respect: maximum purchase price or monthly lease target?`;
+  }
+
+  if (missing.includes("use_case")) {
+    if (criteria.language === "de") {
+      return `${knownPrefix}Wofür soll das Auto vor allem passen: Stadt, Pendeln, Familie, Langstrecke oder Winter?`;
+    }
+
+    return `${knownPrefix}What should the car mainly fit: city driving, commuting, family use, road trips, or winter driving?`;
+  }
+
+  if (missing.includes("charging_or_range")) {
+    if (criteria.language === "de") {
+      return `${knownPrefix}Wie lädst du vor allem (Wallbox, Arbeit, öffentlich) und welche Reichweite brauchst du ungefähr?`;
+    }
+
+    return `${knownPrefix}How will you mainly charge (home wallbox, work, or public) and roughly what range do you need?`;
   }
 
   if (criteria.language === "de") {
-    return "Wofür soll das Auto vor allem passen: Stadt, Pendeln, Familie, Langstrecke oder Winter?";
+    return `${knownPrefix}Hast du noch eine Präferenz zu Karosserie, Zustand (neu/gebraucht), Marke oder Ausstattung?`;
   }
 
-  return "What should the car mainly fit: city driving, commuting, family use, road trips, or winter driving?";
+  return `${knownPrefix}Any preference on body style, new vs used, brand, or must-have features?`;
 }
 
 export function getMissingCriteria(criteria: UserCriteria): MissingCriteria[] {
@@ -546,7 +606,8 @@ function extractRemovals(text: string) {
 }
 
 function extractBudget(text: string, monthly: boolean) {
-  const monthlyContext = /(month|monthly|lease|leasing|rate|monat|monatlich|leasingrate)/i;
+  // Word boundaries matter: "please" must not count as "lease".
+  const monthlyContext = /\b(month|monthly|lease|leasing|rate|monat|monatlich|leasingrate)\b/i;
   const amountPattern = /(?:€|eur|euro)?\s?(\d{1,3}(?:[.,]\d{3})+|\d{4,6}|\d{1,3})\s?(k|tsd|000)?\s?(?:€|eur|euro)?/gi;
   const matches = Array.from(text.matchAll(amountPattern));
 
@@ -577,7 +638,7 @@ function extractKm(text: string, mode: "daily" | "range") {
     const value = Number(match[1]);
     const isMileage = /(mileage|odometer|kilometerstand|km stand|km-stand|gelaufen|laufleistung|low km|wenig kilometer)/i.test(context);
     if (isMileage) continue;
-    const isDaily = /(daily|per day|a day|commute|pendel|tag|täglich|taeglich|arbeitsweg)/i.test(context);
+    const isDaily = /\b(daily|per day|a day|commut(?:e|es|er|ing)|pendel|tag|täglich|taeglich|arbeitsweg)\b/i.test(context);
     const isRange = /(range|reichweite|single charge|ladung|autobahn)/i.test(context);
     if (mode === "daily" && isDaily && value <= 400) return value;
     if (mode === "range" && (isRange || value > 250)) return value;
@@ -659,16 +720,24 @@ function extractCondition(text: string): VehicleCondition | "any" | null {
 }
 
 function extractPassengers(text: string) {
-  const explicit = text.match(/(\d)\s?(people|persons|passengers|sitze|personen|kids|children|kinder)/i);
-  if (explicit) return Number(explicit[1]);
+  const explicit = text.match(
+    /(\d)\s?(people|persons|passengers|seats|sitze|personen|kids|children|kinder)|(?:we are|we're|wir sind)\s+(\d)/i
+  );
+  if (explicit) return Number(explicit[1] || explicit[3]);
   if (/(family|familie|kinder|child|kids)/i.test(text)) return 4;
   return null;
 }
 
 function extractCargoNeeds(text: string): UserCriteria["cargoNeeds"] {
-  if (/(large trunk|big boot|viel stauraum|großer kofferraum|grosser kofferraum|kinderwagen|ski)/i.test(text)) return "high";
-  if (/(some cargo|weekend bags|einkauf|medium trunk)/i.test(text)) return "medium";
-  if (/(easy parking|city only|stadt|klein)/i.test(text)) return "low";
+  if (
+    /(large trunk|big (?:boot|trunk)|lots? of (?:trunk|boot|cargo|luggage|space)|plenty of (?:trunk|boot|cargo|space)|viel stauraum|gro(?:ß|ss)e[rmn]?\s+kofferraum|viel kofferraum|kinderwagen|ski|luggage|gep[aä]ck)/i.test(
+      text
+    )
+  ) {
+    return "high";
+  }
+  if (/(some cargo|weekend bags|einkauf|medium trunk|stroller)/i.test(text)) return "medium";
+  if (/(easy parking|city only|kleinwagen)/i.test(text)) return "low";
   return null;
 }
 
@@ -686,7 +755,11 @@ function extractQualitativeSignals(text: string): QualitativeSignal[] {
   if (/(reliable|reliability|zuverlässig|zuverlaessig|haltbar|warranty|garantie)/i.test(text)) {
     signals.push("reliable");
   }
-  if (/(road trip|langstrecke|autobahn|weekend|wochenende|urlaub)/i.test(text)) {
+  if (
+    /(road trip|langstrecke|autobahn|weekend|wochenende|urlaub|long range|gute reichweite|lange reichweite|good range)/i.test(
+      text
+    )
+  ) {
     signals.push("road_trip_comfort");
   }
   if (/(fast charging|schnellladen|ladeleistung|800v|800 volt)/i.test(text)) {
@@ -698,7 +771,7 @@ function extractQualitativeSignals(text: string): QualitativeSignal[] {
   if (/(safety|safe|sicher|assistenz|totwinkel|lane|spur)/i.test(text)) {
     signals.push("safety");
   }
-  if (/(technology|tech|software|ota|display|infotainment|connectivity|konnektivität)/i.test(text)) {
+  if (/(technology|tech|technik|software|ota|display|infotainment|connectivity|konnektivität)/i.test(text)) {
     signals.push("technology");
   }
   if (/(public charging|öffentlich laden|oeffentlich laden|wohnung|apartment|keine wallbox|ohne wallbox)/i.test(text)) {
@@ -720,8 +793,13 @@ function extractBodyTypes(text: string) {
 function extractTripNeeds(text: string): TripNeed[] {
   const tripNeeds: TripNeed[] = [];
   if (/(city|urban|stadt|wien|graz|linz|salzburg)/i.test(text)) tripNeeds.push("city");
-  if (/(commute|pendel|arbeitsweg|daily|täglich|taeglich)/i.test(text)) tripNeeds.push("commute");
-  if (/(road trip|autobahn|long trip|langstrecke|urlaub|weekend)/i.test(text)) tripNeeds.push("road_trip");
+  // "commuting" does not contain the substring "commute" (drop-e + ing).
+  if (/\b(commut(?:e|es|er|ing)|pendel(?:n|strecke)?|arbeitsweg|daily|täglich|taeglich)\b/i.test(text)) {
+    tripNeeds.push("commute");
+  }
+  if (/(road trip|autobahn|long (?:trip|range)|langstrecke|urlaub|weekend|wochenende)/i.test(text)) {
+    tripNeeds.push("road_trip");
+  }
   if (/(family|familie|kinder|kids)/i.test(text)) tripNeeds.push("family");
   if (/(winter|snow|schnee|berge|ski|alpen)/i.test(text)) tripNeeds.push("winter");
   return tripNeeds;
@@ -756,10 +834,31 @@ function extractModelPreferences(text: string) {
 function extractAvoidedBrands(text: string) {
   const avoided: string[] = [];
   for (const brand of brandNames) {
-    const pattern = new RegExp(`(not|avoid|no|kein|keine|ohne)\\s+${escapeRegExp(brand.toLowerCase())}`, "i");
+    const brandPattern = escapeRegExp(brand.toLowerCase());
+    const pattern = new RegExp(
+      `\\b(?:not|avoid|no|kein|keine|ohne|except|ohne|without)\\s+${brandPattern}\\b|\\b${brandPattern}\\s+(?:is\\s+)?(?:out|excluded|no-go)\\b|\\blike\\s+(?:a\\s+)?${brandPattern}\\s+but\\s+not\\b`,
+      "i"
+    );
     if (pattern.test(text)) avoided.push(brand);
   }
   return avoided;
+}
+
+function sameBrandName(left: string, right: string) {
+  const normalize = (value: string) => value.toLowerCase().replace(/[-\s]/g, "");
+  const leftNorm = normalize(left);
+  const rightNorm = normalize(right);
+  if (leftNorm === rightNorm) return true;
+  if ((leftNorm === "vw" || leftNorm === "volkswagen") && (rightNorm === "vw" || rightNorm === "volkswagen")) {
+    return true;
+  }
+  if (
+    (leftNorm === "mercedes" || leftNorm === "mercedesbenz") &&
+    (rightNorm === "mercedes" || rightNorm === "mercedesbenz")
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function deriveBrandFit(text: string, brandPreferences: string[], previous: Importance): Importance {

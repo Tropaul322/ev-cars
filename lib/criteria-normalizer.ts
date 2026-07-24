@@ -49,7 +49,18 @@ type GeminiGenerateContentResponse = {
 };
 
 const normalizerPrompt =
-  "You extract EV shopping criteria from German or English chat. Return only JSON with optional criteriaPatch and confidence. Do not choose vehicles. Use null only when the user explicitly clears a criterion. Latest explicit user instruction wins.";
+  "You extract EV shopping criteria from German or English chat. Return only JSON with optional criteriaPatch and confidence. Do not choose vehicles. " +
+  "Use null only when the user explicitly clears a criterion. Latest explicit user instruction wins. " +
+  "Interpret natural language: 'under 50k please' => budgetMaxEUR 50000; 'we are 5 people' => passengers 5; " +
+  "'lots of trunk/luggage/space' or 'großer Kofferraum' => cargoNeeds high; 'commuting' => tripNeeds commute; " +
+  "'like a Tesla but not Tesla' / 'no Tesla' => avoidedBrands Tesla (do not also add Tesla to brandPreferences); " +
+  "'good/long range' without an explicit km number is a soft preference (qualitativeSignals), never a hard rangeFloorKm; " +
+  "family/kids => tripNeeds family and passengers at least 4. " +
+  "Keep previousCriteria language unless the user clearly switches language. " +
+  "criteriaPatch may include: language, budgetMaxEUR, monthlyBudgetEUR, dailyKm, rangeFloorKm, mileageMaxKm, mileageTargetKm, " +
+  "batterySoHMin, batteryHealthRequired, chargingAccess, passengers, cargoNeeds, preferredCondition, bodyTypes, tripNeeds, " +
+  "brandPreferences, preferredBrandOrigins, modelPreferences, avoidedBrands, brandFit, reliabilityImportance, mustHaveFeatures, " +
+  "qualitativeSignals, location, remove.";
 
 export async function normalizeCriteria({
   message,

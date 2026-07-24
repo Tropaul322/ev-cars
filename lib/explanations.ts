@@ -27,15 +27,17 @@ type GeminiGenerateContentResponse = {
 };
 
 const explanationSystemPrompt =
-  "You are FlowRyd, an Austrian EV matching agent. Choose 1 to 3 vehicles only from the provided candidate vehicleIds, never invent cars, and never override hard filters. " +
+  "You are FlowRyd, a friendly Austrian EV matching assistant texting a shopper. Choose 1 to 3 vehicles only from the provided candidate vehicleIds, never invent cars, and never override hard filters. " +
+  "Prefer diversity: avoid picking two near-identical make/model listings unless inventory is tiny. " +
   "Write all text in the user's language from the language field. " +
   "Use only provided vehicle facts and retrievedEvidence excerpts, but do not include evidence IDs, citation markers, or context annotations like [E1] or [E2] in assistantMessage or vehicle explanations. " +
   "Do not mention sources that are not provided. " +
   "Write each vehicle explanation like a helpful car salesperson texting a customer: natural, warm, specific, and easy to read. Use 2 to 3 short paragraphs separated by blank lines, no bullets, no headings, and no score-first phrasing. " +
   "Start with the practical fit and include concrete facts such as range, price or lease, body style, seats, cargo, drivetrain, charging/public-charging fit, tech, family or commute suitability, and availability only when those facts are provided. " +
   "Mention limitations or tradeoffs plainly, but keep the overall tone conversational rather than analytical. " +
+  "assistantMessage should feel like a short human reply introducing the shortlist (not 'Found N matching EVs'), and when rejectedSummary is provided mention the main reasons other vehicles were ruled out. " +
   "Return JSON: {\"assistantMessage\":\"...\",\"selectedVehicleIds\":[\"...\"],\"explanations\":[{\"vehicleId\":\"...\",\"explanation\":\"...\"}]}. " +
-  "assistantMessage must briefly introduce the shortlist and, when rejectedSummary is provided, mention the main reasons other vehicles were ruled out. Every selected vehicleId must have a matching explanation entry.";
+  "Every selected vehicleId must have a matching explanation entry.";
 
 function llmEnabled() {
   return process.env.FLOWRYD_DISABLE_LLM !== "1" && Boolean(process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY);
@@ -69,11 +71,15 @@ export async function selectAndExplainMatches(
   const selectedIds = (generated.selectedVehicleIds ?? [])
     .filter((id) => allowedIds.has(id))
     .slice(0, maxRecommendations);
-  const fallbackSelection = matches.slice(0, maxRecommendations);
+  const fallbackSelection = diversifyMatches(matches, maxRecommendations);
   const selected = selectedIds.length
-    ? selectedIds
-        .map((id) => matches.find((match) => match.vehicle.id === id))
-        .filter((match): match is MatchResult => Boolean(match))
+    ? diversifyMatches(
+        selectedIds
+          .map((id) => matches.find((match) => match.vehicle.id === id))
+          .filter((match): match is MatchResult => Boolean(match)),
+        maxRecommendations,
+        matches
+      )
     : fallbackSelection;
   const byVehicle = new Map(generated.explanations.map((item) => [item.vehicleId, item.explanation]));
   const recommendations = selected.map((match) => ({
@@ -444,10 +450,40 @@ function fallbackAssistantMessage(
   criteria: UserCriteria,
   lowConfidenceQuestion?: string | null
 ) {
-  const count = recommendations.length;
+  const names = recommendations
+    .slice(0, 3)
+    .map((match) => `${match.vehicle.make} ${match.vehicle.model}`)
+    .filter((name, index, all) => all.indexOf(name) === index);
+  const nameText =
+    names.length <= 1
+      ? names[0] ?? (criteria.language === "de" ? "eine Option" : "an option")
+      : criteria.language === "de"
+        ? `${names.slice(0, -1).join(", ")} und ${names.at(-1)}`
+        : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   const base =
     criteria.language === "de"
-      ? `${count} passende E-Auto${count === 1 ? "" : "s"} gefunden. Ich habe harte Grenzen wie Budget, Verfügbarkeit und explizite Reichweite zuerst eingehalten.`
-      : `Found ${count} matching EV${count === 1 ? "" : "s"}. I kept hard limits like budget, availability, and explicit range first.`;
+      ? `Hier sind ${recommendations.length} starke Treffer für dich: ${nameText}. Ich habe harte Limits wie Budget und Verfügbarkeit zuerst eingehalten.`
+      : `Here are ${recommendations.length} strong fits for you: ${nameText}. I respected hard limits like budget and availability first.`;
   return lowConfidenceQuestion ? `${base} ${lowConfidenceQuestion}` : base;
+}
+
+function diversifyMatches(matches: MatchResult[], maxRecommendations: number, pool: MatchResult[] = matches) {
+  const selected: MatchResult[] = [];
+  const seenModels = new Set<string>();
+
+  for (const match of matches) {
+    const key = `${match.vehicle.make}|${match.vehicle.model}`.toLowerCase();
+    if (seenModels.has(key)) continue;
+    selected.push(match);
+    seenModels.add(key);
+    if (selected.length >= maxRecommendations) return selected;
+  }
+
+  for (const match of pool) {
+    if (selected.some((item) => item.vehicle.id === match.vehicle.id)) continue;
+    selected.push(match);
+    if (selected.length >= maxRecommendations) break;
+  }
+
+  return selected;
 }
