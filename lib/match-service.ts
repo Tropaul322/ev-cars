@@ -422,25 +422,28 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
 
   const nextPrompt = nextClarificationPrompt(criteria, skippedKeys);
   // Chip-only first messages still clarify once; criteriaOverride is an intentional force path.
+  // If the opening message already named an optimization (best value, family fit, …), search immediately.
   const firstTurnMustClarify = !hasPriorContext && !body.criteriaOverride;
-  const promptForTurn =
-    firstTurnMustClarify && nextPrompt.key === "ready"
-      ? getOptimizationPrompt(criteria.language)
-      : nextPrompt;
+  const forceFirstTurnOptimization =
+    firstTurnMustClarify && nextPrompt.key === "ready" && !criteria.optimizationDirective;
+  const promptForTurn = forceFirstTurnOptimization
+    ? getOptimizationPrompt(criteria.language)
+    : nextPrompt;
 
   const isChatTurn =
     !body.criteriaPatch &&
     !brandWiden &&
     (trigger === "small_talk" ||
       trigger === "meta" ||
-      (trigger === "ev_question" && !criteriaChanged));
+      // Knowledge questions stay conversational even if incidental feature words were parsed.
+      trigger === "ev_question");
 
   const readyToSearch =
     promptForTurn.key === "ready" && readiness.groups.budget && hasMeaningfulCriteria(criteria);
 
   const wantsMatch =
     !isChatTurn &&
-    !firstTurnMustClarify &&
+    !forceFirstTurnOptimization &&
     readiness.groups.budget &&
     (readyToSearch ||
       body.intent === "show_matches" ||
@@ -449,9 +452,15 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       trigger === "brand_focus" ||
       isNextBatch ||
       (!hasPriorContext &&
+        !firstTurnMustClarify &&
         (hasInventoryLookup(criteria) ||
           readiness.readyToMatch ||
           (promptForTurn.key === "ready" && hasMeaningfulCriteria(criteria)))) ||
+      (!hasPriorContext &&
+        firstTurnMustClarify &&
+        promptForTurn.key === "ready" &&
+        Boolean(criteria.optimizationDirective) &&
+        (hasInventoryLookup(criteria) || readiness.readyToMatch || hasMeaningfulCriteria(criteria))) ||
       (hasPriorContext &&
         criteriaChanged &&
         (readiness.readyToMatch || hasInventoryLookup(criteria))));

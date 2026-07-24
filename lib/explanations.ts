@@ -132,19 +132,34 @@ export function fallbackExplanation(match: MatchResult, criteria: UserCriteria) 
   const availability =
     match.vehicle.location && match.vehicle.available
       ? language === "de"
-        ? `Das Fahrzeug ist aktuell in ${match.vehicle.location} gelistet.`
-        : `It is currently listed in ${match.vehicle.location}.`
+        ? `Aktuell gelistet in ${match.vehicle.location}.`
+        : `Currently listed in ${match.vehicle.location}.`
       : match.vehicle.available
         ? language === "de"
-          ? "Das Fahrzeug ist aktuell verfuegbar."
-          : "It is currently available."
+          ? "Aktuell verfuegbar."
+          : "Currently available."
         : "";
   const tradeoff = match.ruledOutReasons[0];
+  const useHint = criteria.tripNeeds.includes("family")
+    ? language === "de"
+      ? "passt gut fuer Familie und Alltag"
+      : "fits family and daily driving well"
+    : criteria.tripNeeds.includes("city")
+      ? language === "de"
+        ? "wirkt agil fuer Stadt und Kurzstrecken"
+        : "works well for city and short trips"
+      : criteria.tripNeeds.includes("road_trip") || criteria.tripNeeds.includes("winter")
+        ? language === "de"
+          ? "ist stark fuer laengere Fahrten und wechselhaftes Wetter"
+          : "is strong for longer trips and mixed weather"
+        : language === "de"
+          ? "deckt deine bisherigen Angaben gut ab"
+          : "covers what you've told me so far";
 
   if (language === "de") {
     return [
-      `${vehicleName} passt gut zu deinen Angaben: ${range} Reichweite, ${bodyType} mit ${match.vehicle.seats} Sitzen und ${match.vehicle.cargoLiters.toLocaleString("de-AT")} Litern Kofferraum. Der Preis liegt bei ${price}${lease ? ` ${lease}` : ""}, also innerhalb der harten Grenzen, die du genannt hast.`,
-      `Es ist ein ${match.vehicle.drivetrain}-E-Auto mit ${match.vehicle.efficiencyKwhPer100Km} kWh/100 km Verbrauch. ${featureText} Damit wirkt es passend fuer Alltag, Pendeln und laengere Fahrten, ohne dass du jede Woche perfekt planen musst.`,
+      `${vehicleName} ${useHint}: ${range} Reichweite, ${bodyType} mit ${match.vehicle.seats} Sitzen und ${match.vehicle.cargoLiters.toLocaleString("de-AT")} Litern Kofferraum. Preis: ${price}${lease ? ` ${lease}` : ""}.`,
+      `Antrieb ${match.vehicle.drivetrain}, Verbrauch etwa ${match.vehicle.efficiencyKwhPer100Km} kWh/100 km. ${featureText}`,
       `${availability}${tradeoff ? ` Der wichtigste Tradeoff: ${tradeoff}.` : ""}`.trim()
     ]
       .filter(Boolean)
@@ -152,9 +167,9 @@ export function fallbackExplanation(match: MatchResult, criteria: UserCriteria) 
   }
 
   return [
-    `${vehicleName} fits your brief well: it gives you ${range} of range, a ${bodyType} body with ${match.vehicle.seats} seats, and ${match.vehicle.cargoLiters.toLocaleString("de-AT")} liters of cargo space. The price is ${price}${lease ? ` ${lease}` : ""}, so it stays inside the hard limits you gave me.`,
-    `It is a ${match.vehicle.drivetrain} EV rated at ${match.vehicle.efficiencyKwhPer100Km} kWh/100 km. ${featureText} That makes it a practical fit for daily driving, family use, and longer trips without needing to over-plan every charge.`,
-    `${availability}${tradeoff ? ` The main tradeoff is: ${tradeoff}.` : ""}`.trim()
+    `${vehicleName} ${useHint}: ${range} of range, a ${bodyType} with ${match.vehicle.seats} seats and ${match.vehicle.cargoLiters.toLocaleString("de-AT")} liters of cargo. Price: ${price}${lease ? ` ${lease}` : ""}.`,
+    `${match.vehicle.drivetrain} drivetrain at about ${match.vehicle.efficiencyKwhPer100Km} kWh/100 km. ${featureText}`,
+    `${availability}${tradeoff ? ` Main tradeoff: ${tradeoff}.` : ""}`.trim()
   ]
     .filter(Boolean)
     .join("\n\n");

@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "eval": "node --experimental-strip-types scripts/run-evals.ts",
+    "test:conversation": "node --experimental-strip-types scripts/run-conversation-regression.ts",
     "supabase:upload-all": "node --experimental-strip-types scripts/upload_flowryd_data.ts",
     "supabase:upload-flowryd": "node --experimental-strip-types scripts/upload_flowryd_data.ts",
     "supabase:embed-vehicles": "node --experimental-strip-types scripts/embed_vehicles.ts",
