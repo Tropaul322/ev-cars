@@ -158,7 +158,7 @@ export function fallbackExplanation(match: MatchResult, criteria: UserCriteria) 
 
   if (language === "de") {
     return [
-      `${vehicleName} ${useHint}: ${range} Reichweite, ${bodyType} mit ${match.vehicle.seats} Sitzen und ${match.vehicle.cargoLiters.toLocaleString("de-AT")} Litern Kofferraum. Preis: ${price}${lease ? ` ${lease}` : ""}.`,
+      `${vehicleName} passt gut zu deinen Angaben und ${useHint}: ${range} Reichweite, ${bodyType} mit ${match.vehicle.seats} Sitzen und ${match.vehicle.cargoLiters.toLocaleString("de-AT")} Litern Kofferraum. Preis: ${price}${lease ? ` ${lease}` : ""}.`,
       `Antrieb ${match.vehicle.drivetrain}, Verbrauch etwa ${match.vehicle.efficiencyKwhPer100Km} kWh/100 km. ${featureText}`,
       `${availability}${tradeoff ? ` Der wichtigste Tradeoff: ${tradeoff}.` : ""}`.trim()
     ]
@@ -167,7 +167,7 @@ export function fallbackExplanation(match: MatchResult, criteria: UserCriteria) 
   }
 
   return [
-    `${vehicleName} ${useHint}: ${range} of range, a ${bodyType} with ${match.vehicle.seats} seats and ${match.vehicle.cargoLiters.toLocaleString("de-AT")} liters of cargo. Price: ${price}${lease ? ` ${lease}` : ""}.`,
+    `${vehicleName} fits your brief well and ${useHint}: ${range} of range, a ${bodyType} with ${match.vehicle.seats} seats and ${match.vehicle.cargoLiters.toLocaleString("de-AT")} liters of cargo. Price: ${price}${lease ? ` ${lease}` : ""}.`,
     `${match.vehicle.drivetrain} drivetrain at about ${match.vehicle.efficiencyKwhPer100Km} kWh/100 km. ${featureText}`,
     `${availability}${tradeoff ? ` Main tradeoff: ${tradeoff}.` : ""}`.trim()
   ]

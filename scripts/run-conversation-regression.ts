@@ -333,7 +333,7 @@ function summarizeCriteria(criteria: UserCriteria): Partial<UserCriteria> {
     avoidedBrands: criteria.avoidedBrands,
     mustHaveFeatures: criteria.mustHaveFeatures,
     optimizationDirective: criteria.optimizationDirective,
-    condition: criteria.condition
+    preferredCondition: criteria.preferredCondition
   };
 }
 
@@ -351,8 +351,11 @@ function evaluateTurn(
   if (expect.types && !expect.types.includes(response.type)) {
     hardFailures.push(`expected type in [${expect.types.join(", ")}], got ${response.type}`);
   }
-  if (expect.promptKey && response.prompt?.key !== expect.promptKey) {
-    hardFailures.push(`expected promptKey=${expect.promptKey}, got ${response.prompt?.key ?? "none"}`);
+  if (expect.promptKey) {
+    const promptKey = "prompt" in response ? response.prompt?.key : undefined;
+    if (promptKey !== expect.promptKey) {
+      hardFailures.push(`expected promptKey=${expect.promptKey}, got ${promptKey ?? "none"}`);
+    }
   }
   if (expect.requireRecommendations) {
     const count =
@@ -402,7 +405,7 @@ function evaluateTurn(
     message: turn.message,
     type: response.type,
     assistantMessage: message,
-    promptKey: response.prompt?.key,
+    promptKey: "prompt" in response ? response.prompt?.key : undefined,
     recommendationCount: response.recommendations?.length ?? 0,
     topVehicle: top,
     hardPass: hardFailures.length === 0,
@@ -441,7 +444,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       message: turn.message,
       sessionId: previous?.sessionId,
       previousCriteria: previous?.criteria,
-      currentPromptKey: previous?.prompt?.key,
+      currentPromptKey: previous && "prompt" in previous ? previous.prompt?.key : undefined,
       intent: turn.intent,
       conversationHistory,
       ...(turn.criteriaPatch ? { criteriaPatch: turn.criteriaPatch as never } : {})
@@ -454,8 +457,8 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
 
     conversationHistory = [
       ...conversationHistory,
-      { role: "user", content: turn.message },
-      { role: "assistant", content: response.assistantMessage ?? response.message ?? "" }
+      { role: "user" as const, content: turn.message },
+      { role: "assistant" as const, content: response.assistantMessage ?? response.message ?? "" }
     ].slice(-14);
 
     previous = response;

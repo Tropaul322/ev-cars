@@ -554,14 +554,28 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     pipelineFallbacks,
     async () => {
       const candidateVehicles = await searchVehicles(criteria, body.message, { offset: searchOffset });
-      const vehiclesForScoring = candidateVehicles.length ? candidateVehicles : await listVehicles();
-      if (!candidateVehicles.length) pipelineFallbacks.fallbackSource = "full_catalog_list";
+      let scoringSource = candidateVehicles;
+      let usedFallbackList = candidateVehicles.length === 0;
+      if (!scoringSource.length) {
+        scoringSource = await listVehicles();
+        usedFallbackList = true;
+      }
+      // Next-batch with a tiny hybrid/structured hit list often exhausts after one reveal.
+      // Expand to the full catalog so "show more" can keep browsing under the same criteria.
+      if (isNextBatch && shownVehicleIds.size && scoringSource.length <= CACHED_RECOMMENDATION_LIMIT) {
+        const catalog = await listVehicles();
+        if (catalog.length > scoringSource.length) {
+          scoringSource = catalog;
+          usedFallbackList = true;
+          if (!pipelineFallbacks.fallbackSource) pipelineFallbacks.fallbackSource = "next_batch_catalog_expand";
+        }
+      }
       return {
         candidateVehicles,
-        scoringVehicles: dedupeVehiclesForMatching(vehiclesForScoring),
+        scoringVehicles: dedupeVehiclesForMatching(scoringSource),
         structuredHits: candidateVehicles.length,
         embeddingHits: candidateVehicles.filter((vehicle) => (vehicle.embeddingSimilarity ?? 0) > 0).length,
-        usedFallbackList: candidateVehicles.length === 0
+        usedFallbackList
       };
     },
     () => ({
@@ -588,7 +602,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
 
   const sanePool = filterVehiclesWithSanityChecks(retrieved.scoringVehicles);
   const candidateVehicles = retrieved.candidateVehicles;
-  const scoringVehicles = sanePool.vehicles;
+  let scoringVehicles = sanePool.vehicles;
   const structuredHits = retrieved.structuredHits;
   const embeddingHits = retrieved.embeddingHits;
   matchDebug("candidate-pool", {
@@ -601,9 +615,19 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     usedFallbackList: retrieved.usedFallbackList,
     sanityRejectedVehicles: sanePool.rejectedCount
   });
-  const nextBatchVehicles = isNextBatch
+  let nextBatchVehicles = isNextBatch
     ? scoringVehicles.filter((vehicle) => !vehicleHasShownKey(vehicle, shownVehicleIds))
     : scoringVehicles;
+  if (isNextBatch && shownVehicleIds.size && nextBatchVehicles.length === 0) {
+    const catalog = filterVehiclesWithSanityChecks(await listVehicles()).vehicles.filter(
+      (vehicle) => !vehicleHasShownKey(vehicle, shownVehicleIds)
+    );
+    if (catalog.length) {
+      scoringVehicles = filterVehiclesWithSanityChecks(await listVehicles()).vehicles;
+      nextBatchVehicles = catalog;
+      if (!pipelineFallbacks.fallbackSource) pipelineFallbacks.fallbackSource = "next_batch_catalog_expand";
+    }
+  }
   const matchingCandidates = limitVehiclesPerModel(nextBatchVehicles, criteria, MATCH_MODEL_CANDIDATE_LIMIT);
   matchDebug("matching-candidates", {
     sessionId,

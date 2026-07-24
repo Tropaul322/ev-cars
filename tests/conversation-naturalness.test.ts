@@ -72,7 +72,7 @@ test("heat-pump knowledge questions stay conversational", async () => {
     message: "How important is a heat pump in Austrian winters?",
     sessionId: first.sessionId,
     previousCriteria: first.criteria,
-    currentPromptKey: first.prompt?.key
+    currentPromptKey: first.type === "clarification" || first.type === "chat" ? first.prompt?.key : undefined
   });
 
   assert.equal(second.type, "chat");

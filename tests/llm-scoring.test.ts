@@ -49,8 +49,12 @@ test("buildLlmScoringInput keeps a compact payload for fast OpenAI scoring", () 
 
 test("LLM scoring stays off the hot path unless explicitly enabled", () => {
   const previousEnable = process.env.FLOWRYD_ENABLE_LLM_SCORING;
+  const previousDisable = process.env.FLOWRYD_DISABLE_LLM;
+  const previousDisableScoring = process.env.FLOWRYD_DISABLE_LLM_SCORING;
   const previousKey = process.env.OPENAI_API_KEY;
   delete process.env.FLOWRYD_ENABLE_LLM_SCORING;
+  delete process.env.FLOWRYD_DISABLE_LLM;
+  delete process.env.FLOWRYD_DISABLE_LLM_SCORING;
   process.env.OPENAI_API_KEY = previousKey || "test-key";
 
   assert.equal(llmScoringEnabled(), false);
@@ -60,6 +64,10 @@ test("LLM scoring stays off the hot path unless explicitly enabled", () => {
 
   if (previousEnable === undefined) delete process.env.FLOWRYD_ENABLE_LLM_SCORING;
   else process.env.FLOWRYD_ENABLE_LLM_SCORING = previousEnable;
+  if (previousDisable === undefined) delete process.env.FLOWRYD_DISABLE_LLM;
+  else process.env.FLOWRYD_DISABLE_LLM = previousDisable;
+  if (previousDisableScoring === undefined) delete process.env.FLOWRYD_DISABLE_LLM_SCORING;
+  else process.env.FLOWRYD_DISABLE_LLM_SCORING = previousDisableScoring;
   if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
   else process.env.OPENAI_API_KEY = previousKey;
 });

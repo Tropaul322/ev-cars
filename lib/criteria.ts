@@ -973,7 +973,28 @@ export function extractOptimizationDirective(text: string): OptimizationDirectiv
 }
 
 export function constraintSourceText(criteria: UserCriteria) {
-  return (criteria.latestUserMessage || criteria.rawPrompt || "").trim();
+  const latest = (criteria.latestUserMessage || "").trim();
+  const raw = (criteria.rawPrompt || "").trim();
+  if (!latest) return raw;
+  if (!raw || raw === latest) return latest;
+  // Thin chip / nudge replies must not wipe exclusivity established earlier in the thread.
+  // Real pivots ("only Ford", "actually a 2-seater") still win via the latest message.
+  if (isThinConstraintReply(latest)) return raw;
+  return latest;
+}
+
+function isThinConstraintReply(message: string) {
+  const words = message.split(/\s+/).filter(Boolean);
+  if (
+    /^(best value|maximum range|reliability|family fit|fastest charging|lowest running cost|performance|bestes preis(?:-leistungs-verhältnis)?|maximale reichweite|zuverlässigkeit|familientauglichkeit|schnellstes laden|niedrigste laufende kosten|fahrspaß|fahrspass)\b/i.test(
+      message
+    )
+  ) {
+    return true;
+  }
+  // One/two-word chip taps ("Thanks", "SUV", "Home charging") stay thin; longer soft follow-ups
+  // like "preferably something efficient" must redefine exclusivity from the latest turn.
+  return words.length <= 2;
 }
 
 export function hasHardRangeConstraint(criteria: UserCriteria) {

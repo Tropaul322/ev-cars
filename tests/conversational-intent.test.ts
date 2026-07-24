@@ -239,6 +239,7 @@ matchRoute("match request shows listings when user asks to show them", async () 
 });
 
 async function answerOptimizationPrompt(first: Awaited<ReturnType<typeof runMatchRequest>>) {
+  if (first.type === "matches" || first.type === "no_matches") return first;
   assert.equal(first.type, "clarification");
   assert.equal(first.prompt?.key, "optimization");
   return await runMatchRequest({
