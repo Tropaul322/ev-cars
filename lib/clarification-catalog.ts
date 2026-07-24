@@ -128,8 +128,8 @@ const readyStep: { question: { en: string; de: string }; explanation: { en: stri
     de: "Super – ich habe genug, um gute Treffer zu finden. Ich suche jetzt."
   },
   explanation: {
-    en: "I can rank real listings against everything you've told me so far.",
-    de: "Ich kann echte Angebote anhand deiner bisherigen Angaben ranken."
+    en: "I can rank real matching EVs against everything you've told me so far.",
+    de: "Ich kann echte passende EVs anhand deiner bisherigen Angaben ranken."
   }
 };
 

@@ -194,6 +194,17 @@ test("BUG: match intro is singular when only one recommendation is visible", () 
   assert.match(message, /strong match|one matching|a matching/i);
   assert.doesNotMatch(message, /found \d+ matching EVs/i);
   assert.doesNotMatch(message, /Found 3/i);
+
+  // Timeout / fallback selection may hold up to 3 cached recommendations but
+  // must announce only the visible count (1).
+  const timeoutFallbackMessage = fallbackMatchIntroMessage(
+    emptyCriteria("x", "en"),
+    Math.min(3, 1),
+    null,
+    ["BYD", "Leapmotor", "MG"]
+  );
+  assert.doesNotMatch(timeoutFallbackMessage, /Found 3|found 3 matching/i);
+  assert.match(timeoutFallbackMessage, /strong match|one matching|a matching/i);
 });
 
 test("BUG: match intro must not stitch a priority follow-up question", () => {
@@ -297,8 +308,17 @@ test("TO DO: Buy now stays active and opens the purchase target when registered"
 });
 
 test("live hybrid/structured search does not silently fall back to bundled seed catalog", async () => {
+  const { allVehicles } = await import("../lib/data/all-vehicles.ts");
+  const bundledIds = new Set(allVehicles.map((vehicle) => vehicle.id));
   const listed = await assertLiveInventory();
   const listedIds = new Set(listed.map((vehicle) => vehicle.id));
+  // Live list must not be identical to the local bundled catalog.
+  assert.notEqual(listed.length, allVehicles.length);
+  assert.ok(
+    listed.some((vehicle) => !bundledIds.has(vehicle.id)),
+    "live listVehicles() must include marketplace rows absent from bundled seed"
+  );
+
   const criteria = extractCriteria(
     "Chinese brand EV under 50000 EUR SUV with 400 km range looking for freedom"
   );
@@ -307,15 +327,53 @@ test("live hybrid/structured search does not silently fall back to bundled seed 
   assert.ok(results.length > 0);
   // Live hybrid may include rows whose `source` column is still "seed" from earlier uploads.
   // What must not happen is a silent fallback to the local bundled catalog when Supabase is up.
+  const liveHits = results.filter(
+    (vehicle) =>
+      vehicle.source === "willhaben" ||
+      vehicle.source === "autoscout24" ||
+      listedIds.has(vehicle.id) ||
+      !bundledIds.has(vehicle.id)
+  );
   assert.ok(
-    results.some(
-      (vehicle) =>
-        vehicle.source === "willhaben" ||
-        vehicle.source === "autoscout24" ||
-        listedIds.has(vehicle.id)
-    ),
+    liveHits.length > 0,
     "expected live Supabase inventory hits, not local bundled-only results"
   );
+  assert.ok(
+    results.some((vehicle) => vehicle.source === "willhaben" || vehicle.source === "autoscout24"),
+    "expected at least one marketplace-sourced vehicle from live Supabase"
+  );
+});
+
+test("binding criteria cannot be skipped with 'no preference'", async () => {
+  await assertLiveInventory();
+  const first = await runMatchRequest({
+    message: "Chinese brand EV under 40000"
+  });
+  assert.equal(first.type, "clarification");
+
+  // Walk to vehicle_preferences if needed, then try to skip it.
+  let current = first;
+  if (current.prompt?.key === "budget") {
+    current = await runMatchRequest({
+      message: "Under 40000",
+      sessionId: current.sessionId,
+      previousCriteria: current.criteria,
+      criteriaPatch: { budgetMaxEUR: 40000 },
+      currentPromptKey: "budget"
+    });
+  }
+  assert.equal(current.type, "clarification");
+  assert.equal(current.prompt?.key, "vehicle_preferences");
+
+  const skipped = await runMatchRequest({
+    message: "no preference",
+    sessionId: current.sessionId,
+    previousCriteria: current.criteria,
+    currentPromptKey: "vehicle_preferences"
+  });
+  assert.equal(skipped.type, "clarification");
+  assert.equal(skipped.prompt?.key, "vehicle_preferences");
+  assert.equal(getCriteriaReadiness(skipped.criteria).readyToMatch, false);
 });
 
 test("next clarification after budget+origin asks for body/range/wish — not ready", () => {

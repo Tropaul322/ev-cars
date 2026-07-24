@@ -9,6 +9,7 @@ import {
   MessageCirclePlus,
   Sparkles,
 } from "lucide-react";
+import { toast } from "sonner";
 import { VehicleImage } from "@/components/vehicle-image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -1438,8 +1439,9 @@ function ListingCard({
                 className="rounded-full bg-primary text-primary-foreground px-5 py-2 text-sm font-semibold hover:opacity-90"
                 onClick={async (event) => {
                   event.preventDefault();
-                  if (await requireDemoAccess())
-                    window.location.assign(listingHref);
+                  if (!(await requireDemoAccess())) return;
+                  toast.message("Opening purchase options…");
+                  window.location.assign(listingHref);
                 }}
               >
                 Buy →
@@ -1526,8 +1528,10 @@ function DetailsSheet({
               Score breakdown
             </div>
             <p className="mb-2 text-xs text-muted-foreground">
-              Overall match % is a weighted average of these factors. Weights shift with your priorities
-              (budget fit, range, personal wish, optimization).
+              Overall match % is a weighted average of these factors
+              {match.ruleScore != null && match.ruleScore !== match.score
+                ? ` (rule score ${match.ruleScore}%; displayed ${match.score}% may include semantic ranking)`
+                : ""}. Weights shift with your priorities (budget fit, range, personal wish, optimization).
             </p>
             <div className="rounded-2xl bg-muted/50 p-3 grid grid-cols-1 gap-1.5">
               {formatScoringBreakdown(match).map(({ label, value }) => (

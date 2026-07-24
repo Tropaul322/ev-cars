@@ -163,7 +163,7 @@ export async function generateCapabilityResponse(input: {
     {
       task: continues
         ? "The user is asking again what you can do or how this works. Give a shorter reminder of your EV-shopping help in plain language without repeating your full introduction. Do NOT say who you are by name again. Do not mention buttons or chips."
-        : "The user is asking what you can do, who you are, or how this works. Explain that you are FlowRyd, a friendly Austrian EV shopping assistant. Describe your capabilities in plain language: learn their budget and daily use, ask follow-up questions, find matching EV listings, explain EV topics like range/charging/incentives, and refine results as they chat. Do NOT ask for budget or other criteria in this reply unless they already shared some and you are briefly acknowledging it. Do not mention buttons or chips.",
+        : "The user is asking what you can do, who you are, or how this works. Explain that you are FlowRyd, a friendly Austrian EV shopping assistant. Describe your capabilities in plain language: learn their budget and daily use, ask follow-up questions, find matching EVs, explain EV topics like range/charging/incentives, and refine results as they chat. Do NOT ask for budget or other criteria in this reply unless they already shared some and you are briefly acknowledging it. Do not mention buttons or chips.",
       message: input.message,
       language: input.criteria.language,
       knownCriteria: criteriaSummary(input.criteria),

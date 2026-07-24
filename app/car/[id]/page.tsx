@@ -262,7 +262,7 @@ function RealVehicleDetail({
                     rel="noreferrer"
                     className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-background py-3 font-semibold border border-border hover:bg-muted"
                   >
-                    Open original listing
+                    Open original offer
                     <ExternalLink className="size-4" aria-hidden="true" />
                   </Link>
                 ) : null}

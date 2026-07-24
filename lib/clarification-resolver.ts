@@ -75,6 +75,8 @@ export function resolveClarificationAnswer(
       return { kind: "patch", patch: defaultBudgetPatch() };
     }
     if (skipOption && matchedOptions.length === 1) {
+      // Binding PoC criteria cannot be waved off — keep asking until answered.
+      if (isBindingClarificationKey(promptKey)) return null;
       return { kind: "skip" };
     }
     const patch = mergeOptionPatches(matchedOptions.filter((option) => option.patch));
@@ -83,6 +85,7 @@ export function resolveClarificationAnswer(
 
   if (isSkipAnswer(trimmed)) {
     if (promptKey === "budget") return { kind: "patch", patch: defaultBudgetPatch() };
+    if (isBindingClarificationKey(promptKey)) return null;
     return { kind: "skip" };
   }
 
@@ -171,6 +174,16 @@ function defaultBudgetPatch(): CriteriaPatch {
     budgetMaxEUR: DEFAULT_BUDGET_MAX_EUR,
     monthlyBudgetEUR: null
   };
+}
+
+/** PoC Test Summary §4 — these must be answered before a match. */
+function isBindingClarificationKey(promptKey: ClarificationPromptKey) {
+  return (
+    promptKey === "budget" ||
+    promptKey === "vehicle_preferences" ||
+    promptKey === "charging_or_range" ||
+    promptKey === "personal_wish"
+  );
 }
 
 function mergeOptionPatches(options: ClarificationOption[]): CriteriaPatch {

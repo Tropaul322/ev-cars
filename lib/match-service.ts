@@ -288,7 +288,14 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     ) {
       const resolution = resolveClarificationAnswer(body.message, clarificationKey, criteria.language);
       if (resolution?.kind === "skip") {
-        if (isMissingCriteriaKey(clarificationKey)) {
+        // Binding criteria (budget/body/range/wish) must not be skipped into readiness.
+        if (
+          isMissingCriteriaKey(clarificationKey) &&
+          clarificationKey !== "budget" &&
+          clarificationKey !== "vehicle_preferences" &&
+          clarificationKey !== "charging_or_range" &&
+          clarificationKey !== "personal_wish"
+        ) {
           skippedKeys = Array.from(new Set([...skippedKeys, clarificationKey]));
         }
         criteriaChanged = true;
@@ -923,7 +930,7 @@ function fallbackSelection(
   return {
     assistantMessage: fallbackMatchIntroMessage(
       criteria,
-      recommendations.length,
+      Math.min(recommendations.length, VISIBLE_RECOMMENDATION_LIMIT),
       null,
       inventoryBrands
     ),
