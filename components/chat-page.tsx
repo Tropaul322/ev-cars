@@ -9,7 +9,6 @@ import {
   MessageCirclePlus,
   Sparkles,
 } from "lucide-react";
-import { toast } from "sonner";
 import { VehicleImage } from "@/components/vehicle-image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -1385,7 +1384,6 @@ function ListingCard({
 }) {
   const vehicle = match.vehicle;
   const vehicleTitle = `${vehicle.make} ${vehicle.model}`;
-  const listingHref = vehicle.listingUrl ?? `/car/${vehicle.id}`;
 
   return (
     <article className="rounded-3xl bg-white overflow-hidden hover:shadow-[0_20px_50px_-20px_rgba(40,40,80,0.25)] transition-shadow">
@@ -1426,27 +1424,13 @@ function ListingCard({
             <div className="font-display font-bold text-lg leading-tight">
               {formatEUR(match.tco.purchasePriceWithVAT)}
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => onOpenDetails(match)}
-                className="rounded-full bg-muted text-foreground px-4 py-2 text-sm font-semibold hover:bg-muted/80"
-              >
-                Details
-              </button>
-              <Link
-                href={listingHref}
-                className="rounded-full bg-primary text-primary-foreground px-5 py-2 text-sm font-semibold hover:opacity-90"
-                onClick={async (event) => {
-                  event.preventDefault();
-                  if (!(await requireDemoAccess())) return;
-                  toast.message("Opening purchase options…");
-                  window.location.assign(listingHref);
-                }}
-              >
-                Buy →
-              </Link>
-            </div>
+            <button
+              type="button"
+              onClick={() => onOpenDetails(match)}
+              className="rounded-full bg-primary text-primary-foreground px-5 py-2 text-sm font-semibold hover:opacity-90"
+            >
+              Details
+            </button>
           </div>
         </div>
       </div>
