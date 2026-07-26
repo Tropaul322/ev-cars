@@ -135,7 +135,7 @@ export async function generateClarificationResponse(input: {
     "clarification_natural",
     {
       task:
-        "Ask the user the guideQuestion in a natural, chat-like way. Stay faithful to the intent of guideQuestion — if it asks where they charge, ask about charging location (home/work/public), not about range targets. If knownCriteria is not empty, briefly acknowledge what you already know in a few words before asking. Never copy guideQuestion word-for-word — rephrase it. Ask exactly one question.",
+        "Ask the user the guideQuestion in a natural, chat-like way. Stay faithful to the intent of guideQuestion — if it asks where they charge, ask about charging location (home/work/public), not about range targets; if it asks for minimum range, ask only about range/daily km, not features; if it asks body style, ask only about body style. Do NOT invent follow-ups about features, tech, safety, seats, brands, or cargo unless guideQuestion itself asks for those. If knownCriteria is not empty, briefly acknowledge what you already know in a few words before asking. Never copy guideQuestion word-for-word — rephrase it. Ask exactly one question.",
       message: input.message,
       language: input.criteria.language,
       guideQuestion: input.catalogQuestion,

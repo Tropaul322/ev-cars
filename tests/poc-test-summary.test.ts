@@ -344,14 +344,13 @@ test("live hybrid/structured search does not silently fall back to bundled seed 
   );
 });
 
-test("binding criteria cannot be skipped with 'no preference'", async () => {
+test("decline answers advance instead of re-asking the same clarification", async () => {
   await assertLiveInventory();
   let current = await runMatchRequest({
     message: "Chinese brand EV under 40000"
   });
   assert.equal(current.type, "clarification");
 
-  // Walk to vehicle_preferences if needed, then try to skip it.
   if (current.prompt?.key === "budget") {
     current = await runMatchRequest({
       message: "Under 40000",
@@ -364,15 +363,21 @@ test("binding criteria cannot be skipped with 'no preference'", async () => {
   assert.equal(current.type, "clarification");
   assert.equal(current.prompt?.key, "vehicle_preferences");
 
-  const skipped = await runMatchRequest({
-    message: "no preference",
+  const declined = await runMatchRequest({
+    message: "No",
     sessionId: current.sessionId,
     previousCriteria: current.criteria,
     currentPromptKey: "vehicle_preferences"
   });
-  assert.equal(skipped.type, "clarification");
-  assert.equal(skipped.prompt?.key, "vehicle_preferences");
-  assert.equal(getCriteriaReadiness(skipped.criteria).readyToMatch, false);
+  // "No" marks no specific body/features/brands/cargo and advances to the next question.
+  assert.equal(declined.type, "clarification");
+  assert.notEqual(declined.prompt?.key, "vehicle_preferences");
+  assert.ok(declined.criteria.bodyTypes.length > 0);
+  assert.deepEqual(declined.criteria.mustHaveFeatures, []);
+  assert.deepEqual(declined.criteria.brandPreferences, []);
+  assert.equal(declined.criteria.cargoNeeds, null);
+  assert.equal(declined.criteria.passengers, null);
+  assert.doesNotMatch(declined.assistantMessage, /no rush|pick an option below/i);
 });
 
 test("soft brand-origin preference ranks matching origins above others", async () => {
