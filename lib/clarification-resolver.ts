@@ -1,13 +1,33 @@
 import { getClarificationPrompt, getOptimizationPrompt } from "./clarification-catalog.ts";
-import { DEFAULT_BUDGET_MAX_EUR, DEFAULT_BUDGET_MIN_EUR, extractCriteria, looksLikeNoBudgetLimit } from "./criteria.ts";
-import type { ClarificationOption, ClarificationPromptKey, CriteriaPatch, Language } from "./types.ts";
+import {
+  DEFAULT_BUDGET_MAX_EUR,
+  DEFAULT_BUDGET_MIN_EUR,
+  extractCriteria,
+  looksLikeNoBudgetLimit
+} from "./criteria.ts";
+import type {
+  BodyType,
+  ClarificationOption,
+  ClarificationPromptKey,
+  CriteriaPatch,
+  Language
+} from "./types.ts";
 
 export type ClarificationResolution =
   | { kind: "patch"; patch: CriteriaPatch }
   | { kind: "skip" };
 
+/** Soft default when the user declines to name a range floor. */
+export const DEFAULT_DECLINED_RANGE_FLOOR_KM = 300;
+
+const OPEN_BODY_TYPES: BodyType[] = ["suv", "sedan", "compact", "hatchback", "wagon", "van"];
+
 const skipAnswerPattern =
   /\b(no preference|no pref|don't care|doesn'?t matter|not sure(?: yet)?|no idea|don'?t know|skip|whatever|anything|any style|any body|open to anything|no budget limit|no limit|egal|keine präferenz|keine ahnung|weiß nicht|weiss nicht|unklar|passt schon|ist mir egal)\b/i;
+
+/** Bare "No" / "None" / "Nein" and longer skip phrases — user declines extras. */
+const declineAnswerPattern =
+  /^(no|nope|nah|nein|nee|none|nothing|no thanks|no thank you|not really|nothing specific|no specific(?:\s+features?)?|keine|nichts|nein danke|nicht wirklich)\.?$/i;
 
 const optionSynonyms: Record<string, RegExp[]> = {
   budget_under_25k: [
@@ -51,6 +71,33 @@ const optionSynonyms: Record<string, RegExp[]> = {
 };
 
 /**
+ * True when the user declines extras ("No", "none", "no preference", …).
+ * These answers must advance the conversation — never re-nudge the same question.
+ */
+export function looksLikeDeclineAnswer(message: string) {
+  const trimmed = message.trim();
+  if (!trimmed) return false;
+  return declineAnswerPattern.test(trimmed) || skipAnswerPattern.test(trimmed);
+}
+
+/**
+ * Patch that records: no must-have features, no brand/model lock-in, no cargo/seat extras.
+ * Uses remove keys because applyChipPatch merges list fields and would ignore [].
+ * If body style is still empty, open the body pool so matching can proceed.
+ */
+export function declinedOptionalPreferencesPatch(hasBodyType = false): CriteriaPatch {
+  const patch: CriteriaPatch = {
+    remove: ["features", "brand", "model"],
+    cargoNeeds: null,
+    passengers: null
+  };
+  if (!hasBodyType) {
+    patch.bodyTypes = [...OPEN_BODY_TYPES];
+  }
+  return patch;
+}
+
+/**
  * Maps a free-text reply to a clarification chip patch when the user answers
  * in chat instead of tapping a chip.
  */
@@ -75,22 +122,48 @@ export function resolveClarificationAnswer(
       return { kind: "patch", patch: defaultBudgetPatch() };
     }
     if (skipOption && matchedOptions.length === 1) {
-      // Binding PoC criteria cannot be waved off — keep asking until answered.
-      if (isBindingClarificationKey(promptKey)) return null;
+      const declined = declineResolutionForPrompt(promptKey);
+      if (declined) return declined;
       return { kind: "skip" };
     }
     const patch = mergeOptionPatches(matchedOptions.filter((option) => option.patch));
     return Object.keys(patch).length ? { kind: "patch", patch } : null;
   }
 
-  if (isSkipAnswer(trimmed)) {
-    if (promptKey === "budget") return { kind: "patch", patch: defaultBudgetPatch() };
-    if (isBindingClarificationKey(promptKey)) return null;
-    return { kind: "skip" };
+  if (looksLikeDeclineAnswer(trimmed)) {
+    if (promptKey === "budget" || looksLikeNoBudgetLimit(trimmed)) {
+      return { kind: "patch", patch: defaultBudgetPatch() };
+    }
+    return declineResolutionForPrompt(promptKey);
   }
 
   const extractedPatch = extractPatchForPrompt(trimmed, promptKey);
   return extractedPatch ? { kind: "patch", patch: extractedPatch } : null;
+}
+
+/**
+ * When the user says "No" / "no preference", advance with defaults or a skip —
+ * never return null (that causes an infinite nudge loop on the same question).
+ */
+function declineResolutionForPrompt(promptKey: ClarificationPromptKey): ClarificationResolution | null {
+  switch (promptKey) {
+    case "budget":
+      return { kind: "patch", patch: defaultBudgetPatch() };
+    case "use_case":
+      return { kind: "skip" };
+    case "optimization":
+      return { kind: "patch", patch: { optimizationDirective: "best_value" } };
+    case "personal_wish":
+      // Neutral default so binding readiness advances after an explicit decline.
+      return { kind: "patch", patch: { personalWish: "freedom" } };
+    case "charging_or_range":
+      return { kind: "patch", patch: { rangeFloorKm: DEFAULT_DECLINED_RANGE_FLOOR_KM } };
+    case "vehicle_preferences":
+      // Mark: no specific features / brands / cargo / seats; open body if needed.
+      return { kind: "patch", patch: declinedOptionalPreferencesPatch(false) };
+    default:
+      return { kind: "skip" };
+  }
 }
 
 function matchPromptOptions(message: string, options: ClarificationOption[]) {
@@ -113,10 +186,6 @@ function optionMatches(message: string, option: ClarificationOption) {
     .map((token) => token.trim())
     .filter((token) => token.length >= 4);
   return labelTokens.some((token) => new RegExp(`\\b${escapeRegExp(token)}\\b`, "i").test(message));
-}
-
-function isSkipAnswer(message: string) {
-  return skipAnswerPattern.test(message);
 }
 
 function extractPatchForPrompt(message: string, promptKey: ClarificationPromptKey): CriteriaPatch | null {
@@ -174,16 +243,6 @@ function defaultBudgetPatch(): CriteriaPatch {
     budgetMaxEUR: DEFAULT_BUDGET_MAX_EUR,
     monthlyBudgetEUR: null
   };
-}
-
-/** PoC Test Summary §4 — these must be answered before a match. */
-function isBindingClarificationKey(promptKey: ClarificationPromptKey) {
-  return (
-    promptKey === "budget" ||
-    promptKey === "vehicle_preferences" ||
-    promptKey === "charging_or_range" ||
-    promptKey === "personal_wish"
-  );
 }
 
 function mergeOptionPatches(options: ClarificationOption[]): CriteriaPatch {

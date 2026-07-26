@@ -13,7 +13,11 @@ import {
   isMissingCriteriaKey,
   nextClarificationPrompt
 } from "./clarification-catalog.ts";
-import { resolveClarificationAnswer } from "./clarification-resolver.ts";
+import {
+  declinedOptionalPreferencesPatch,
+  looksLikeDeclineAnswer,
+  resolveClarificationAnswer
+} from "./clarification-resolver.ts";
 import {
   DEFAULT_BUDGET_MAX_EUR,
   DEFAULT_BUDGET_MIN_EUR,
@@ -288,20 +292,23 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     ) {
       const resolution = resolveClarificationAnswer(body.message, clarificationKey, criteria.language);
       if (resolution?.kind === "skip") {
-        // Binding criteria (budget/body/range/wish) must not be skipped into readiness.
-        if (
-          isMissingCriteriaKey(clarificationKey) &&
-          clarificationKey !== "budget" &&
-          clarificationKey !== "vehicle_preferences" &&
-          clarificationKey !== "charging_or_range" &&
-          clarificationKey !== "personal_wish"
-        ) {
+        // Optional groups (e.g. use_case) can be skipped; binding keys use decline patches instead.
+        if (isMissingCriteriaKey(clarificationKey) && clarificationKey === "use_case") {
           skippedKeys = Array.from(new Set([...skippedKeys, clarificationKey]));
         }
         criteriaChanged = true;
       } else if (resolution?.kind === "patch") {
+        let patch = resolution.patch;
+        // If body style is already known, a decline must clear extras without reopening all bodies.
+        if (
+          clarificationKey === "vehicle_preferences" &&
+          criteria.bodyTypes.length > 0 &&
+          looksLikeDeclineAnswer(body.message)
+        ) {
+          patch = declinedOptionalPreferencesPatch(true);
+        }
         criteria = {
-          ...applyChipPatch(criteria, resolution.patch),
+          ...applyChipPatch(criteria, patch),
           latestUserMessage: body.message.trim()
         };
         confidence = getCriteriaConfidence(criteria);
