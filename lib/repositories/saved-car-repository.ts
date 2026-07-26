@@ -15,6 +15,7 @@ export type SavedCarSnapshot = {
   match?: number | null;
   range?: string | null;
   mileage?: string | null;
+  listingUrl?: string | null;
 };
 
 export type SavedCar = {
@@ -239,7 +240,8 @@ export function snapshotFromVehicle(vehicle: Vehicle, match?: number | null): Sa
     image: vehicle.images[0] ?? null,
     match: match ?? null,
     range: `${vehicle.rangeKm.toLocaleString("de-AT")} km`,
-    mileage: vehicle.mileageKm === null ? null : `${vehicle.mileageKm.toLocaleString("de-AT")} km`
+    mileage: vehicle.mileageKm === null ? null : `${vehicle.mileageKm.toLocaleString("de-AT")} km`,
+    listingUrl: vehicle.listingUrl ?? null
   };
 }
 

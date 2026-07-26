@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
-import { extractCriteria, needsClarification } from "../lib/criteria.ts";
+import { extractCriteria } from "../lib/criteria.ts";
 import { evalScenarios, type EvalScenario } from "../lib/data/eval-scenarios.ts";
 import { seedVehicles } from "../lib/data/seed-vehicles.ts";
 import { fallbackRecommendationExplanation } from "../lib/recommendation-explanations.ts";
@@ -33,7 +33,10 @@ type EvalResult = {
 
 function evaluateScenario(scenario: EvalScenario): EvalResult {
   const criteria = extractCriteria(scenario.prompt);
-  const matchResult = needsClarification(criteria)
+  // Offline ranking evals measure filter/score quality, not the conversational
+  // clarification gate (which now requires personal wish + body + range).
+  const hasBudget = Boolean(criteria.budgetMinEUR || criteria.budgetMaxEUR || criteria.monthlyBudgetEUR);
+  const matchResult = !hasBudget
     ? { recommendations: [], rejected: [] }
     : matchVehicles(seedVehicles, criteria, evalTopK);
   const returnedIds = matchResult.recommendations.map((match) => match.vehicle.id);

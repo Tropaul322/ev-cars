@@ -9,6 +9,7 @@ import {
   MessageCirclePlus,
   Sparkles,
 } from "lucide-react";
+import { toast } from "sonner";
 import { VehicleImage } from "@/components/vehicle-image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -68,6 +69,7 @@ import {
   getVehicleDetailSections,
   getVehicleDetailStats,
 } from "@/lib/vehicle-detail-fields";
+import { formatMatchInventoryLabel, formatSeeMatchesLabel } from "@/lib/match-copy";
 
 type Message =
   | { role: "user"; text: string }
@@ -1241,9 +1243,7 @@ function ResultsBlock({
         )}
       >
         <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">
-          {groups.length} model{groups.length === 1 ? "" : "s"} •{" "}
-          {totalListings} listing
-          {totalListings === 1 ? "" : "s"} found
+          {formatMatchInventoryLabel(groups.length, totalListings)}
         </div>
         <div className="relative">
           <div
@@ -1354,9 +1354,7 @@ function ModelCard({
           className="shrink-0 inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:opacity-90"
           aria-expanded={open}
         >
-          {open
-            ? "Hide"
-            : `See ${group.matches.length} listing${group.matches.length === 1 ? "" : "s"}`}
+          {open ? "Hide" : formatSeeMatchesLabel(group.matches.length)}
           <ChevronDown
             className={`size-4 transition-transform ${open ? "rotate-180" : ""}`}
             aria-hidden="true"
@@ -1441,8 +1439,9 @@ function ListingCard({
                 className="rounded-full bg-primary text-primary-foreground px-5 py-2 text-sm font-semibold hover:opacity-90"
                 onClick={async (event) => {
                   event.preventDefault();
-                  if (await requireDemoAccess())
-                    window.location.assign(listingHref);
+                  if (!(await requireDemoAccess())) return;
+                  toast.message("Opening purchase options…");
+                  window.location.assign(listingHref);
                 }}
               >
                 Buy →
@@ -1528,6 +1527,12 @@ function DetailsSheet({
             <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
               Score breakdown
             </div>
+            <p className="mb-2 text-xs text-muted-foreground">
+              Overall match % is a weighted average of these factors
+              {match.ruleScore != null && match.ruleScore !== match.score
+                ? ` (rule score ${match.ruleScore}%; displayed ${match.score}% may include semantic ranking)`
+                : ""}. Weights shift with your priorities (budget fit, range, personal wish, optimization).
+            </p>
             <div className="rounded-2xl bg-muted/50 p-3 grid grid-cols-1 gap-1.5">
               {formatScoringBreakdown(match).map(({ label, value }) => (
                 <ScoreRow label={label} value={value} key={label} />
@@ -1554,7 +1559,7 @@ function DetailsSheet({
             target={vehicle.listingUrl ? "_blank" : undefined}
             rel={vehicle.listingUrl ? "noreferrer" : undefined}
           >
-            {vehicle.listingUrl ? "Open listing" : "Open car page"}
+            {vehicle.listingUrl ? "Open matching" : "Open car page"}
           </Link>
         </div>
       </SheetContent>
@@ -1740,15 +1745,24 @@ function formatPriceRange(matches: MatchResult[]) {
 }
 
 function formatScoringBreakdown(match: MatchResult) {
-  return [
-    { label: "Price", value: match.scoringBreakdown.priceFit },
-    { label: "Range", value: match.scoringBreakdown.rangeFit },
-    { label: "Efficiency", value: match.scoringBreakdown.efficiencyFit },
-    { label: "Brand", value: match.scoringBreakdown.brandFit },
-    { label: "Cargo / seats", value: match.scoringBreakdown.cargoPassengerFit },
-    { label: "Reliability", value: match.scoringBreakdown.reliabilityFit },
-    { label: "Features", value: match.scoringBreakdown.featureFit },
-  ];
+  const weights = match.scoringWeights;
+  const rows = [
+    { key: "priceFit", label: "Price", value: match.scoringBreakdown.priceFit },
+    { key: "rangeFit", label: "Range", value: match.scoringBreakdown.rangeFit },
+    { key: "efficiencyFit", label: "Efficiency", value: match.scoringBreakdown.efficiencyFit },
+    { key: "brandFit", label: "Brand", value: match.scoringBreakdown.brandFit },
+    { key: "cargoPassengerFit", label: "Cargo / seats", value: match.scoringBreakdown.cargoPassengerFit },
+    { key: "reliabilityFit", label: "Reliability", value: match.scoringBreakdown.reliabilityFit },
+    { key: "featureFit", label: "Features", value: match.scoringBreakdown.featureFit },
+  ] as const;
+
+  return rows.map((row) => {
+    const weightPct = weights ? Math.round((weights[row.key] ?? 0) * 100) : null;
+    return {
+      label: weightPct === null ? row.label : `${row.label} (${weightPct}% weight)`,
+      value: row.value,
+    };
+  });
 }
 
 function maxRangeLabel(matches: MatchResult[]) {
@@ -1775,6 +1789,7 @@ function snapshotFromMatch(match: MatchResult): SavedCarSnapshot {
       vehicle.mileageKm === null
         ? null
         : `${formatNumber(vehicle.mileageKm)} km`,
+    listingUrl: vehicle.listingUrl ?? null,
   };
 }
 

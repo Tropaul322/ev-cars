@@ -83,10 +83,11 @@ test("heat-pump knowledge questions stay conversational", async () => {
 test("first turn with explicit optimization can match immediately", async () => {
   const response = await runMatchRequest({
     message:
-      "Family SUV under 50000 EUR, home wallbox, about 450 km range for Autobahn trips with kids, optimize for best family fit."
+      "Family SUV under 50000 EUR, home wallbox, about 450 km range for Autobahn trips with kids, looking for freedom, optimize for best family fit."
   });
 
   assert.equal(response.type, "matches");
   assert.ok(response.recommendations.length > 0);
   assert.equal(response.criteria.optimizationDirective, "best_family_fit");
+  assert.equal(response.criteria.personalWish, "freedom");
 });

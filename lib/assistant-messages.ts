@@ -163,7 +163,7 @@ export async function generateCapabilityResponse(input: {
     {
       task: continues
         ? "The user is asking again what you can do or how this works. Give a shorter reminder of your EV-shopping help in plain language without repeating your full introduction. Do NOT say who you are by name again. Do not mention buttons or chips."
-        : "The user is asking what you can do, who you are, or how this works. Explain that you are FlowRyd, a friendly Austrian EV shopping assistant. Describe your capabilities in plain language: learn their budget and daily use, ask follow-up questions, find matching EV listings, explain EV topics like range/charging/incentives, and refine results as they chat. Do NOT ask for budget or other criteria in this reply unless they already shared some and you are briefly acknowledging it. Do not mention buttons or chips.",
+        : "The user is asking what you can do, who you are, or how this works. Explain that you are FlowRyd, a friendly Austrian EV shopping assistant. Describe your capabilities in plain language: learn their budget and daily use, ask follow-up questions, find matching EVs, explain EV topics like range/charging/incentives, and refine results as they chat. Do NOT ask for budget or other criteria in this reply unless they already shared some and you are briefly acknowledging it. Do not mention buttons or chips.",
       message: input.message,
       language: input.criteria.language,
       knownCriteria: criteriaSummary(input.criteria),
@@ -300,13 +300,13 @@ export async function generateMatchIntroMessage(input: {
 
   const generated = await generateMessage("match_intro", {
     task:
-      "Briefly introduce the ranked EV listings like a helpful advisor texting a customer. Sound specific and warm — reference the user's budget, use case, or must-haves when present. Do not reuse a fixed template. Do not say \"hard limits\" or \"hard filters\". Mention tradeoffs only if rejectedSummary is non-empty and useful. Add the lowConfidenceQuestion only when it is a non-null string; otherwise do not invent a priority follow-up." +
+      "Briefly introduce the single best EV recommendation like a helpful advisor texting a customer. Sound specific and warm — reference the user's budget, use case, or must-haves when present. Do not reuse a fixed template. Do not say \"hard limits\" or \"hard filters\". Mention tradeoffs only if rejectedSummary is non-empty and useful. Do NOT ask a follow-up priority question in this message. When recommendationCount is 1, speak in the singular (a strong match / one recommendation) — never say you found multiple matching EVs." +
       brandRule +
       widenRule +
       " Never invent car brands that are absent from inventoryBrands. Prefer naming the top result's situation over listing every brand.",
     language: input.criteria.language,
     recommendationCount: input.recommendationCount,
-    lowConfidenceQuestion: input.lowConfidenceQuestion ?? null,
+    lowConfidenceQuestion: null,
     rejectedSummary: input.rejectedSummary ?? [],
     criteria: input.criteria,
     inventoryBrands: brands,
@@ -506,15 +506,19 @@ export function fallbackMatchIntroMessage(
       : criteria.language === "de"
         ? ` Dabei sind unter anderem ${brands.slice(0, 3).join(", ")}.`
         : ` That includes makes like ${brands.slice(0, 3).join(", ")}.`;
+  // Always speak about the visible recommendation count (usually 1), never cached runner-ups.
+  const visibleCount = Math.max(1, recommendationCount);
   const base =
     criteria.language === "de"
-      ? recommendationCount === 1
+      ? visibleCount === 1
         ? `Ich habe ein starkes Match für dich.${brandSentence}`
-        : `Ich habe ${recommendationCount} passende E-Autos für dich.${brandSentence}`
-      : recommendationCount === 1
+        : `Ich habe ${visibleCount} passende E-Autos für dich.${brandSentence}`
+      : visibleCount === 1
         ? `I found a strong match for you.${brandSentence}`
-        : `I found ${recommendationCount} matching EVs for you.${brandSentence}`;
-  return lowConfidenceQuestion ? `${base} ${lowConfidenceQuestion}` : base;
+        : `I found ${visibleCount} matching EVs for you.${brandSentence}`;
+  // Never stitch a follow-up question into the match announcement (PoC Test Summary bug).
+  void lowConfidenceQuestion;
+  return base;
 }
 
 export function fallbackLowConfidenceQuestion(criteria: UserCriteria) {
