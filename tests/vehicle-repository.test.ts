@@ -280,6 +280,7 @@ test("hybrid RPC receives ftsQuery as query_text", async () => {
 });
 
 test("light-hard retrieve filters omit body/range/model/must-haves", async () => {
+  const previousPipeline = process.env.FLOWRYD_MATCHING_PIPELINE;
   process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
   try {
     const criteria: UserCriteria = {
@@ -309,11 +310,13 @@ test("light-hard retrieve filters omit body/range/model/must-haves", async () =>
     assert.equal(filters.hardPassengers, null);
     assert.equal(filters.hardCondition, null);
   } finally {
-    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    if (previousPipeline === undefined) delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    else process.env.FLOWRYD_MATCHING_PIPELINE = previousPipeline;
   }
 });
 
 test("classic pipeline keeps full hard retrieve filters (toggle OFF)", () => {
+  const previousPipeline = process.env.FLOWRYD_MATCHING_PIPELINE;
   process.env.FLOWRYD_MATCHING_PIPELINE = "classic";
   try {
     const criteria: UserCriteria = {
@@ -326,11 +329,13 @@ test("classic pipeline keeps full hard retrieve filters (toggle OFF)", () => {
     const filters = buildHybridSearchFilters(criteria);
     assert.ok(filters.hardRangeFloorKm === 400 || (filters.hardBodyTypes?.length ?? 0) > 0);
   } finally {
-    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    if (previousPipeline === undefined) delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    else process.env.FLOWRYD_MATCHING_PIPELINE = previousPipeline;
   }
 });
 
 test("light-hard filterVehiclesForSearch keeps over-range SUV in pool when only budget/avoid apply", () => {
+  const previousPipeline = process.env.FLOWRYD_MATCHING_PIPELINE;
   process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
   try {
     const criteria: UserCriteria = {
@@ -349,11 +354,13 @@ test("light-hard filterVehiclesForSearch keeps over-range SUV in pool when only 
     const kept = filterVehiclesForSearch([lowRangeSuv], criteria);
     assert.equal(kept.length, 1);
   } finally {
-    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    if (previousPipeline === undefined) delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    else process.env.FLOWRYD_MATCHING_PIPELINE = previousPipeline;
   }
 });
 
 test("light-hard buildVehicleSearchParams omits body/range/model hard filters", () => {
+  const previousPipeline = process.env.FLOWRYD_MATCHING_PIPELINE;
   process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
   try {
     const params = buildVehicleSearchParams({
@@ -386,11 +393,13 @@ test("light-hard buildVehicleSearchParams omits body/range/model hard filters", 
     assert.equal(params.get("location"), null);
     assert.equal(params.get("and"), null);
   } finally {
-    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    if (previousPipeline === undefined) delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    else process.env.FLOWRYD_MATCHING_PIPELINE = previousPipeline;
   }
 });
 
 test("light-hard filterVehiclesForSearch still drops over-budget and avoided brands", () => {
+  const previousPipeline = process.env.FLOWRYD_MATCHING_PIPELINE;
   process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
   try {
     const criteria: UserCriteria = {
@@ -404,6 +413,7 @@ test("light-hard filterVehiclesForSearch still drops over-budget and avoided bra
     const avoided = minimalVehicle({ id: "tesla", priceEUR: 35000, make: "Tesla" });
     assert.deepEqual(filterVehiclesForSearch([overBudget, avoided], criteria), []);
   } finally {
-    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    if (previousPipeline === undefined) delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    else process.env.FLOWRYD_MATCHING_PIPELINE = previousPipeline;
   }
 });

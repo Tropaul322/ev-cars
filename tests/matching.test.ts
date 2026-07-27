@@ -993,6 +993,7 @@ test("explicit must-have features remain hard filters", () => {
 });
 
 test("after light-hard retrieve, matchVehicles still rejects over-budget and avoided brands", () => {
+  const previousPipeline = process.env.FLOWRYD_MATCHING_PIPELINE;
   process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
   try {
     const criteria = {
@@ -1021,11 +1022,13 @@ test("after light-hard retrieve, matchVehicles still rejects over-budget and avo
     assert.ok(result.rejected.some((r) => r.vehicle.id === "ob"));
     assert.ok(result.rejected.some((r) => r.vehicle.id === "av"));
   } finally {
-    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    if (previousPipeline === undefined) delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    else process.env.FLOWRYD_MATCHING_PIPELINE = previousPipeline;
   }
 });
 
 test("after light-hard retrieve, exclusive must-have features still hard-reject at match", () => {
+  const previousPipeline = process.env.FLOWRYD_MATCHING_PIPELINE;
   process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
   try {
     const criteria = {
@@ -1060,7 +1063,8 @@ test("after light-hard retrieve, exclusive must-have features still hard-reject 
       )
     );
   } finally {
-    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    if (previousPipeline === undefined) delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    else process.env.FLOWRYD_MATCHING_PIPELINE = previousPipeline;
   }
 });
 
@@ -1078,6 +1082,8 @@ test("hardFilterPolicy documents retrieveLight vs match-time hard filters", () =
 });
 
 test("softened match prefs keep near-miss body type with tradeoff instead of reject", () => {
+  const previousPipeline = process.env.FLOWRYD_MATCHING_PIPELINE;
+  const previousSoften = process.env.FLOWRYD_SOFTEN_MATCH_PREFERENCES;
   process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
   process.env.FLOWRYD_SOFTEN_MATCH_PREFERENCES = "1";
   try {
@@ -1099,12 +1105,16 @@ test("softened match prefs keep near-miss body type with tradeoff instead of rej
     assert.equal(result.recommendations.length, 1);
     assert.match(result.recommendations[0]!.ruledOutReasons.join(" "), /body|wagon|suv/i);
   } finally {
-    delete process.env.FLOWRYD_MATCHING_PIPELINE;
-    delete process.env.FLOWRYD_SOFTEN_MATCH_PREFERENCES;
+    if (previousPipeline === undefined) delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    else process.env.FLOWRYD_MATCHING_PIPELINE = previousPipeline;
+    if (previousSoften === undefined) delete process.env.FLOWRYD_SOFTEN_MATCH_PREFERENCES;
+    else process.env.FLOWRYD_SOFTEN_MATCH_PREFERENCES = previousSoften;
   }
 });
 
 test("exclusive must SUV still hard-rejects wagon when soften flag on", () => {
+  const previousPipeline = process.env.FLOWRYD_MATCHING_PIPELINE;
+  const previousSoften = process.env.FLOWRYD_SOFTEN_MATCH_PREFERENCES;
   process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
   process.env.FLOWRYD_SOFTEN_MATCH_PREFERENCES = "1";
   try {
@@ -1119,8 +1129,10 @@ test("exclusive must SUV still hard-rejects wagon when soften flag on", () => {
     assert.equal(result.recommendations.length, 0);
     assert.ok(result.rejected.some((r) => r.vehicle.id === "wagon-2"));
   } finally {
-    delete process.env.FLOWRYD_MATCHING_PIPELINE;
-    delete process.env.FLOWRYD_SOFTEN_MATCH_PREFERENCES;
+    if (previousPipeline === undefined) delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    else process.env.FLOWRYD_MATCHING_PIPELINE = previousPipeline;
+    if (previousSoften === undefined) delete process.env.FLOWRYD_SOFTEN_MATCH_PREFERENCES;
+    else process.env.FLOWRYD_SOFTEN_MATCH_PREFERENCES = previousSoften;
   }
 });
 

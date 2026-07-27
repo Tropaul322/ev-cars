@@ -78,7 +78,7 @@ augment candidate retrieval with vector search, or set
 
 - **Master OFF:** `FLOWRYD_MATCHING_PIPELINE=classic` or unset — full hard retrieve (today’s default).
 - **Master ON:** `FLOWRYD_MATCHING_PIPELINE=light_hard` — light hard filters, then embeddings, then remaining filters. Alias: `FLOWRYD_LIGHT_HARD_MATCHING=1` when the pipeline var is unset. If both are set, `FLOWRYD_MATCHING_PIPELINE` wins (e.g. `classic` disables light-hard even when the alias is `1`). Pair light-hard with `FLOWRYD_VEHICLE_EMBEDDING_SEARCH=1` after vehicle embeddings are deployed.
-- **Sub-flag:** `FLOWRYD_SOFTEN_MATCH_PREFERENCES=1` — non-exclusive body type, range, and condition become score tradeoffs instead of hard excludes. Ignored unless the master pipeline is `light_hard`. Trust constraints (e.g. must-have features, brand exclusions) are never softened.
+- **Sub-flag:** `FLOWRYD_SOFTEN_MATCH_PREFERENCES=1` — surfaces tradeoff reasons for already-soft (non-exclusive) body type, range, and condition prefs via `summarizeTradeoffs`. Does not demote hard rejects; exclusive cues still use `hasHard*`. Ignored unless the master pipeline is `light_hard`. Trust constraints (e.g. must-have features, brand exclusions) are never softened.
 
 Set `FLOWRYD_MATCH_DEBUG=1` to attach match diagnostics to API responses and
 server logs (`matchingPipeline`, `embeddingHits`, `rejectedSummary`, etc.).

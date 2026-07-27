@@ -22,6 +22,7 @@ import {
 import { expandVehicleSearchLexicon } from "../vehicle-search-lexicon.ts";
 import {
   lightHardMatchingEnabled,
+  matchingPipeline,
   vehicleEmbeddingMinSimilarity,
   vehicleEmbeddingSearchEnabled,
   vehicleEmbeddingSearchLimit,
@@ -581,6 +582,7 @@ export function buildHybridSearchFilters(criteria: UserCriteria): HybridSearchFi
 export function summarizeVehicleSearchFilters(criteria: UserCriteria) {
   if (lightHardMatchingEnabled()) {
     return {
+      matchingPipeline: matchingPipeline(),
       retrievePolicy: "light_hard" as const,
       market: "AT" as const,
       available: true as const,
@@ -602,6 +604,7 @@ export function summarizeVehicleSearchFilters(criteria: UserCriteria) {
     };
   }
   return {
+    matchingPipeline: matchingPipeline(),
     retrievePolicy: "full_hard" as const,
     market: "AT",
     available: true,

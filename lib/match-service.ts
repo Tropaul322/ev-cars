@@ -736,6 +736,8 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     MATCH_LISTING_DIVERSITY_LIMIT
   );
   const diagnostics = buildMatchDiagnostics({
+    matchingPipeline: retrieveDebug.matchingPipeline,
+    retrievePolicy: retrieveDebug.retrievePolicy,
     embeddingQueryStatus:
       embeddingHits > 0 ? "ok" : vehicleEmbeddingSearchEnabled() ? "unavailable" : "disabled",
     embeddingHits,
@@ -843,6 +845,8 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     null
   );
   const responseDiagnostics = buildMatchDiagnostics({
+    matchingPipeline: retrieveDebug.matchingPipeline,
+    retrievePolicy: retrieveDebug.retrievePolicy,
     embeddingQueryStatus:
       embeddingHits > 0 ? "ok" : vehicleEmbeddingSearchEnabled() ? "unavailable" : "disabled",
     embeddingHits,

@@ -69,8 +69,8 @@ export const hardFilterPolicy = {
     "mustHaveFeatures"
   ],
   /**
-   * Soft preferences: score + tradeoff when softenMatchPreferencesEnabled();
-   * exclusive language still hard-rejects via hasHard* helpers.
+   * Soft preferences: scored regardless; when softenMatchPreferencesEnabled(),
+   * summarizeTradeoffs also surfaces mismatch reasons. Exclusive cues still use hasHard*.
    */
   soft: [
     "familyInferredPassengers",
@@ -160,7 +160,7 @@ export function getHardFilterReasons(vehicle: Vehicle, criteria: UserCriteria) {
     reasons.push(`above monthly budget of EUR ${criteria.monthlyBudgetEUR.toLocaleString("de-AT")}`);
   }
   // Condition / range / body: hard only with exclusive language (hasHard*).
-  // When softenMatchPreferencesEnabled(), non-exclusive prefs become score + tradeoffs instead.
+  // Soften does not demote hard rejects; it only gates summarizeTradeoffs messaging for non-exclusive prefs.
   if (hasHardConditionConstraint(criteria) && criteria.preferredCondition !== "any" && vehicle.condition !== criteria.preferredCondition) {
     reasons.push(`condition is ${vehicle.condition}, not ${criteria.preferredCondition}`);
   }

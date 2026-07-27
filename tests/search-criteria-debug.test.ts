@@ -19,6 +19,10 @@ test("searchCriteriaDebugEnabled reads FLOWRYD_SHOW_SEARCH_CRITERIA", () => {
 });
 
 test("buildSearchCriteriaDebug separates found chips from search filters", () => {
+  const previousPipeline = process.env.FLOWRYD_MATCHING_PIPELINE;
+  delete process.env.FLOWRYD_MATCHING_PIPELINE;
+  delete process.env.FLOWRYD_LIGHT_HARD_MATCHING;
+
   const criteria = {
     ...emptyCriteria("Tesla Model 3 under 35000", "en"),
     budgetMaxEUR: 35_000,
@@ -38,13 +42,22 @@ test("buildSearchCriteriaDebug separates found chips from search filters", () =>
     "brand"
   ]);
   assert.equal(debug.usedInSearch.budgetMaxEUR, 35_000);
+  assert.equal(debug.usedInSearch.matchingPipeline, "classic");
+  assert.equal(debug.usedInSearch.retrievePolicy, "full_hard");
   assert.deepEqual(debug.usedInSearch.bodyTypes, undefined);
   assert.deepEqual(debug.usedInSearch.brandPreferences, undefined);
   assert.equal(debug.usedInSearch.preferredCondition, undefined);
   assert.deepEqual(debug.missing, ["vehicle_preferences"]);
+
+  if (previousPipeline === undefined) delete process.env.FLOWRYD_MATCHING_PIPELINE;
+  else process.env.FLOWRYD_MATCHING_PIPELINE = previousPipeline;
 });
 
 test("buildSearchCriteriaDebug includes hard body and brand filters in search", () => {
+  const previousPipeline = process.env.FLOWRYD_MATCHING_PIPELINE;
+  delete process.env.FLOWRYD_MATCHING_PIPELINE;
+  delete process.env.FLOWRYD_LIGHT_HARD_MATCHING;
+
   const criteria = {
     ...emptyCriteria("Only Tesla sedan under 35000", "en"),
     budgetMaxEUR: 35_000,
@@ -54,6 +67,11 @@ test("buildSearchCriteriaDebug includes hard body and brand filters in search", 
   };
 
   const debug = buildSearchCriteriaDebug(criteria, []);
+  assert.equal(debug.usedInSearch.matchingPipeline, "classic");
+  assert.equal(debug.usedInSearch.retrievePolicy, "full_hard");
   assert.deepEqual(debug.usedInSearch.bodyTypes, ["sedan"]);
   assert.deepEqual(debug.usedInSearch.brandPreferences, ["Tesla"]);
+
+  if (previousPipeline === undefined) delete process.env.FLOWRYD_MATCHING_PIPELINE;
+  else process.env.FLOWRYD_MATCHING_PIPELINE = previousPipeline;
 });
