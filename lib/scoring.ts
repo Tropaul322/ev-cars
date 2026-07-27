@@ -398,11 +398,22 @@ function scoreBrand(vehicle: Vehicle, criteria: UserCriteria) {
     return brandScore;
   }
 
-  // Soft brand-origin preferences (e.g. "Chinese brand") must reach scoring with the
-  // same ~100 vs ~52 gap used for brand preferences — never ignore them when soft.
-  if (criteria.preferredBrandOrigins.length) {
-    return vehicleMatchesBrandOriginPreferences(vehicle, criteria.preferredBrandOrigins) ? 100 : 52;
+  const wantsStatus =
+    criteria.personalWish === "status" || criteria.qualitativeSignals.includes("premium");
+  const originLocked = criteria.preferredBrandOrigins.length > 0;
+  const originMatch = originLocked
+    ? vehicleMatchesBrandOriginPreferences(vehicle, criteria.preferredBrandOrigins)
+    : true;
+
+  if (originLocked && !originMatch) return 52;
+
+  if (wantsStatus) {
+    if (premiumMakes.has(normalizeBrand(vehicle.make))) return originLocked ? 100 : 96;
+    if (massMarketMakes.has(normalizeBrand(vehicle.make))) return originLocked ? 48 : 42;
+    return originLocked ? 72 : 58;
   }
+
+  if (originLocked) return 100;
 
   if (criteria.qualitativeSignals.includes("premium") && premiumMakes.has(normalizeBrand(vehicle.make))) return 88;
   return 76;
@@ -501,6 +512,24 @@ function normalizeBrand(value: string) {
 }
 
 const premiumMakes = new Set(["audi", "bmw", "mercedes", "polestar", "volvo", "porsche", "nio"]);
+const massMarketMakes = new Set([
+  "mg",
+  "dacia",
+  "fiat",
+  "opel",
+  "citroen",
+  "citroën",
+  "peugeot",
+  "renault",
+  "skoda",
+  "škoda",
+  "seat",
+  "cupra",
+  "byd",
+  "leapmotor",
+  "ora",
+  "aiways"
+]);
 
 function applySemanticScoreBlend(
   baseScore: number,
@@ -510,12 +539,23 @@ function applySemanticScoreBlend(
 ) {
   const keywordScore = ragContext?.vehicleScores[vehicle.id] ?? 0;
   const topicScore = ragContext ? scoreVehicleTopicAffinity(vehicle, criteria, ragContext.topicAffinity) : 0;
+  const embeddingScore = vehicle.embeddingSimilarity ?? 0;
   const hasKeywordOrTopic = keywordScore > 0 || topicScore > 0;
-  if (!hasKeywordOrTopic) return clamp(baseScore, 0, 100);
 
-  const semanticBlend = blendSemanticSignals({ keywordScore, topicScore });
-  const semanticWeight = 0.22;
-  return clamp(baseScore * (1 - semanticWeight) + semanticBlend * 100 * semanticWeight, 0, 100);
+  if (!hasKeywordOrTopic && embeddingScore <= 0) {
+    return clamp(baseScore, 0, 100);
+  }
+
+  // Additive semantic boost — never crush a strong rule score the way a
+  // 0–1 mix toward mid keyword/topic scores would (that demoted Chinese
+  // origin hits below weaker European listings in live PoC flows).
+  const semanticBlend = blendSemanticSignals({
+    keywordScore,
+    topicScore,
+    ...(embeddingScore > 0 ? { embeddingScore } : {})
+  });
+  const boostScale = embeddingScore > 0 && hasKeywordOrTopic ? 20 : embeddingScore > 0 ? 18 : 14;
+  return clamp(baseScore + Math.round(semanticBlend * boostScale), 0, 100);
 }
 
 function getRagScore(vehicle: Vehicle, ragContext?: RagContext) {

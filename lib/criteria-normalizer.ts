@@ -91,23 +91,34 @@ Core rules:
 12. Knowledge questions about features (heat pumps, charging, incentives) are NOT criteria updates — return {} / empty patch.
 13. "large trunk" / "großer Kofferraum" → cargoNeeds: "high". Do not put large_trunk in mustHaveFeatures.
 14. Winter / mountains / snow imply tripNeeds, not mustHaveFeatures awd, unless the user explicitly asks for AWD/allrad.
+15. personalWish is only "status" or "freedom". Status → also add qualitativeSignals "premium". Never invent childhood memories.
+
+Hard vs soft filters (universal — every body style, not only limousine/sedan):
+- HARD filters eliminate non-matching inventory before ranking. Soft preferences only re-rank.
+- Always hard when set: budgetMinEUR/budgetMaxEUR/monthlyBudgetEUR, mileageMaxKm, batterySoHMin (when required), modelPreferences, avoidedBrands, mustHaveFeatures.
+- Body types become HARD when the user clearly requires a shape (SUV, sedan/limousine, compact/hatchback, wagon/kombi, van, crossover, coupe) — e.g. "I want a limousine", "nur SUV", "Sedan", chip answers. Then set bodyTypes to the canonical list AND bindingConstraints.bodyTypes: true.
+- Range floor becomes HARD when the user sets a minimum ("at least 450 km", "450+ km", range chips). Then set rangeFloorKm AND bindingConstraints.rangeFloor: true.
+- Soft (do NOT set bindingConstraints): casual browsing ("looking for an SUV", "need a compact EV") where near-miss bodies may still show with lower score.
+- Synonyms map to the same hard bodyTypes keys: limousine/saloon → sedan; kombi/touring → wagon; kleinwagen → compact (+ hatchback).
+- Allowed hard bodyTypes keys: compact, hatchback, sedan, suv, crossover, wagon, van, other, minibus.
+- Soft signals: tripNeeds, personalWish, optimizationDirective, qualitativeSignals (except when status implies premium brand ranking).
 
 Modification modes:
 - ADD (default): append to list fields or update scalars without dropping unrelated prior values.
   "also Kia" with previous brandPreferences ["Tesla"] -> ["Tesla", "Kia"]
 - REPLACE: when the user says only/just/nur/ausschließlich/leave only, return the FULL new list for that field.
   "leave only Ford cars" with previous brandPreferences ["Tesla"] -> brandPreferences ["Ford"]
-  "nur SUV" with previous bodyTypes ["sedan"] -> bodyTypes ["suv"]
+  "nur SUV" with previous bodyTypes ["sedan"] -> bodyTypes ["suv"], bindingConstraints { "bodyTypes": true }
   When replacing brandPreferences without naming a model, clear modelPreferences too.
 - REMOVE: when the user says remove/clear/forget/ignore/egal/entferne/lösche/vergiss for a field, use criteriaPatch.remove.
-  Allowed remove keys: budget, range, mileage, battery, condition, body, use_case, charging, features, brand, origin, model, optimization
+  Allowed remove keys: budget, range, mileage, battery, condition, body, use_case, charging, features, brand, origin, model, optimization, personal_wish
   "forget the budget" -> { "remove": ["budget"] }
 
 List fields where replace vs merge matters:
 brandPreferences, modelPreferences, bodyTypes, tripNeeds, mustHaveFeatures, qualitativeSignals, preferredBrandOrigins, avoidedBrands
 
 Scalar fields:
-budgetMinEUR, budgetMaxEUR, monthlyBudgetEUR, dailyKm, rangeFloorKm, mileageMaxKm, mileageTargetKm, batterySoHMin, batteryHealthRequired, chargingAccess, preferredCondition, passengers, cargoNeeds, location, brandFit, reliabilityImportance, optimizationDirective
+budgetMinEUR, budgetMaxEUR, monthlyBudgetEUR, dailyKm, rangeFloorKm, mileageMaxKm, mileageTargetKm, batterySoHMin, batteryHealthRequired, chargingAccess, preferredCondition, passengers, cargoNeeds, location, brandFit, reliabilityImportance, optimizationDirective, personalWish, bindingConstraints
 
 Confidence guide: 0.9+ for specific constraints, 0.5-0.7 when budget/use case/charging is still missing.
 
@@ -237,13 +248,28 @@ export function applyCriteriaPatch(
   const rawPrompt = hasPreviousCriteria
     ? [base.rawPrompt, message.trim()].filter(Boolean).join("\n")
     : message.trim();
+  const cleaned = cleanPatch(patch);
   const criteria = normalizeCriteriaShape({
     ...fallback,
-    ...cleanPatch(patch),
+    ...cleaned,
+    bindingConstraints: {
+      bodyTypes:
+        typeof cleaned.bindingConstraints?.bodyTypes === "boolean"
+          ? cleaned.bindingConstraints.bodyTypes
+          : fallback.bindingConstraints.bodyTypes,
+      rangeFloor:
+        typeof cleaned.bindingConstraints?.rangeFloor === "boolean"
+          ? cleaned.bindingConstraints.rangeFloor
+          : fallback.bindingConstraints.rangeFloor
+    },
     language: messageLanguage,
     rawPrompt,
     latestUserMessage: message.trim()
   });
+  if (cleaned.personalWish === "status" || criteria.personalWish === "status") {
+    criteria.qualitativeSignals = mergeUnique(criteria.qualitativeSignals, ["premium"]);
+    if (criteria.brandFit === "medium") criteria.brandFit = "high";
+  }
   const deterministic = extractCriteria(message, base);
   const replaceIntent = hasReplaceIntent(message);
   if (deterministic.modelPreferences.length && !replaceIntent) {
@@ -285,8 +311,10 @@ const patchListFields = [
 /**
  * Applies a structured patch from a tapped clarification chip. Unlike
  * applyCriteriaPatch, this never re-parses the message text, so chip labels
- * (e.g. "€40,000–60,000") cannot accidentally extract stray criteria. List
- * fields merge, scalar fields replace, and explicit removals are honored.
+ * (e.g. "€40,000–60,000") cannot accidentally extract stray criteria.
+ * Body types REPLACE (guided body answers supersede prior soft guesses).
+ * Other list fields merge; scalar fields replace; explicit removals are honored.
+ * Selecting body or range chips marks those fields as binding hard filters.
  */
 export function applyChipPatch(base: UserCriteria, patch: CriteriaPatch): UserCriteria {
   const start = normalizeCriteriaShape(base);
@@ -294,7 +322,11 @@ export function applyChipPatch(base: UserCriteria, patch: CriteriaPatch): UserCr
   const next = normalizeCriteriaShape({ ...start });
 
   for (const [key, value] of Object.entries(clean) as Array<[keyof CriteriaPatch, unknown]>) {
-    if (key === "remove" || key === "language") continue;
+    if (key === "remove" || key === "language" || key === "bindingConstraints") continue;
+    if (key === "bodyTypes" && Array.isArray(value)) {
+      next.bodyTypes = value.filter((item): item is (typeof next.bodyTypes)[number] => typeof item === "string");
+      continue;
+    }
     if ((patchListFields as readonly string[]).includes(key as string) && Array.isArray(value)) {
       const existing = (start as Record<string, unknown>)[key as string] as unknown[] | undefined;
       (next as Record<string, unknown>)[key as string] = mergeUnique(existing ?? [], value);
@@ -304,6 +336,22 @@ export function applyChipPatch(base: UserCriteria, patch: CriteriaPatch): UserCr
   }
 
   if (clean.language) next.language = clean.language;
+  if (clean.bindingConstraints) {
+    next.bindingConstraints = {
+      bodyTypes: Boolean(clean.bindingConstraints.bodyTypes ?? next.bindingConstraints.bodyTypes),
+      rangeFloor: Boolean(clean.bindingConstraints.rangeFloor ?? next.bindingConstraints.rangeFloor)
+    };
+  }
+  if (Array.isArray(clean.bodyTypes) && clean.bodyTypes.length) {
+    next.bindingConstraints = { ...next.bindingConstraints, bodyTypes: true };
+  }
+  if (typeof clean.rangeFloorKm === "number" && Number.isFinite(clean.rangeFloorKm)) {
+    next.bindingConstraints = { ...next.bindingConstraints, rangeFloor: true };
+  }
+  if (clean.personalWish === "status") {
+    next.qualitativeSignals = mergeUnique(next.qualitativeSignals, ["premium"]);
+    next.brandFit = "high";
+  }
   for (const removal of clean.remove ?? []) {
     applyRemoval(next, removal);
   }
@@ -317,7 +365,10 @@ function applyRemoval(criteria: UserCriteria, removal: string) {
     criteria.budgetMaxEUR = null;
     criteria.monthlyBudgetEUR = null;
   }
-  if (removal === "range") criteria.rangeFloorKm = null;
+  if (removal === "range") {
+    criteria.rangeFloorKm = null;
+    criteria.bindingConstraints = { ...criteria.bindingConstraints, rangeFloor: false };
+  }
   if (removal === "mileage") {
     criteria.mileageMaxKm = null;
     criteria.mileageTargetKm = null;
@@ -327,7 +378,10 @@ function applyRemoval(criteria: UserCriteria, removal: string) {
     criteria.batteryHealthRequired = false;
   }
   if (removal === "condition") criteria.preferredCondition = "any";
-  if (removal === "body") criteria.bodyTypes = [];
+  if (removal === "body") {
+    criteria.bodyTypes = [];
+    criteria.bindingConstraints = { ...criteria.bindingConstraints, bodyTypes: false };
+  }
   if (removal === "use_case") criteria.tripNeeds = [];
   if (removal === "charging") criteria.chargingAccess = "unknown";
   if (removal === "features") criteria.mustHaveFeatures = [];
@@ -418,7 +472,20 @@ function buildNormalizerInput(message: string, previousCriteria: UserCriteria | 
       {
         previous: { budgetMaxEUR: 35000, tripNeeds: ["city"] },
         message: "make it under 18k and only SUVs",
-        criteriaPatch: { budgetMaxEUR: 18000, bodyTypes: ["suv"] }
+        criteriaPatch: {
+          budgetMaxEUR: 18000,
+          bodyTypes: ["suv"],
+          bindingConstraints: { bodyTypes: true }
+        }
+      },
+      {
+        previous: { bodyTypes: ["suv"], rangeFloorKm: 350 },
+        message: "Actually I want a limousine with at least 450 km",
+        criteriaPatch: {
+          bodyTypes: ["sedan"],
+          rangeFloorKm: 450,
+          bindingConstraints: { bodyTypes: true, rangeFloor: true }
+        }
       },
       {
         previous: { budgetMaxEUR: 35000 },
@@ -429,10 +496,54 @@ function buildNormalizerInput(message: string, previousCriteria: UserCriteria | 
         previous: { tripNeeds: ["family"], bodyTypes: ["suv"], passengers: 4, cargoNeeds: "high" },
         message: "Actually show me a 2-seater sporty EV instead",
         criteriaPatch: { passengers: 2, optimizationDirective: "performance" }
+      },
+      {
+        previous: { bodyTypes: ["sedan"], rangeFloorKm: 450 },
+        message: "Status",
+        criteriaPatch: {
+          personalWish: "status",
+          qualitativeSignals: ["premium"],
+          brandFit: "high"
+        }
       }
     ],
     allowedValues: {
       bodyTypes: allowedBodyTypes,
+      bodyTypeAliases: {
+        limousine: "sedan",
+        saloon: "sedan",
+        kombi: "wagon",
+        touring: "wagon",
+        kleinwagen: "compact",
+        geländewagen: "suv",
+        gelaendewagen: "suv"
+      },
+      hardFilterFields: [
+        "budgetMinEUR",
+        "budgetMaxEUR",
+        "monthlyBudgetEUR",
+        "bodyTypes (when bindingConstraints.bodyTypes)",
+        "rangeFloorKm (when bindingConstraints.rangeFloor)",
+        "preferredCondition (with only/must)",
+        "brandPreferences (with only/must)",
+        "preferredBrandOrigins (with only/must)",
+        "modelPreferences",
+        "avoidedBrands",
+        "mustHaveFeatures",
+        "mileageMaxKm",
+        "batterySoHMin"
+      ],
+      softFilterFields: [
+        "tripNeeds",
+        "personalWish",
+        "optimizationDirective",
+        "qualitativeSignals",
+        "chargingAccess",
+        "cargoNeeds",
+        "passengers (unless exact seater language)"
+      ],
+      bindingConstraints: { bodyTypes: [true, false], rangeFloor: [true, false] },
+      personalWish: ["status", "freedom"],
       chargingAccess: ["home", "work", "public", "none", "unknown"],
       condition: ["new", "used", "any"],
       preferredBrandOrigins: allowedBrandOrigins,
@@ -449,7 +560,9 @@ function buildNormalizerInput(message: string, previousCriteria: UserCriteria | 
         "Enyaq",
         "EX30",
         "Atto 3",
-        "MG4"
+        "MG4",
+        "P7+",
+        "G6"
       ],
       tripNeeds: ["city", "commute", "road_trip", "family", "winter"],
       optimizationDirective: allowedOptimizationDirectives,
@@ -525,6 +638,16 @@ function cleanPatch(patch: CriteriaPatch): CriteriaPatch {
     clean.personalWish = patch.personalWish;
   } else if (patch.personalWish === null) {
     clean.personalWish = null;
+  }
+  if (patch.bindingConstraints && typeof patch.bindingConstraints === "object") {
+    const binding: { bodyTypes?: boolean; rangeFloor?: boolean } = {};
+    if (typeof patch.bindingConstraints.bodyTypes === "boolean") {
+      binding.bodyTypes = patch.bindingConstraints.bodyTypes;
+    }
+    if (typeof patch.bindingConstraints.rangeFloor === "boolean") {
+      binding.rangeFloor = patch.bindingConstraints.rangeFloor;
+    }
+    if (Object.keys(binding).length) clean.bindingConstraints = binding as UserCriteria["bindingConstraints"];
   }
   if (Array.isArray(patch.mustHaveFeatures)) clean.mustHaveFeatures = patch.mustHaveFeatures.filter(isFeature);
   if (Array.isArray(patch.qualitativeSignals)) {
@@ -809,7 +932,8 @@ function buildPivotBase(previousCriteria: UserCriteria): UserCriteria {
     personalWish: null,
     // Drop prior utterance text so exclusive hard-filter language cannot bleed.
     rawPrompt: "",
-    latestUserMessage: ""
+    latestUserMessage: "",
+    bindingConstraints: { bodyTypes: false, rangeFloor: false }
   });
 }
 

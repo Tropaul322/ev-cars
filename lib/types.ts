@@ -186,6 +186,14 @@ export type UserCriteria = {
   optimizationDirective: OptimizationDirective | null;
   /** Emotional driver: status or freedom. */
   personalWish: PersonalWish | null;
+  /**
+   * Structured binding flags from clarification chips / explicit LLM patches.
+   * When true, the matching field is a hard filter even without "only/must" wording.
+   */
+  bindingConstraints: {
+    bodyTypes: boolean;
+    rangeFloor: boolean;
+  };
   location: string | null;
   rawPrompt: string;
   /** Latest user turn only — used for exclusive-language hard-constraint detection. */
