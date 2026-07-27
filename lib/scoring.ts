@@ -303,10 +303,6 @@ export function deriveWeights(criteria: UserCriteria, vehicles: Vehicle[]): Weig
     weights.rangeFit += 0.1;
     weights.efficiencyFit += 0.04;
   }
-  if (criteria.personalWish === "childhood_memories") {
-    weights.reliabilityFit += 0.1;
-    weights.cargoPassengerFit += 0.04;
-  }
   // Soft origin preferences (e.g. "made in China") must outweigh mild body near-misses.
   if (criteria.preferredBrandOrigins.length) {
     weights.brandFit += 0.12;

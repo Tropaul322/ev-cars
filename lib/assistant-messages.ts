@@ -148,7 +148,7 @@ export async function generateClarificationResponse(input: {
     {
       task:
         `Ask exactly one question that matches promptKey and guideQuestion. ${chipHint} ` +
-        "Stay on the same topic as guideQuestion only — do NOT add a different follow-up (for example, do not ask where they charge when guideQuestion is about personal wish, status, freedom, or childhood memories; do not ask charging location when guideQuestion is about minimum range in km). " +
+        "Stay on the same topic as guideQuestion only — do NOT add a different follow-up (for example, do not ask where they charge when guideQuestion is about personal wish, status, or freedom; do not ask charging location when guideQuestion is about minimum range in km). " +
         "If knownCriteria is not empty, briefly acknowledge what you already know in a few words before asking. Never copy guideQuestion word-for-word — rephrase it.",
       message: input.message,
       language: input.criteria.language,

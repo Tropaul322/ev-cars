@@ -75,8 +75,7 @@ const optionSynonyms: Record<string, RegExp[]> = {
   range_450: [/\b(450|400)\b/i],
   range_550: [/\b(550|500|600)\b/i],
   wish_status: [/\bstatus\b/i, /\bprestige\b/i, /\bansehen\b/i],
-  wish_freedom: [/\bfreedom\b/i, /\bfreiheit\b/i],
-  wish_childhood: [/\bchildhood\b/i, /\bkindheit\b/i, /\berinnerungen?\b/i]
+  wish_freedom: [/\bfreedom\b/i, /\bfreiheit\b/i]
 };
 
 /**

@@ -179,13 +179,11 @@ test("binding minimum criteria require budget, body type, range, and personal wi
   assert.deepEqual(getMissingCriteria(complete), []);
 });
 
-test("personal wish clarification offers status, freedom, and childhood memories", () => {
+test("personal wish clarification offers status and freedom", () => {
   const prompt = getClarificationPrompt("personal_wish", "en");
   assert.equal(prompt.key, "personal_wish");
   const ids = prompt.options.map((option) => option.id);
-  assert.ok(ids.includes("wish_status"));
-  assert.ok(ids.includes("wish_freedom"));
-  assert.ok(ids.includes("wish_childhood"));
+  assert.deepEqual(ids, ["wish_status", "wish_freedom"]);
   assert.ok(prompt.options.every((option) => !option.skip));
 });
 

@@ -592,7 +592,7 @@ function isOptimizationDirective(value: unknown): value is OptimizationDirective
 }
 
 function isPersonalWish(value: unknown): value is PersonalWish {
-  return value === "status" || value === "freedom" || value === "childhood_memories";
+  return value === "status" || value === "freedom";
 }
 
 function isFeature(value: unknown): value is Feature {
