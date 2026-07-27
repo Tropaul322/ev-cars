@@ -22,7 +22,13 @@ import type { MissingCriteria, OptimizationDirective, UserCriteria, Vehicle } fr
 import { seedVehicles } from "../lib/data/seed-vehicles.ts";
 import { fallbackMatchIntroMessage } from "../lib/assistant-messages.ts";
 import { parseLlmExplanationJson } from "../lib/explanations.ts";
-import { filterVehiclesWithSanityChecks, runMatchRequest, withPipelineFallback } from "../lib/match-service.ts";
+import {
+  emitRetrieveMatchingDiagnostics,
+  filterVehiclesWithSanityChecks,
+  retrieveMatchingDebugFields,
+  runMatchRequest,
+  withPipelineFallback
+} from "../lib/match-service.ts";
 import { detectPromptInjection, promptInjectionResponse } from "../lib/prompt-guard.ts";
 import {
   buildRecommendationExplanationInput,
@@ -33,7 +39,14 @@ import {
 } from "../lib/recommendation-explanations.ts";
 import { buildRagContext } from "../lib/rag.ts";
 import { getSupabaseRestConfig } from "../lib/repositories/supabase-rest.ts";
-import { deriveWeights, getHardFilterReasons, matchVehicles, scorePrice, scoreVehicle } from "../lib/scoring.ts";
+import {
+  deriveWeights,
+  getHardFilterReasons,
+  hardFilterPolicy,
+  matchVehicles,
+  scorePrice,
+  scoreVehicle
+} from "../lib/scoring.ts";
 import { calculateTco } from "../lib/tco.ts";
 
 for (const [key, value] of Object.entries(loadEnv(path.join(process.cwd(), ".env.local")))) {
@@ -979,6 +992,145 @@ test("explicit must-have features remain hard filters", () => {
   assert.ok(reasons.some((reason) => reason.includes("missing required features")));
 });
 
+test("after light-hard retrieve, matchVehicles still rejects over-budget and avoided brands", () => {
+  process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
+  try {
+    const criteria = {
+      ...emptyCriteria("family EV", "en"),
+      budgetMaxEUR: 30000,
+      avoidedBrands: ["Tesla"],
+      personalWish: "freedom" as UserCriteria["personalWish"],
+      bodyTypes: ["suv"] as UserCriteria["bodyTypes"],
+      rangeFloorKm: 200
+    };
+    const overBudget = vehicleFixture({ id: "ob", priceEUR: 55000, make: "VW", available: true });
+    const avoided = vehicleFixture({ id: "av", priceEUR: 25000, make: "Tesla", available: true });
+    const ok = vehicleFixture({
+      id: "ok",
+      priceEUR: 28000,
+      make: "VW",
+      available: true,
+      rangeKm: 300,
+      bodyType: "suv"
+    });
+
+    const result = matchVehicles([overBudget, avoided, ok], criteria, 5);
+    assert.equal(result.recommendations.some((m) => m.vehicle.id === "ok"), true);
+    assert.equal(result.recommendations.some((m) => m.vehicle.id === "ob"), false);
+    assert.equal(result.recommendations.some((m) => m.vehicle.id === "av"), false);
+    assert.ok(result.rejected.some((r) => r.vehicle.id === "ob"));
+    assert.ok(result.rejected.some((r) => r.vehicle.id === "av"));
+  } finally {
+    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+  }
+});
+
+test("after light-hard retrieve, exclusive must-have features still hard-reject at match", () => {
+  process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
+  try {
+    const criteria = {
+      ...emptyCriteria("family EV with heat pump", "en"),
+      budgetMaxEUR: 40000,
+      mustHaveFeatures: ["heat_pump"] as UserCriteria["mustHaveFeatures"],
+      personalWish: "freedom" as UserCriteria["personalWish"]
+    };
+    const missing = vehicleFixture({
+      id: "no-heat-pump",
+      priceEUR: 30000,
+      make: "VW",
+      available: true,
+      features: ["apple_carplay"]
+    });
+    const withHeatPump = vehicleFixture({
+      id: "has-heat-pump",
+      priceEUR: 32000,
+      make: "VW",
+      available: true,
+      features: ["heat_pump", "apple_carplay"]
+    });
+
+    const result = matchVehicles([missing, withHeatPump], criteria, 5);
+    assert.equal(result.recommendations.some((m) => m.vehicle.id === "has-heat-pump"), true);
+    assert.equal(result.recommendations.some((m) => m.vehicle.id === "no-heat-pump"), false);
+    assert.ok(
+      result.rejected.some(
+        (r) =>
+          r.vehicle.id === "no-heat-pump" &&
+          r.reasons.some((reason) => reason.includes("missing required feature"))
+      )
+    );
+  } finally {
+    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+  }
+});
+
+test("hardFilterPolicy documents retrieveLight vs match-time hard filters", () => {
+  assert.deepEqual(hardFilterPolicy.retrieveLight, [
+    "market",
+    "availability",
+    "budget",
+    "monthlyBudget",
+    "avoidedBrands"
+  ]);
+  assert.ok(hardFilterPolicy.hard.includes("mustHaveFeatures"));
+  assert.ok(hardFilterPolicy.hard.includes("budget"));
+  assert.ok(hardFilterPolicy.soft.includes("preferredBodyType"));
+});
+
+test("retrieveMatchingDebugFields reports light_hard policy and embedding flag", () => {
+  const previousPipeline = process.env.FLOWRYD_MATCHING_PIPELINE;
+  const previousDisableEmbeddings = process.env.FLOWRYD_DISABLE_EMBEDDINGS;
+  const previousEmbeddingSearch = process.env.FLOWRYD_VEHICLE_EMBEDDING_SEARCH;
+  process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
+  process.env.FLOWRYD_DISABLE_EMBEDDINGS = "1";
+  delete process.env.FLOWRYD_VEHICLE_EMBEDDING_SEARCH;
+  try {
+    assert.deepEqual(retrieveMatchingDebugFields(), {
+      matchingPipeline: "light_hard",
+      retrievePolicy: "light_hard",
+      embeddingSearchEnabled: false
+    });
+  } finally {
+    if (previousPipeline === undefined) delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    else process.env.FLOWRYD_MATCHING_PIPELINE = previousPipeline;
+    if (previousDisableEmbeddings === undefined) delete process.env.FLOWRYD_DISABLE_EMBEDDINGS;
+    else process.env.FLOWRYD_DISABLE_EMBEDDINGS = previousDisableEmbeddings;
+    if (previousEmbeddingSearch === undefined) delete process.env.FLOWRYD_VEHICLE_EMBEDDING_SEARCH;
+    else process.env.FLOWRYD_VEHICLE_EMBEDDING_SEARCH = previousEmbeddingSearch;
+  }
+});
+
+test("emitRetrieveMatchingDiagnostics warns when light-hard runs without embeddings", () => {
+  const previousPipeline = process.env.FLOWRYD_MATCHING_PIPELINE;
+  const previousDisableEmbeddings = process.env.FLOWRYD_DISABLE_EMBEDDINGS;
+  const previousMatchDebug = process.env.FLOWRYD_MATCH_DEBUG;
+  const previousEmbeddingSearch = process.env.FLOWRYD_VEHICLE_EMBEDDING_SEARCH;
+  process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
+  process.env.FLOWRYD_DISABLE_EMBEDDINGS = "1";
+  process.env.FLOWRYD_MATCH_DEBUG = "1";
+  delete process.env.FLOWRYD_VEHICLE_EMBEDDING_SEARCH;
+
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(String(args[0] ?? ""));
+  };
+  try {
+    emitRetrieveMatchingDiagnostics({ embeddingHits: 0 });
+    assert.ok(warnings.some((line) => line.includes("retrieve.light-hard-without-embeddings")));
+  } finally {
+    console.warn = originalWarn;
+    if (previousPipeline === undefined) delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    else process.env.FLOWRYD_MATCHING_PIPELINE = previousPipeline;
+    if (previousDisableEmbeddings === undefined) delete process.env.FLOWRYD_DISABLE_EMBEDDINGS;
+    else process.env.FLOWRYD_DISABLE_EMBEDDINGS = previousDisableEmbeddings;
+    if (previousMatchDebug === undefined) delete process.env.FLOWRYD_MATCH_DEBUG;
+    else process.env.FLOWRYD_MATCH_DEBUG = previousMatchDebug;
+    if (previousEmbeddingSearch === undefined) delete process.env.FLOWRYD_VEHICLE_EMBEDDING_SEARCH;
+    else process.env.FLOWRYD_VEHICLE_EMBEDDING_SEARCH = previousEmbeddingSearch;
+  }
+});
+
 test("hard filters keep explicit mileage caps", () => {
   const criteria = extractCriteria("Only used EV budget 90000 EUR, mileage under 20000 km.");
   const result = matchVehicles(seedVehicles, criteria);
@@ -1871,4 +2023,10 @@ async function answerOptimizationPrompt(first: Awaited<ReturnType<typeof runMatc
     throw new Error(`unhandled clarification key in answerOptimizationPrompt: ${key}`);
   }
   throw new Error("answerOptimizationPrompt exceeded clarification budget");
+}
+
+function vehicleFixture(overrides: Partial<Vehicle> & { id: string }): Vehicle {
+  const template = seedVehicles[0];
+  assert.ok(template);
+  return { ...template, ...overrides };
 }

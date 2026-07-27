@@ -47,6 +47,9 @@ const baseWeights: Weights = {
 
 /** Reviewable hard vs soft attribute policy for matching. */
 export const hardFilterPolicy = {
+  /** Thin retrieve prefilter when matchingPipeline() === "light_hard". */
+  retrieveLight: ["market", "availability", "budget", "monthlyBudget", "avoidedBrands"],
+  /** Match-time Phase 1 hard filters (full getHardFilterReasons). */
   hard: [
     "market",
     "availability",
