@@ -222,8 +222,7 @@ export const optimizationDirectiveLabels: Record<OptimizationDirective, string> 
 
 export const personalWishLabels: Record<PersonalWish, string> = {
   status: "status",
-  freedom: "freedom",
-  childhood_memories: "childhood memories"
+  freedom: "freedom"
 };
 
 export function emptyCriteria(rawPrompt = "", language: Language = "en"): UserCriteria {
@@ -445,8 +444,8 @@ export function clarificationQuestion(criteria: UserCriteria) {
 
   if (target === "personal_wish") {
     return criteria.language === "de"
-      ? "Was ist dir emotional wichtiger: Status, Freiheit oder Kindheitserinnerungen?"
-      : "What matters more emotionally: status, freedom, or fond childhood memories?";
+      ? "Was ist dir emotional wichtiger: Status oder Freiheit?"
+      : "What matters more emotionally: status or freedom?";
   }
 
   return criteria.language === "de"
@@ -663,7 +662,10 @@ export function normalizeCriteriaShape(criteria: UserCriteria): UserCriteria {
     mustHaveFeatures: criteria.mustHaveFeatures ?? [],
     qualitativeSignals: criteria.qualitativeSignals ?? [],
     optimizationDirective: criteria.optimizationDirective ?? null,
-    personalWish: criteria.personalWish ?? null,
+    personalWish:
+      criteria.personalWish === "status" || criteria.personalWish === "freedom"
+        ? criteria.personalWish
+        : null,
     mileageMaxKm: criteria.mileageMaxKm ?? null,
     mileageTargetKm: criteria.mileageTargetKm ?? null,
     batterySoHMin: criteria.batterySoHMin ?? null,
@@ -751,7 +753,7 @@ function extractRemovals(text: string) {
   if (/\b(optimization|priority|prioritize|optimierung|prioritaet|priorität|wert|reichweite|performance)\b/i.test(text)) {
     removals.add("optimization");
   }
-  if (/\b(personal wish|wish|status|freedom|freiheit|childhood|kindheit|erinnerung)\b/i.test(text)) {
+  if (/\b(personal wish|wish|status|freedom|freiheit)\b/i.test(text)) {
     removals.add("personal_wish");
   }
   if (/\b(location|ort|wien|graz|linz|salzburg|plz)\b/i.test(text)) removals.add("location");
@@ -1008,13 +1010,6 @@ function stripNegatedTopicPhrases(text: string) {
 }
 
 export function extractPersonalWish(text: string): PersonalWish | null {
-  if (
-    /\b(fond\s+)?childhood(\s+memories?)?\b/i.test(text) ||
-    /\bkindheit(s)?(erinnerungen?)?\b/i.test(text) ||
-    /\berinnerungen?\s+an\s+die\s+kindheit\b/i.test(text)
-  ) {
-    return "childhood_memories";
-  }
   if (/\bfreedom\b/i.test(text) || /\bfreiheit\b/i.test(text)) {
     return "freedom";
   }

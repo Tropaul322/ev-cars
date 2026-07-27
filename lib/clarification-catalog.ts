@@ -106,18 +106,13 @@ const catalog: Record<MissingCriteria, LocalizedStep> = {
       de: "Welcher persönliche Wunsch soll die Empfehlung prägen?"
     },
     explanation: {
-      en: "Pick one emotional driver — status, freedom, or fond childhood memories. Any one is enough; it nudges scoring toward the cars that feel right for you.",
-      de: "Wähle einen emotionalen Treiber — Status, Freiheit oder Kindheitserinnerungen. Einer reicht; das verschiebt die Bewertung zu den Autos, die sich für dich richtig anfühlen."
+      en: "Pick one emotional driver — status or freedom. Either is enough; it nudges scoring toward the cars that fit that priority.",
+      de: "Wähle einen emotionalen Treiber — Status oder Freiheit. Einer reicht; das verschiebt die Bewertung zu passenden Autos."
     },
     selectMode: "single",
     options: [
       { id: "wish_status", label: { en: "Status", de: "Status" }, patch: { personalWish: "status" } },
-      { id: "wish_freedom", label: { en: "Freedom", de: "Freiheit" }, patch: { personalWish: "freedom" } },
-      {
-        id: "wish_childhood",
-        label: { en: "Fond childhood memories", de: "Kindheitserinnerungen" },
-        patch: { personalWish: "childhood_memories" }
-      }
+      { id: "wish_freedom", label: { en: "Freedom", de: "Freiheit" }, patch: { personalWish: "freedom" } }
     ]
   }
 };

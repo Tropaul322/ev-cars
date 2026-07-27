@@ -18,7 +18,7 @@ export function clarificationReplyMisalignedWithPrompt(
     );
 
   const mentionsPersonalWish =
-    /\b(status|freedom|childhood|memories|personal\s+wish|feels?\s+right|emotional)\b/i.test(
+    /\b(status|freedom|personal\s+wish|feels?\s+right|emotional)\b/i.test(
       text
     );
 

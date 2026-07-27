@@ -10,7 +10,7 @@ test("personal_wish step misaligned when LLM asks about charging", () => {
 
 test("personal_wish step aligned when asking about emotional driver", () => {
   const wishQuestion =
-    "What should shape the recommendation — status, freedom, or fond childhood memories?";
+    "What should shape the recommendation — status or freedom?";
   assert.equal(clarificationReplyMisalignedWithPrompt(wishQuestion, "personal_wish"), false);
 });
 

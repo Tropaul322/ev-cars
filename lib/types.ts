@@ -27,7 +27,7 @@ export type QualitativeSignal =
   | "technology"
   | "public_charging_fit";
 
-export type PersonalWish = "status" | "freedom" | "childhood_memories";
+export type PersonalWish = "status" | "freedom";
 
 export type MissingCriteria =
   | "budget"
@@ -184,7 +184,7 @@ export type UserCriteria = {
   mustHaveFeatures: Feature[];
   qualitativeSignals: QualitativeSignal[];
   optimizationDirective: OptimizationDirective | null;
-  /** Emotional driver: status, freedom, or fond childhood memories. */
+  /** Emotional driver: status or freedom. */
   personalWish: PersonalWish | null;
   location: string | null;
   rawPrompt: string;
