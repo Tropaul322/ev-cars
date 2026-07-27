@@ -20,6 +20,27 @@ test("looksLikeDeclineAnswer recognizes No / none / nein", () => {
   assert.equal(looksLikeDeclineAnswer("at least 400 km"), false);
 });
 
+test("looksLikeDeclineAnswer recognizes soft declines with extra wording", () => {
+  for (const message of [
+    "Nope, just looking for the options",
+    "Nope, ust looking for the options",
+    "No, just show me options",
+    "just looking for options",
+    "No specific features",
+    "nothing particular thanks"
+  ]) {
+    assert.equal(looksLikeDeclineAnswer(message), true, message);
+  }
+  assert.equal(looksLikeDeclineAnswer("looking for options under 40000"), false);
+});
+
+test("resolveClarificationAnswer advances on soft decline for personal_wish", () => {
+  assert.deepEqual(
+    resolveClarificationAnswer("Nope, just looking for the options", "personal_wish", "en"),
+    { kind: "patch", patch: { personalWish: "freedom" } }
+  );
+});
+
 test("resolveClarificationAnswer advances on No for every prompt key", () => {
   assert.deepEqual(resolveClarificationAnswer("No", "budget", "en"), {
     kind: "patch",

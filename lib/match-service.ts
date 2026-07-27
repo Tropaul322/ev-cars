@@ -315,6 +315,42 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
         criteriaChanged = true;
       }
     }
+
+    if (
+      !criteriaChanged &&
+      body.currentPromptKey &&
+      body.currentPromptKey !== "ready" &&
+      looksLikeDeclineAnswer(body.message)
+    ) {
+      const resolution = resolveClarificationAnswer(
+        body.message,
+        body.currentPromptKey,
+        criteria.language
+      );
+      if (resolution?.kind === "skip") {
+        if (
+          isMissingCriteriaKey(body.currentPromptKey) &&
+          body.currentPromptKey === "use_case"
+        ) {
+          skippedKeys = Array.from(new Set([...skippedKeys, body.currentPromptKey]));
+        }
+        criteriaChanged = true;
+      } else if (resolution?.kind === "patch") {
+        let patch = resolution.patch;
+        if (
+          body.currentPromptKey === "vehicle_preferences" &&
+          criteria.bodyTypes.length > 0
+        ) {
+          patch = declinedOptionalPreferencesPatch(true);
+        }
+        criteria = {
+          ...applyChipPatch(criteria, patch),
+          latestUserMessage: body.message.trim()
+        };
+        confidence = getCriteriaConfidence(criteria);
+        criteriaChanged = true;
+      }
+    }
   }
 
   if (resolvedTurn.criteriaPatch && Object.keys(resolvedTurn.criteriaPatch).length > 0) {
@@ -513,6 +549,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
         message: body.message,
         criteria,
         catalogQuestion: prompt.question,
+        promptKey: prompt.key,
         conversationHistory
       });
     } else {
@@ -521,6 +558,8 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
         message: body.message,
         criteria,
         catalogQuestion: prompt.question,
+        promptKey: prompt.key,
+        chipLabels: prompt.options.filter((option) => !option.skip).map((option) => option.label),
         conversationHistory
       });
     }

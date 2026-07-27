@@ -1,9 +1,15 @@
+import { clarificationReplyMisalignedWithPrompt } from "./clarification-copy-alignment.ts";
 import { clarificationQuestion, criteriaSummary, languageReplyInstruction } from "./criteria.ts";
 import { buildLlmMessages, conversationContinues, type LlmConversationTurn } from "./llm-conversation.ts";
-import type { Language } from "./types.ts";
 import { createOpenAiChatCompletion, openAiChatTimeout, openAiConfigured, openAiModel } from "./openai-provider.ts";
 import { PROMPT_GUARD_SYSTEM_NOTE } from "./prompt-guard.ts";
-import type { MissingCriteria, RejectedSummary, UserCriteria } from "./types.ts";
+import type {
+  ClarificationPromptKey,
+  Language,
+  MissingCriteria,
+  RejectedSummary,
+  UserCriteria
+} from "./types.ts";
 
 type AssistantMessageInput = {
   conversationHistory?: LlmConversationTurn[];
@@ -126,25 +132,38 @@ export async function generateClarificationResponse(input: {
   message: string;
   criteria: UserCriteria;
   catalogQuestion: string;
+  promptKey: ClarificationPromptKey | MissingCriteria;
+  chipLabels?: string[];
   conversationHistory?: LlmConversationTurn[];
 }): Promise<string> {
   const fallback = () => input.catalogQuestion;
   const known = criteriaSummary(input.criteria);
+  const chipHint =
+    input.chipLabels?.length ?
+      `The user will see quick-reply choices: ${input.chipLabels.join(", ")}. Your question must be answerable by one of those choices — do not ask about a different topic.`
+    : "";
 
   const generated = await generateMessage(
     "clarification_natural",
     {
       task:
-        "Ask the user the guideQuestion in a natural, chat-like way. Stay faithful to the intent of guideQuestion — if it asks where they charge, ask about charging location (home/work/public), not about range targets; if it asks for minimum range, ask only about range/daily km, not features; if it asks body style, ask only about body style. Do NOT invent follow-ups about features, tech, safety, seats, brands, or cargo unless guideQuestion itself asks for those. If knownCriteria is not empty, briefly acknowledge what you already know in a few words before asking. Never copy guideQuestion word-for-word — rephrase it. Ask exactly one question.",
+        `Ask exactly one question that matches promptKey and guideQuestion. ${chipHint} ` +
+        "Stay on the same topic as guideQuestion only — do NOT add a different follow-up (for example, do not ask where they charge when guideQuestion is about personal wish, status, freedom, or childhood memories; do not ask charging location when guideQuestion is about minimum range in km). " +
+        "If knownCriteria is not empty, briefly acknowledge what you already know in a few words before asking. Never copy guideQuestion word-for-word — rephrase it.",
       message: input.message,
       language: input.criteria.language,
       guideQuestion: input.catalogQuestion,
+      promptKey: input.promptKey,
       knownCriteria: known
     },
     input.conversationHistory
   );
 
-  return generated ?? fallback();
+  const message = generated ?? fallback();
+  if (clarificationReplyMisalignedWithPrompt(message, input.promptKey)) {
+    return fallback();
+  }
+  return message;
 }
 
 /**
@@ -216,6 +235,7 @@ export async function generateNudgeResponse(input: {
   message: string;
   criteria: UserCriteria;
   catalogQuestion: string;
+  promptKey: ClarificationPromptKey | MissingCriteria;
   conversationHistory?: LlmConversationTurn[];
 }): Promise<string> {
   const fallback = () =>
@@ -227,15 +247,20 @@ export async function generateNudgeResponse(input: {
     "nudge",
     {
       task:
-        "The user hasn't answered the current question yet. Gently encourage them without pressure and re-ask guideQuestion in a fresh, casual way. Don't lecture or repeat the same phrasing as before.",
+        "The user hasn't answered the current question yet. Gently encourage them without pressure and re-ask guideQuestion in a fresh, casual way. Stay on the same topic as promptKey — do not switch to charging location unless guideQuestion is about charging. Don't lecture or repeat the same phrasing as before.",
       message: input.message,
       language: input.criteria.language,
-      guideQuestion: input.catalogQuestion
+      guideQuestion: input.catalogQuestion,
+      promptKey: input.promptKey
     },
     input.conversationHistory
   );
 
-  return generated ?? fallback();
+  const message = generated ?? fallback();
+  if (clarificationReplyMisalignedWithPrompt(message, input.promptKey)) {
+    return fallback();
+  }
+  return message;
 }
 
 export async function generateNoMatchesMessage(input: NoMatchesInput): Promise<string> {

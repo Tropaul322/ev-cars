@@ -23,11 +23,20 @@ export const DEFAULT_DECLINED_RANGE_FLOOR_KM = 300;
 const OPEN_BODY_TYPES: BodyType[] = ["suv", "sedan", "compact", "hatchback", "wagon", "van"];
 
 const skipAnswerPattern =
-  /\b(no preference|no pref|don't care|doesn'?t matter|not sure(?: yet)?|no idea|don'?t know|skip|whatever|anything|any style|any body|open to anything|no budget limit|no limit|egal|keine präferenz|keine ahnung|weiß nicht|weiss nicht|unklar|passt schon|ist mir egal)\b/i;
+  /\b(no preference|no pref|don't care|doesn'?t matter|not sure(?: yet)?|no idea|don'?t know|skip|whatever|anything|any style|any body|open to anything|no budget limit|no limit|just\s+(looking|browsing|exploring|want\s+to\s+see)|only\s+(looking|browsing|options?)|egal|keine präferenz|keine ahnung|weiß nicht|weiss nicht|unklar|passt schon|ist mir egal)\b/i;
 
 /** Bare "No" / "None" / "Nein" and longer skip phrases — user declines extras. */
 const declineAnswerPattern =
   /^(no|nope|nah|nein|nee|none|nothing|no thanks|no thank you|not really|nothing specific|no specific(?:\s+features?)?|keine|nichts|nein danke|nicht wirklich)\.?$/i;
+
+const declineLeadInPattern =
+  /^(no|nope|nah|nein|nee|none|nothing|not really)\b/i;
+
+const browseWithoutDetailsPattern =
+  /\b((j?ust|only)\s+(looking|want|show|see|browse|exploring)|looking\s+for\s+(the\s+)?(options?|choices?|results?|cars?|listings?)|show\s+me\s+(the\s+)?(options?|choices?|results?|cars?|listings?)|browse\s+(the\s+)?(options?|cars?|listings?))\b/i;
+
+const noSpecificPreferencePattern =
+  /\b(no|not|without|nothing)\s+(any\s+)?(specific|particular|special)\b/i;
 
 const optionSynonyms: Record<string, RegExp[]> = {
   budget_under_25k: [
@@ -77,7 +86,37 @@ const optionSynonyms: Record<string, RegExp[]> = {
 export function looksLikeDeclineAnswer(message: string) {
   const trimmed = message.trim();
   if (!trimmed) return false;
-  return declineAnswerPattern.test(trimmed) || skipAnswerPattern.test(trimmed);
+  if (hasConcreteShoppingCriteriaInMessage(trimmed)) return false;
+  if (declineAnswerPattern.test(trimmed) || skipAnswerPattern.test(trimmed)) return true;
+  if (browseWithoutDetailsPattern.test(trimmed)) return true;
+  if (noSpecificPreferencePattern.test(trimmed)) return true;
+  if (declineLeadInPattern.test(trimmed)) {
+    const tail = trimmed.replace(declineLeadInPattern, "").replace(/^[,.\s-]+/, "").trim();
+    if (!tail) return true;
+    if (
+      skipAnswerPattern.test(tail) ||
+      browseWithoutDetailsPattern.test(trimmed) ||
+      noSpecificPreferencePattern.test(trimmed)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasConcreteShoppingCriteriaInMessage(message: string) {
+  const extracted = extractCriteria(message);
+  if (extracted.budgetMinEUR || extracted.budgetMaxEUR || extracted.monthlyBudgetEUR) return true;
+  if (extracted.bodyTypes.length) return true;
+  if (extracted.rangeFloorKm || extracted.dailyKm) return true;
+  if (extracted.brandPreferences.length || extracted.modelPreferences.length) return true;
+  if (extracted.mustHaveFeatures.length) return true;
+  if (extracted.personalWish) return true;
+  if (extracted.tripNeeds.length) return true;
+  if (/\b(under|over|below|above|bis|unter|über|ueber|€|\d+\s*k\b|\d+[.,]\d{3})\b/i.test(message)) {
+    return true;
+  }
+  return false;
 }
 
 /**
