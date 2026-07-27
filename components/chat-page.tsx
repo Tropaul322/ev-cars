@@ -318,8 +318,6 @@ export default function ChatPage() {
           (data.type === "chat" || data.type === "clarification") && data.prompt
             ? data.prompt
             : null;
-        const shouldAttachPrompt =
-          nextPrompt != null && nextPrompt.key !== activePrompt?.key;
         const now = new Date().toISOString();
         const urlChanging = routeChatId !== data.sessionId;
         const existingCached =
@@ -383,9 +381,7 @@ export default function ChatPage() {
           {
             role: "bot",
             text: <p>{data.assistantMessage}</p>,
-            ...(shouldAttachPrompt && nextPrompt
-              ? { prompt: nextPrompt }
-              : {}),
+            ...(nextPrompt ? { prompt: nextPrompt } : {}),
           },
           ...(data.type === "matches" && data.recommendations.length
             ? [

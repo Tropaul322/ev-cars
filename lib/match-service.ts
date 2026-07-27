@@ -513,6 +513,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
         message: body.message,
         criteria,
         catalogQuestion: prompt.question,
+        promptKey: prompt.key,
         conversationHistory
       });
     } else {
@@ -521,6 +522,8 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
         message: body.message,
         criteria,
         catalogQuestion: prompt.question,
+        promptKey: prompt.key,
+        chipLabels: prompt.options.filter((option) => !option.skip).map((option) => option.label),
         conversationHistory
       });
     }
