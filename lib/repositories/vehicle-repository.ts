@@ -377,6 +377,23 @@ export function buildVehicleSearchParams(criteria: UserCriteria, offset = 0) {
   });
   if (offset > 0) params.set("offset", String(offset));
 
+  if (lightHardMatchingEnabled()) {
+    if (criteria.budgetMinEUR) params.append("price_eur", `gte.${criteria.budgetMinEUR}`);
+    if (criteria.budgetMaxEUR) params.append("price_eur", `lte.${criteria.budgetMaxEUR}`);
+    if (criteria.avoidedBrands.length) {
+      params.set("brand", `not.in.(${formatPostgrestInList(expandBrandSearchValues(criteria.avoidedBrands))})`);
+    }
+    const lightOrGroups: string[][] = [];
+    if (criteria.monthlyBudgetEUR) {
+      lightOrGroups.push([
+        "monthly_lease_eur.is.null",
+        `monthly_lease_eur.lte.${criteria.monthlyBudgetEUR}`
+      ]);
+    }
+    applyPostgrestOrGroups(params, lightOrGroups);
+    return params;
+  }
+
   const orGroups: string[][] = [];
   const searchRangeFloorKm = hasHardRangeConstraint(criteria) ? inferSearchRangeFloorKm(criteria) : null;
 

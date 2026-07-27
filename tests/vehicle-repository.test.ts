@@ -3,12 +3,6 @@ import test from "node:test";
 import { emptyCriteria } from "../lib/criteria.ts";
 import type { UserCriteria } from "../lib/types.ts";
 import { seedVehicles } from "../lib/data/seed-vehicles.ts";
-
-function minimalVehicle(overrides: Partial<(typeof seedVehicles)[number]> & { id: string }) {
-  const template = seedVehicles[0];
-  assert.ok(template);
-  return { ...template, ...overrides };
-}
 import {
   buildHybridSearchFilters,
   buildVehicleEmbeddingQuery,
@@ -17,6 +11,12 @@ import {
   filterVehiclesForSearch,
   searchVehicles
 } from "../lib/repositories/vehicle-repository.ts";
+
+function minimalVehicle(overrides: Partial<(typeof seedVehicles)[number]> & { id: string }) {
+  const template = seedVehicles[0];
+  assert.ok(template);
+  return { ...template, ...overrides };
+}
 
 test("hybrid response keeps retrieval signals and deterministic filters", async () => {
   const template = seedVehicles[0];
@@ -348,6 +348,61 @@ test("light-hard filterVehiclesForSearch keeps over-range SUV in pool when only 
     });
     const kept = filterVehiclesForSearch([lowRangeSuv], criteria);
     assert.equal(kept.length, 1);
+  } finally {
+    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+  }
+});
+
+test("light-hard buildVehicleSearchParams omits body/range/model hard filters", () => {
+  process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
+  try {
+    const params = buildVehicleSearchParams({
+      ...emptyCriteria("must have heat pump SUV at least 400km", "en"),
+      budgetMaxEUR: 40000,
+      monthlyBudgetEUR: 650,
+      bodyTypes: ["suv"],
+      rangeFloorKm: 400,
+      mileageMaxKm: 30000,
+      preferredCondition: "used",
+      brandPreferences: ["Ford"],
+      modelPreferences: ["Model Y"],
+      preferredBrandOrigins: ["korea"],
+      passengers: 5,
+      avoidedBrands: ["Tesla"],
+      location: "Wien",
+      latestUserMessage: "I must have an SUV with at least 400 km range and heat pump, no Tesla"
+    });
+
+    assert.equal(params.get("market"), "eq.AT");
+    assert.equal(params.get("available"), "eq.true");
+    assert.equal(params.get("price_eur"), "lte.40000");
+    assert.equal(params.get("brand"), "not.in.(Tesla)");
+    assert.equal(params.get("or"), "(monthly_lease_eur.is.null,monthly_lease_eur.lte.650)");
+    assert.equal(params.get("condition"), null);
+    assert.equal(params.get("range_km"), null);
+    assert.equal(params.get("body_type"), null);
+    assert.equal(params.get("seats"), null);
+    assert.equal(params.get("mileage_km"), null);
+    assert.equal(params.get("location"), null);
+    assert.equal(params.get("and"), null);
+  } finally {
+    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+  }
+});
+
+test("light-hard filterVehiclesForSearch still drops over-budget and avoided brands", () => {
+  process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
+  try {
+    const criteria: UserCriteria = {
+      ...emptyCriteria("no Tesla under 40k", "en"),
+      budgetMaxEUR: 40000,
+      rangeFloorKm: 400,
+      bodyTypes: ["suv"],
+      avoidedBrands: ["Tesla"]
+    };
+    const overBudget = minimalVehicle({ id: "over", priceEUR: 55000, make: "Ford" });
+    const avoided = minimalVehicle({ id: "tesla", priceEUR: 35000, make: "Tesla" });
+    assert.deepEqual(filterVehiclesForSearch([overBudget, avoided], criteria), []);
   } finally {
     delete process.env.FLOWRYD_MATCHING_PIPELINE;
   }
