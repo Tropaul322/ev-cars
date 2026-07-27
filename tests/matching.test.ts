@@ -1077,6 +1077,53 @@ test("hardFilterPolicy documents retrieveLight vs match-time hard filters", () =
   assert.ok(hardFilterPolicy.soft.includes("preferredBodyType"));
 });
 
+test("softened match prefs keep near-miss body type with tradeoff instead of reject", () => {
+  process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
+  process.env.FLOWRYD_SOFTEN_MATCH_PREFERENCES = "1";
+  try {
+    const criteria = {
+      ...emptyCriteria("looking for an SUV under 40k", "en"), // no "must/only"
+      budgetMaxEUR: 40000,
+      bodyTypes: ["suv"] as UserCriteria["bodyTypes"],
+      personalWish: "freedom" as UserCriteria["personalWish"],
+      rangeFloorKm: 250
+    };
+    const wagon = vehicleFixture({
+      id: "wagon-1",
+      bodyType: "wagon",
+      priceEUR: 32000,
+      rangeKm: 400,
+      make: "VW"
+    });
+    const result = matchVehicles([wagon], criteria, 3);
+    assert.equal(result.recommendations.length, 1);
+    assert.match(result.recommendations[0]!.ruledOutReasons.join(" "), /body|wagon|suv/i);
+  } finally {
+    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    delete process.env.FLOWRYD_SOFTEN_MATCH_PREFERENCES;
+  }
+});
+
+test("exclusive must SUV still hard-rejects wagon when soften flag on", () => {
+  process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
+  process.env.FLOWRYD_SOFTEN_MATCH_PREFERENCES = "1";
+  try {
+    const criteria = {
+      ...emptyCriteria("I must have an SUV only", "en"),
+      budgetMaxEUR: 40000,
+      bodyTypes: ["suv"] as UserCriteria["bodyTypes"],
+      personalWish: "freedom" as UserCriteria["personalWish"]
+    };
+    const wagon = vehicleFixture({ id: "wagon-2", bodyType: "wagon", priceEUR: 32000, rangeKm: 400 });
+    const result = matchVehicles([wagon], criteria, 3);
+    assert.equal(result.recommendations.length, 0);
+    assert.ok(result.rejected.some((r) => r.vehicle.id === "wagon-2"));
+  } finally {
+    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+    delete process.env.FLOWRYD_SOFTEN_MATCH_PREFERENCES;
+  }
+});
+
 test("retrieveMatchingDebugFields reports light_hard policy and embedding flag", () => {
   const previousPipeline = process.env.FLOWRYD_MATCHING_PIPELINE;
   const previousDisableEmbeddings = process.env.FLOWRYD_DISABLE_EMBEDDINGS;
