@@ -48,7 +48,7 @@ import {
   vehicleExclusionKeys,
   vehiclePrimaryMatchKey
 } from "./match-diagnostics.ts";
-import { matchDebug } from "./match-debug.ts";
+import { matchDebug, matchDebugWarn } from "./match-debug.ts";
 import { detectPromptInjection, promptInjectionResponse } from "./prompt-guard.ts";
 import { attachSearchCriteriaDebug } from "./search-criteria-debug.ts";
 import { buildRagContext } from "./rag.ts";
@@ -72,7 +72,11 @@ import type {
   Vehicle
 } from "./types.ts";
 import type { MatchResponse } from "./types.ts";
-import { vehicleEmbeddingSearchEnabled } from "./vehicle-search-settings.ts";
+import {
+  lightHardMatchingEnabled,
+  matchingPipeline,
+  vehicleEmbeddingSearchEnabled
+} from "./vehicle-search-settings.ts";
 import { vehicleMatchesModelPreferences } from "./vehicle-matching.ts";
 
 const MATCH_CANDIDATE_LIMIT = 36;
@@ -652,6 +656,11 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
   let scoringVehicles = sanePool.vehicles;
   const structuredHits = retrieved.structuredHits;
   const embeddingHits = retrieved.embeddingHits;
+  const retrieveDebug = emitRetrieveMatchingDiagnostics({
+    sessionId,
+    embeddingHits,
+    structuredHits
+  });
   matchDebug("candidate-pool", {
     sessionId,
     searchedVehicles: candidateVehicles.length,
@@ -660,7 +669,8 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     searchOffset,
     shownVehicleKeys: shownVehicleIds.size,
     usedFallbackList: retrieved.usedFallbackList,
-    sanityRejectedVehicles: sanePool.rejectedCount
+    sanityRejectedVehicles: sanePool.rejectedCount,
+    ...retrieveDebug
   });
   let nextBatchVehicles = isNextBatch
     ? scoringVehicles.filter((vehicle) => !vehicleHasShownKey(vehicle, shownVehicleIds))
@@ -726,6 +736,8 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     MATCH_LISTING_DIVERSITY_LIMIT
   );
   const diagnostics = buildMatchDiagnostics({
+    matchingPipeline: retrieveDebug.matchingPipeline,
+    retrievePolicy: retrieveDebug.retrievePolicy,
     embeddingQueryStatus:
       embeddingHits > 0 ? "ok" : vehicleEmbeddingSearchEnabled() ? "unavailable" : "disabled",
     embeddingHits,
@@ -833,6 +845,8 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     null
   );
   const responseDiagnostics = buildMatchDiagnostics({
+    matchingPipeline: retrieveDebug.matchingPipeline,
+    retrievePolicy: retrieveDebug.retrievePolicy,
     embeddingQueryStatus:
       embeddingHits > 0 ? "ok" : vehicleEmbeddingSearchEnabled() ? "unavailable" : "disabled",
     embeddingHits,
@@ -894,6 +908,22 @@ function createPipelineDeadline() {
 function matchPipelineTimeoutMs() {
   const configured = Number(process.env.FLOWRYD_MATCH_PIPELINE_TIMEOUT_MS);
   return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_MATCH_PIPELINE_TIMEOUT_MS;
+}
+
+export function retrieveMatchingDebugFields() {
+  return {
+    matchingPipeline: matchingPipeline(),
+    retrievePolicy: lightHardMatchingEnabled() ? ("light_hard" as const) : ("full_hard" as const),
+    embeddingSearchEnabled: vehicleEmbeddingSearchEnabled()
+  };
+}
+
+export function emitRetrieveMatchingDiagnostics(extra: Record<string, unknown> = {}) {
+  const fields = retrieveMatchingDebugFields();
+  if (lightHardMatchingEnabled() && !vehicleEmbeddingSearchEnabled()) {
+    matchDebugWarn("retrieve.light-hard-without-embeddings", { ...fields, ...extra });
+  }
+  return fields;
 }
 
 export async function withPipelineFallback<T>(

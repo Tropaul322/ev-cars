@@ -1,6 +1,9 @@
 import type { MatchResult, Vehicle } from "./types.ts";
+import type { MatchingPipeline } from "./vehicle-search-settings.ts";
 
 export type MatchDiagnostics = {
+  matchingPipeline: MatchingPipeline;
+  retrievePolicy: "light_hard" | "full_hard";
   embeddingQueryStatus: "ok" | "disabled" | "unavailable";
   embeddingProvider?: "openai" | "gemini";
   embeddingHits: number;
@@ -21,6 +24,8 @@ export type MatchDiagnostics = {
 };
 
 export function buildMatchDiagnostics(input: {
+  matchingPipeline: MatchDiagnostics["matchingPipeline"];
+  retrievePolicy: MatchDiagnostics["retrievePolicy"];
   embeddingQueryStatus: MatchDiagnostics["embeddingQueryStatus"];
   embeddingProvider?: MatchDiagnostics["embeddingProvider"];
   embeddingHits: number;
@@ -41,6 +46,8 @@ export function buildMatchDiagnostics(input: {
   const selectionNotes = explainSelection(input);
 
   return {
+    matchingPipeline: input.matchingPipeline,
+    retrievePolicy: input.retrievePolicy,
     embeddingQueryStatus: input.embeddingQueryStatus,
     embeddingProvider: input.embeddingProvider,
     embeddingHits: input.embeddingHits,

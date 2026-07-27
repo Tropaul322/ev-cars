@@ -1,3 +1,20 @@
+export type MatchingPipeline = "classic" | "light_hard";
+
+export function matchingPipeline(): MatchingPipeline {
+  const raw = process.env.FLOWRYD_MATCHING_PIPELINE?.trim().toLowerCase();
+  if (raw === "classic" || raw === "light_hard") return raw;
+  if (readBooleanEnv("FLOWRYD_LIGHT_HARD_MATCHING", false)) return "light_hard";
+  return "classic";
+}
+
+export function lightHardMatchingEnabled() {
+  return matchingPipeline() === "light_hard";
+}
+
+export function softenMatchPreferencesEnabled() {
+  return lightHardMatchingEnabled() && readBooleanEnv("FLOWRYD_SOFTEN_MATCH_PREFERENCES", false);
+}
+
 export function vehicleStructuredSearchEnabled() {
   return readBooleanEnv("FLOWRYD_VEHICLE_STRUCTURED_SEARCH", true);
 }
