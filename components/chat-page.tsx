@@ -67,7 +67,7 @@ import type {
 } from "@/lib/types";
 import {
   formatCondition,
-  getVehicleDetailSections,
+  getMatchListingDetailSections,
   getVehicleDetailStats,
 } from "@/lib/vehicle-detail-fields";
 import { formatMatchInventoryLabel, formatSeeMatchesLabel } from "@/lib/match-copy";
@@ -1463,7 +1463,7 @@ function DetailsSheet({
     vehicle,
     formatEUR(match.tco.purchasePriceWithVAT),
   );
-  const detailSections = getVehicleDetailSections(vehicle);
+  const detailSections = getMatchListingDetailSections(vehicle);
 
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>

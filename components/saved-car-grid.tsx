@@ -191,16 +191,6 @@ function SavedCarSheet({
             );
           })}
 
-          {car.href.startsWith("http") ? (
-            <Link
-              className="inline-flex w-full items-center justify-center rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground hover:opacity-90"
-              href={car.href}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open offer
-            </Link>
-          ) : null}
         </div>
       </SheetContent>
     </Sheet>

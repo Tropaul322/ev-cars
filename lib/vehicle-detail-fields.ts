@@ -1,5 +1,5 @@
 import type { Feature, Vehicle, VehicleCondition, VehicleSellerType } from "./types";
-import { formatEUR, formatNumber } from "./utils";
+import { formatEUR, formatNumber } from "./utils.ts";
 
 export type VehicleDetailItem = {
   label: string;
@@ -43,6 +43,64 @@ export function getVehicleDetailStats(vehicle: Vehicle, price = formatEUR(vehicl
   ];
 }
 
+export function getVehicleDescriptionForDisplay(vehicle: Vehicle): string | undefined {
+  const notes = vehicle.notes?.trim();
+  if (notes && !isMarketplaceListingAdText(notes, vehicle.source)) {
+    return notes;
+  }
+  return buildModelDescription(vehicle);
+}
+
+export function isMarketplaceListingAdText(notes: string, source: Vehicle["source"]): boolean {
+  const normalized = notes.trim();
+  if (!normalized) return false;
+
+  const marketplaceSources = new Set<Vehicle["source"]>(["willhaben", "autoscout24_at", "gebrauchtwagen_at"]);
+  if (marketplaceSources.has(source)) {
+    if (normalized.length > 180) return true;
+    if (/inventory listing crawled|html hash:/i.test(normalized)) return true;
+  }
+
+  if (normalized.length > 320) return true;
+  if (/Finanzierungsbeispiel|Bruttokreditbetrag|Fixzinssatz|Leasingbeispiel/i.test(normalized)) return true;
+  if ((normalized.match(/€|\bEUR\b/gi)?.length ?? 0) >= 3) return true;
+
+  return false;
+}
+
+export function buildModelDescription(vehicle: Vehicle): string {
+  const identity = [vehicle.make, vehicle.model, vehicle.trim].filter(Boolean).join(" ");
+  const details = [
+    formatCondition(vehicle.condition),
+    String(vehicle.year),
+    formatBodyType(vehicle.bodyType),
+    vehicle.drivetrain,
+    `${formatNumber(vehicle.rangeKm)} km range`,
+    `${vehicle.batteryKwh} kWh battery`,
+    vehicle.powerKw ? formatPower(vehicle.powerKw) : undefined
+  ].filter(Boolean);
+
+  return [identity, details.join(" · ")].filter(Boolean).join(" — ");
+}
+
+/** Compact listing metadata for match/chat listing details. */
+export function getMatchListingDetailSections(vehicle: Vehicle): VehicleDetailSection[] {
+  const sections: VehicleDetailSection[] = [
+    {
+      heading: "Seller and source",
+      items: compactItems([
+        detailItem("Source", formatSource(vehicle.source)),
+        detailItem("Source ID", vehicle.sourceListingId),
+        detailItem("Last updated", formatDateTime(vehicle.sourceUpdatedAt)),
+        detailItem("Crawled", formatDateTime(vehicle.crawledAt))
+      ])
+    },
+    buildFeaturesAndDescriptionSection(vehicle)
+  ];
+
+  return sections.filter((section) => section.items.length > 0);
+}
+
 export function getVehicleDetailSections(vehicle: Vehicle): VehicleDetailSection[] {
   const sections: VehicleDetailSection[] = [
     {
@@ -59,7 +117,8 @@ export function getVehicleDetailSections(vehicle: Vehicle): VehicleDetailSection
         detailItem("Doors", vehicle.doors),
         detailItem("Exterior", vehicle.exteriorColor),
         detailItem("First registration", formatLooseDate(vehicle.firstRegistration)),
-        detailItem("Transmission", vehicle.transmission)
+        detailItem("Transmission", vehicle.transmission),
+        detailItem("Description", getVehicleDescriptionForDisplay(vehicle))
       ])
     },
     {
@@ -123,18 +182,26 @@ export function getVehicleDetailSections(vehicle: Vehicle): VehicleDetailSection
         detailItem("Crawled", formatDateTime(vehicle.crawledAt))
       ])
     },
-    {
-      heading: "Features and notes",
-      items: compactItems([
-        detailItem("Driver assist", formatDriverAssist(vehicle.features)),
-        detailItem("Equipment", formatFeatures(vehicle.features)),
-        detailItem("Review tags", formatTextList(vehicle.reviewTags)),
-        detailItem("Notes", vehicle.notes)
-      ])
-    }
+    buildFeaturesAndDescriptionSection(vehicle, { includeDescription: false })
   ];
 
   return sections.filter((section) => section.items.length > 0);
+}
+
+function buildFeaturesAndDescriptionSection(
+  vehicle: Vehicle,
+  options: { includeDescription?: boolean } = {}
+): VehicleDetailSection {
+  const includeDescription = options.includeDescription ?? true;
+  return {
+    heading: "Features and notes",
+    items: compactItems([
+      detailItem("Driver assist", formatDriverAssist(vehicle.features)),
+      detailItem("Equipment", formatFeatures(vehicle.features)),
+      detailItem("Review tags", formatTextList(vehicle.reviewTags)),
+      includeDescription ? detailItem("Description", getVehicleDescriptionForDisplay(vehicle)) : null
+    ])
+  };
 }
 
 export function vehicleDetailSectionId(prefix: string, heading: string) {
