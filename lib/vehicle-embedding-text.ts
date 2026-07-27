@@ -47,7 +47,9 @@ export function buildVehicleEmbeddingText(vehicle: Vehicle) {
     `${vehicle.cargoLiters} cargo trunk kofferraum`,
     vehicle.mileageKm ? `${vehicle.mileageKm} km mileage` : null,
     vehicle.batterySoH ? `${vehicle.batterySoH}% battery health` : null,
-    vehicle.features.map((feature) => featureLabels[feature]).join(" "),
+    vehicle.features
+      .map((feature) => featureLabels[feature] ?? String(feature).replace(/_/g, " "))
+      .join(" "),
     vehicle.notes,
     vehicle.warranty,
     vehicle.reviewTags.join(" "),

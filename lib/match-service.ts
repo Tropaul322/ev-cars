@@ -3,7 +3,6 @@ import {
   generateChatGreeting,
   generateClarificationResponse,
   generateConversationalResponse,
-  generateLowConfidenceQuestion,
   generateNoMatchesMessage,
   generateNoMoreMatchesMessage,
   generateNudgeResponse,
@@ -14,7 +13,11 @@ import {
   isMissingCriteriaKey,
   nextClarificationPrompt
 } from "./clarification-catalog.ts";
-import { resolveClarificationAnswer } from "./clarification-resolver.ts";
+import {
+  declinedOptionalPreferencesPatch,
+  looksLikeDeclineAnswer,
+  resolveClarificationAnswer
+} from "./clarification-resolver.ts";
 import {
   DEFAULT_BUDGET_MAX_EUR,
   DEFAULT_BUDGET_MIN_EUR,
@@ -106,19 +109,16 @@ export type MatchServiceRequest = {
   selectedVehicleIds?: string[];
 };
 
-/** Soft priority follow-up after matches — skip once the user already chose an optimization. */
-const PRIORITY_QUALITATIVE_SIGNALS = new Set(["low_mileage", "premium", "road_trip_comfort"]);
-
+/** Soft priority follow-ups after matches are disabled (PoC test-summary bug). */
 export function shouldAskLowConfidencePriorityQuestion(
   confidence: number,
   criteria: UserCriteria,
   missingCriteria: MissingCriteria[]
 ) {
-  if (criteria.optimizationDirective) return false;
-  if (criteria.qualitativeSignals.some((signal) => PRIORITY_QUALITATIVE_SIGNALS.has(signal))) {
-    return false;
-  }
-  return confidence < 0.72 && missingCriteria.includes("use_case");
+  void confidence;
+  void criteria;
+  void missingCriteria;
+  return false;
 }
 
 export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchResponse> {
@@ -292,13 +292,59 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     ) {
       const resolution = resolveClarificationAnswer(body.message, clarificationKey, criteria.language);
       if (resolution?.kind === "skip") {
-        if (isMissingCriteriaKey(clarificationKey)) {
+        // Optional groups (e.g. use_case) can be skipped; binding keys use decline patches instead.
+        if (isMissingCriteriaKey(clarificationKey) && clarificationKey === "use_case") {
           skippedKeys = Array.from(new Set([...skippedKeys, clarificationKey]));
         }
         criteriaChanged = true;
       } else if (resolution?.kind === "patch") {
+        let patch = resolution.patch;
+        // If body style is already known, a decline must clear extras without reopening all bodies.
+        if (
+          clarificationKey === "vehicle_preferences" &&
+          criteria.bodyTypes.length > 0 &&
+          looksLikeDeclineAnswer(body.message)
+        ) {
+          patch = declinedOptionalPreferencesPatch(true);
+        }
         criteria = {
-          ...applyChipPatch(criteria, resolution.patch),
+          ...applyChipPatch(criteria, patch),
+          latestUserMessage: body.message.trim()
+        };
+        confidence = getCriteriaConfidence(criteria);
+        criteriaChanged = true;
+      }
+    }
+
+    if (
+      !criteriaChanged &&
+      body.currentPromptKey &&
+      body.currentPromptKey !== "ready" &&
+      looksLikeDeclineAnswer(body.message)
+    ) {
+      const resolution = resolveClarificationAnswer(
+        body.message,
+        body.currentPromptKey,
+        criteria.language
+      );
+      if (resolution?.kind === "skip") {
+        if (
+          isMissingCriteriaKey(body.currentPromptKey) &&
+          body.currentPromptKey === "use_case"
+        ) {
+          skippedKeys = Array.from(new Set([...skippedKeys, body.currentPromptKey]));
+        }
+        criteriaChanged = true;
+      } else if (resolution?.kind === "patch") {
+        let patch = resolution.patch;
+        if (
+          body.currentPromptKey === "vehicle_preferences" &&
+          criteria.bodyTypes.length > 0
+        ) {
+          patch = declinedOptionalPreferencesPatch(true);
+        }
+        criteria = {
+          ...applyChipPatch(criteria, patch),
           latestUserMessage: body.message.trim()
         };
         confidence = getCriteriaConfidence(criteria);
@@ -435,16 +481,18 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     !brandWiden &&
     (trigger === "small_talk" ||
       trigger === "meta" ||
-      // Knowledge questions stay conversational even if incidental feature words were parsed.
-      trigger === "ev_question");
+      // Knowledge questions stay conversational unless the turn already named an
+      // optimization directive (best value / max range / …) — those must shop.
+      (trigger === "ev_question" && !criteria.optimizationDirective));
 
   const readyToSearch =
-    promptForTurn.key === "ready" && readiness.groups.budget && hasMeaningfulCriteria(criteria);
+    promptForTurn.key === "ready" && readiness.readyToMatch && hasMeaningfulCriteria(criteria);
 
   const wantsMatch =
     !isChatTurn &&
     !forceFirstTurnOptimization &&
     readiness.groups.budget &&
+    readiness.readyToMatch &&
     (readyToSearch ||
       body.intent === "show_matches" ||
       trigger === "show_matches" ||
@@ -453,17 +501,13 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       isNextBatch ||
       (!hasPriorContext &&
         !firstTurnMustClarify &&
-        (hasInventoryLookup(criteria) ||
-          readiness.readyToMatch ||
-          (promptForTurn.key === "ready" && hasMeaningfulCriteria(criteria)))) ||
+        readiness.readyToMatch) ||
       (!hasPriorContext &&
         firstTurnMustClarify &&
         promptForTurn.key === "ready" &&
         Boolean(criteria.optimizationDirective) &&
-        (hasInventoryLookup(criteria) || readiness.readyToMatch || hasMeaningfulCriteria(criteria))) ||
-      (hasPriorContext &&
-        criteriaChanged &&
-        (readiness.readyToMatch || hasInventoryLookup(criteria))));
+        readiness.readyToMatch) ||
+      (hasPriorContext && criteriaChanged && readiness.readyToMatch));
 
   if (!wantsMatch) {
     let prompt: ClarificationPrompt | undefined;
@@ -505,6 +549,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
         message: body.message,
         criteria,
         catalogQuestion: prompt.question,
+        promptKey: prompt.key,
         conversationHistory
       });
     } else {
@@ -513,6 +558,8 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
         message: body.message,
         criteria,
         catalogQuestion: prompt.question,
+        promptKey: prompt.key,
+        chipLabels: prompt.options.filter((option) => !option.skip).map((option) => option.label),
         conversationHistory
       });
     }
@@ -753,35 +800,19 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     );
   }
 
-  const needsLowConfidenceQuestion = shouldAskLowConfidencePriorityQuestion(
-    confidence,
-    criteria,
-    missingCriteria
-  );
   const explanationLimit = Math.min(resolveRecommendationLimit(criteria), CACHED_RECOMMENDATION_LIMIT);
-  const [lowConfidenceQuestion, finalSelection] = await Promise.all([
-    needsLowConfidenceQuestion
-      ? withPipelineFallback(
-          "low_confidence",
-          deadline,
-          pipelineFallbacks,
-          () => generateLowConfidenceQuestion(criteria, conversationHistory),
-          () => null
-        )
-      : Promise.resolve(null),
-    withPipelineFallback(
-      "select_explain",
-      deadline,
-      pipelineFallbacks,
-      () =>
-        selectAndExplainMatches(diversifiedRecommendations, criteria, {
-          maxRecommendations: explanationLimit,
-          rejectedSummary,
-          brandWiden
-        }),
-      () => fallbackSelection(diversifiedRecommendations, criteria, explanationLimit, brandWiden)
-    )
-  ]);
+  const finalSelection = await withPipelineFallback(
+    "select_explain",
+    deadline,
+    pipelineFallbacks,
+    () =>
+      selectAndExplainMatches(diversifiedRecommendations, criteria, {
+        maxRecommendations: explanationLimit,
+        rejectedSummary,
+        brandWiden
+      }),
+    () => fallbackSelection(diversifiedRecommendations, criteria, explanationLimit, brandWiden)
+  );
 
   const cachedRecommendations = addPrimaryRecommendationJustification(
     finalSelection.recommendations.slice(0, CACHED_RECOMMENDATION_LIMIT),
@@ -798,8 +829,8 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     : undefined;
   const assistantMessage = appendLowConfidenceQuestion(
     finalSelection.assistantMessage ||
-      fallbackMatchIntroMessage(criteria, recommendations.length, lowConfidenceQuestion, inventoryBrands),
-    lowConfidenceQuestion
+      fallbackMatchIntroMessage(criteria, recommendations.length, null, inventoryBrands),
+    null
   );
   const responseDiagnostics = buildMatchDiagnostics({
     embeddingQueryStatus:
@@ -912,6 +943,7 @@ export function filterVehiclesWithSanityChecks(vehicles: Vehicle[]) {
 }
 
 function isSaneVehicleForScoring(vehicle: Vehicle) {
+  const minPowerKw = vehicle.seats <= 2 ? 5 : 20;
   return (
     isFiniteNumberInRange(vehicle.priceEUR, 1_000, 250_000) &&
     isFiniteNumberInRange(vehicle.rangeKm, 80, 900) &&
@@ -919,7 +951,7 @@ function isSaneVehicleForScoring(vehicle: Vehicle) {
     isFiniteNumberInRange(vehicle.batteryKwh, 10, 220) &&
     isFiniteNumberInRange(vehicle.seats, 1, 9) &&
     isFiniteNumberInRange(vehicle.cargoLiters, 0, 3_000) &&
-    isFiniteNumberInRange(vehicle.powerKw, 20, 1_000) &&
+    isFiniteNumberInRange(vehicle.powerKw, minPowerKw, 1_000) &&
     // Missing SoH is common on marketplace payloads (undefined/null) — treat as unknown, not insane.
     (vehicle.batterySoH == null || isFiniteNumberInRange(vehicle.batterySoH, 50, 100))
   );
@@ -946,7 +978,7 @@ function fallbackSelection(
   return {
     assistantMessage: fallbackMatchIntroMessage(
       criteria,
-      recommendations.length,
+      Math.min(recommendations.length, VISIBLE_RECOMMENDATION_LIMIT),
       null,
       inventoryBrands
     ),

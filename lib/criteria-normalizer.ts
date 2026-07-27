@@ -19,6 +19,7 @@ import type {
   Feature,
   Importance,
   OptimizationDirective,
+  PersonalWish,
   QualitativeSignal,
   TripNeed,
   UserCriteria,
@@ -189,6 +190,7 @@ function reconcilePivotTopicFields(
     mustHaveFeatures: fromMessage.mustHaveFeatures,
     qualitativeSignals: fromMessage.qualitativeSignals,
     optimizationDirective: fromMessage.optimizationDirective,
+    personalWish: fromMessage.personalWish,
     preferredBrandOrigins: fromMessage.preferredBrandOrigins,
     avoidedBrands: fromMessage.avoidedBrands,
     brandPreferences: fromMessage.brandPreferences,
@@ -330,6 +332,7 @@ function applyRemoval(criteria: UserCriteria, removal: string) {
   if (removal === "charging") criteria.chargingAccess = "unknown";
   if (removal === "features") criteria.mustHaveFeatures = [];
   if (removal === "optimization") criteria.optimizationDirective = null;
+  if (removal === "personal_wish") criteria.personalWish = null;
   if (removal === "brand") {
     criteria.brandPreferences = [];
     criteria.avoidedBrands = [];
@@ -518,6 +521,11 @@ function cleanPatch(patch: CriteriaPatch): CriteriaPatch {
   } else if (patch.optimizationDirective === null) {
     clean.optimizationDirective = null;
   }
+  if (isPersonalWish(patch.personalWish)) {
+    clean.personalWish = patch.personalWish;
+  } else if (patch.personalWish === null) {
+    clean.personalWish = null;
+  }
   if (Array.isArray(patch.mustHaveFeatures)) clean.mustHaveFeatures = patch.mustHaveFeatures.filter(isFeature);
   if (Array.isArray(patch.qualitativeSignals)) {
     clean.qualitativeSignals = patch.qualitativeSignals.filter(isQualitativeSignal);
@@ -581,6 +589,10 @@ function isTripNeed(value: unknown): value is TripNeed {
 
 function isOptimizationDirective(value: unknown): value is OptimizationDirective {
   return typeof value === "string" && (allowedOptimizationDirectives as readonly string[]).includes(value);
+}
+
+function isPersonalWish(value: unknown): value is PersonalWish {
+  return value === "status" || value === "freedom" || value === "childhood_memories";
 }
 
 function isFeature(value: unknown): value is Feature {
@@ -794,6 +806,7 @@ function buildPivotBase(previousCriteria: UserCriteria): UserCriteria {
     preferredBrandOrigins: [],
     qualitativeSignals: [],
     optimizationDirective: null,
+    personalWish: null,
     // Drop prior utterance text so exclusive hard-filter language cannot bleed.
     rawPrompt: "",
     latestUserMessage: ""
@@ -811,7 +824,8 @@ function hasPriorTopicCriteria(criteria: UserCriteria) {
       criteria.modelPreferences.length ||
       criteria.preferredBrandOrigins.length ||
       criteria.qualitativeSignals.length ||
-      criteria.optimizationDirective
+      criteria.optimizationDirective ||
+      criteria.personalWish
   );
 }
 

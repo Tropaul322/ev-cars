@@ -67,19 +67,19 @@ const catalog: Record<MissingCriteria, LocalizedStep> = {
   },
   charging_or_range: {
     question: {
-      en: "Where will you usually charge?",
-      de: "Wo wirst du normalerweise laden?"
+      en: "What minimum range do you need?",
+      de: "Welche Mindestreichweite brauchst du?"
     },
     explanation: {
-      en: "Charging is about where you'll plug in most of the time: at home on a wallbox, at work, or only at public stations. If you mostly use public charging, I'll favor longer range and faster charging. Not sure? That's fine too.",
-      de: "Beim Laden geht es darum, wo du meistens lädst: zu Hause an der Wallbox, bei der Arbeit oder nur an öffentlichen Stationen. Wenn du vor allem öffentlich lädst, bevorzuge ich mehr Reichweite und schnelleres Laden. Unsicher? Auch okay."
+      en: "Range is how far the car can go on a charge. Pick a floor that fits your longest usual trip — I treat this as a soft preference unless you say “must” or “at least”.",
+      de: "Reichweite ist, wie weit das Auto mit einer Ladung kommt. Wähle eine Untergrenze für deine längste übliche Strecke — ich behandle das als weiche Präferenz, außer du sagst „muss“ oder „mindestens“."
     },
     selectMode: "single",
     options: [
-      { id: "charge_home", label: { en: "Home / wallbox", de: "Zu Hause / Wallbox" }, patch: { chargingAccess: "home" } },
-      { id: "charge_work", label: { en: "At work", de: "Bei der Arbeit" }, patch: { chargingAccess: "work" } },
-      { id: "charge_public", label: { en: "Public only", de: "Nur öffentlich" }, patch: { chargingAccess: "public" } },
-      skipOption("charge_skip", "Not sure yet", "Noch unklar")
+      { id: "range_250", label: { en: "About 250+ km", de: "Etwa 250+ km" }, patch: { rangeFloorKm: 250 } },
+      { id: "range_350", label: { en: "About 350+ km", de: "Etwa 350+ km" }, patch: { rangeFloorKm: 350 } },
+      { id: "range_450", label: { en: "About 450+ km", de: "Etwa 450+ km" }, patch: { rangeFloorKm: 450 } },
+      { id: "range_550", label: { en: "About 550+ km", de: "Etwa 550+ km" }, patch: { rangeFloorKm: 550 } }
     ]
   },
   vehicle_preferences: {
@@ -88,8 +88,8 @@ const catalog: Record<MissingCriteria, LocalizedStep> = {
       de: "Bevorzugst du eine Karosserieform? (mehrere möglich)"
     },
     explanation: {
-      en: "This is the shape of the car — an SUV for space and height, a compact for easy city parking, a sedan, a wagon for cargo, or a van for maximum room. Pick any that appeal, or skip if you're open to anything.",
-      de: "Es geht um die Form des Autos – ein SUV für Platz und Höhe, ein Kompakter fürs einfache Parken, eine Limousine, ein Kombi für Stauraum oder ein Van für maximalen Platz. Wähle, was dir gefällt, oder überspringe, wenn du offen bist."
+      en: "This is the shape of the car — an SUV for space and height, a compact for easy city parking, a sedan, a wagon for cargo, or a van for maximum room. Pick the body styles that appeal.",
+      de: "Es geht um die Form des Autos – ein SUV für Platz und Höhe, ein Kompakter fürs einfache Parken, eine Limousine, ein Kombi für Stauraum oder ein Van für maximalen Platz. Wähle die Formen, die dir gefallen."
     },
     selectMode: "multi",
     options: [
@@ -97,8 +97,27 @@ const catalog: Record<MissingCriteria, LocalizedStep> = {
       { id: "body_compact", label: { en: "Compact", de: "Kompakt" }, patch: { bodyTypes: ["compact", "hatchback"] } },
       { id: "body_sedan", label: { en: "Sedan", de: "Limousine" }, patch: { bodyTypes: ["sedan"] } },
       { id: "body_wagon", label: { en: "Wagon", de: "Kombi" }, patch: { bodyTypes: ["wagon"] } },
-      { id: "body_van", label: { en: "Van", de: "Van" }, patch: { bodyTypes: ["van"] } },
-      skipOption("vehicle_preferences_skip", "No preference", "Egal")
+      { id: "body_van", label: { en: "Van", de: "Van" }, patch: { bodyTypes: ["van"] } }
+    ]
+  },
+  personal_wish: {
+    question: {
+      en: "What personal wish should shape the recommendation?",
+      de: "Welcher persönliche Wunsch soll die Empfehlung prägen?"
+    },
+    explanation: {
+      en: "Pick one emotional driver — status, freedom, or fond childhood memories. Any one is enough; it nudges scoring toward the cars that feel right for you.",
+      de: "Wähle einen emotionalen Treiber — Status, Freiheit oder Kindheitserinnerungen. Einer reicht; das verschiebt die Bewertung zu den Autos, die sich für dich richtig anfühlen."
+    },
+    selectMode: "single",
+    options: [
+      { id: "wish_status", label: { en: "Status", de: "Status" }, patch: { personalWish: "status" } },
+      { id: "wish_freedom", label: { en: "Freedom", de: "Freiheit" }, patch: { personalWish: "freedom" } },
+      {
+        id: "wish_childhood",
+        label: { en: "Fond childhood memories", de: "Kindheitserinnerungen" },
+        patch: { personalWish: "childhood_memories" }
+      }
     ]
   }
 };
@@ -109,8 +128,8 @@ const readyStep: { question: { en: string; de: string }; explanation: { en: stri
     de: "Super – ich habe genug, um gute Treffer zu finden. Ich suche jetzt."
   },
   explanation: {
-    en: "I can rank real listings against everything you've told me so far.",
-    de: "Ich kann echte Angebote anhand deiner bisherigen Angaben ranken."
+    en: "I can rank real matching EVs against everything you've told me so far.",
+    de: "Ich kann echte passende EVs anhand deiner bisherigen Angaben ranken."
   }
 };
 
@@ -202,5 +221,11 @@ export function getPromptExplanation(
 }
 
 export function isMissingCriteriaKey(value: unknown): value is MissingCriteria {
-  return value === "budget" || value === "use_case" || value === "charging_or_range" || value === "vehicle_preferences";
+  return (
+    value === "budget" ||
+    value === "use_case" ||
+    value === "charging_or_range" ||
+    value === "vehicle_preferences" ||
+    value === "personal_wish"
+  );
 }

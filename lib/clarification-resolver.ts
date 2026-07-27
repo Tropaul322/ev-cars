@@ -1,13 +1,42 @@
 import { getClarificationPrompt, getOptimizationPrompt } from "./clarification-catalog.ts";
-import { DEFAULT_BUDGET_MAX_EUR, DEFAULT_BUDGET_MIN_EUR, extractCriteria, looksLikeNoBudgetLimit } from "./criteria.ts";
-import type { ClarificationOption, ClarificationPromptKey, CriteriaPatch, Language } from "./types.ts";
+import {
+  DEFAULT_BUDGET_MAX_EUR,
+  DEFAULT_BUDGET_MIN_EUR,
+  extractCriteria,
+  looksLikeNoBudgetLimit
+} from "./criteria.ts";
+import type {
+  BodyType,
+  ClarificationOption,
+  ClarificationPromptKey,
+  CriteriaPatch,
+  Language
+} from "./types.ts";
 
 export type ClarificationResolution =
   | { kind: "patch"; patch: CriteriaPatch }
   | { kind: "skip" };
 
+/** Soft default when the user declines to name a range floor. */
+export const DEFAULT_DECLINED_RANGE_FLOOR_KM = 300;
+
+const OPEN_BODY_TYPES: BodyType[] = ["suv", "sedan", "compact", "hatchback", "wagon", "van"];
+
 const skipAnswerPattern =
-  /\b(no preference|no pref|don't care|doesn'?t matter|not sure(?: yet)?|no idea|don'?t know|skip|whatever|anything|any style|any body|open to anything|no budget limit|no limit|egal|keine präferenz|keine ahnung|weiß nicht|weiss nicht|unklar|passt schon|ist mir egal)\b/i;
+  /\b(no preference|no pref|don't care|doesn'?t matter|not sure(?: yet)?|no idea|don'?t know|skip|whatever|anything|any style|any body|open to anything|no budget limit|no limit|just\s+(looking|browsing|exploring|want\s+to\s+see)|only\s+(looking|browsing|options?)|egal|keine präferenz|keine ahnung|weiß nicht|weiss nicht|unklar|passt schon|ist mir egal)\b/i;
+
+/** Bare "No" / "None" / "Nein" and longer skip phrases — user declines extras. */
+const declineAnswerPattern =
+  /^(no|nope|nah|nein|nee|none|nothing|no thanks|no thank you|not really|nothing specific|no specific(?:\s+features?)?|keine|nichts|nein danke|nicht wirklich)\.?$/i;
+
+const declineLeadInPattern =
+  /^(no|nope|nah|nein|nee|none|nothing|not really)\b/i;
+
+const browseWithoutDetailsPattern =
+  /\b((j?ust|only)\s+(looking|want|show|see|browse|exploring)|looking\s+for\s+(the\s+)?(options?|choices?|results?|cars?|listings?)|show\s+me\s+(the\s+)?(options?|choices?|results?|cars?|listings?)|browse\s+(the\s+)?(options?|cars?|listings?))\b/i;
+
+const noSpecificPreferencePattern =
+  /\b(no|not|without|nothing)\s+(any\s+)?(specific|particular|special)\b/i;
 
 const optionSynonyms: Record<string, RegExp[]> = {
   budget_under_25k: [
@@ -40,8 +69,72 @@ const optionSynonyms: Record<string, RegExp[]> = {
   body_sedan: [/\b(sedan|limousine|saloon)\b/i],
   body_wagon: [/\b(wagon|estate|kombi|touring)\b/i],
   body_van: [/\b(van|minivan|transporter|bus)\b/i],
-  vehicle_preferences_skip: [/\b(any body|any style|open to all|alles ok)\b/i]
+  vehicle_preferences_skip: [/\b(any body|any style|open to all|alles ok)\b/i],
+  range_250: [/\b(250|200|city)\b/i],
+  range_350: [/\b(350|300)\b/i],
+  range_450: [/\b(450|400)\b/i],
+  range_550: [/\b(550|500|600)\b/i],
+  wish_status: [/\bstatus\b/i, /\bprestige\b/i, /\bansehen\b/i],
+  wish_freedom: [/\bfreedom\b/i, /\bfreiheit\b/i],
+  wish_childhood: [/\bchildhood\b/i, /\bkindheit\b/i, /\berinnerungen?\b/i]
 };
+
+/**
+ * True when the user declines extras ("No", "none", "no preference", …).
+ * These answers must advance the conversation — never re-nudge the same question.
+ */
+export function looksLikeDeclineAnswer(message: string) {
+  const trimmed = message.trim();
+  if (!trimmed) return false;
+  if (hasConcreteShoppingCriteriaInMessage(trimmed)) return false;
+  if (declineAnswerPattern.test(trimmed) || skipAnswerPattern.test(trimmed)) return true;
+  if (browseWithoutDetailsPattern.test(trimmed)) return true;
+  if (noSpecificPreferencePattern.test(trimmed)) return true;
+  if (declineLeadInPattern.test(trimmed)) {
+    const tail = trimmed.replace(declineLeadInPattern, "").replace(/^[,.\s-]+/, "").trim();
+    if (!tail) return true;
+    if (
+      skipAnswerPattern.test(tail) ||
+      browseWithoutDetailsPattern.test(trimmed) ||
+      noSpecificPreferencePattern.test(trimmed)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasConcreteShoppingCriteriaInMessage(message: string) {
+  const extracted = extractCriteria(message);
+  if (extracted.budgetMinEUR || extracted.budgetMaxEUR || extracted.monthlyBudgetEUR) return true;
+  if (extracted.bodyTypes.length) return true;
+  if (extracted.rangeFloorKm || extracted.dailyKm) return true;
+  if (extracted.brandPreferences.length || extracted.modelPreferences.length) return true;
+  if (extracted.mustHaveFeatures.length) return true;
+  if (extracted.personalWish) return true;
+  if (extracted.tripNeeds.length) return true;
+  if (/\b(under|over|below|above|bis|unter|über|ueber|€|\d+\s*k\b|\d+[.,]\d{3})\b/i.test(message)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Patch that records: no must-have features, no brand/model lock-in, no cargo/seat extras.
+ * Uses remove keys because applyChipPatch merges list fields and would ignore [].
+ * If body style is still empty, open the body pool so matching can proceed.
+ */
+export function declinedOptionalPreferencesPatch(hasBodyType = false): CriteriaPatch {
+  const patch: CriteriaPatch = {
+    remove: ["features", "brand", "model"],
+    cargoNeeds: null,
+    passengers: null
+  };
+  if (!hasBodyType) {
+    patch.bodyTypes = [...OPEN_BODY_TYPES];
+  }
+  return patch;
+}
 
 /**
  * Maps a free-text reply to a clarification chip patch when the user answers
@@ -68,19 +161,48 @@ export function resolveClarificationAnswer(
       return { kind: "patch", patch: defaultBudgetPatch() };
     }
     if (skipOption && matchedOptions.length === 1) {
+      const declined = declineResolutionForPrompt(promptKey);
+      if (declined) return declined;
       return { kind: "skip" };
     }
     const patch = mergeOptionPatches(matchedOptions.filter((option) => option.patch));
     return Object.keys(patch).length ? { kind: "patch", patch } : null;
   }
 
-  if (isSkipAnswer(trimmed)) {
-    if (promptKey === "budget") return { kind: "patch", patch: defaultBudgetPatch() };
-    return { kind: "skip" };
+  if (looksLikeDeclineAnswer(trimmed)) {
+    if (promptKey === "budget" || looksLikeNoBudgetLimit(trimmed)) {
+      return { kind: "patch", patch: defaultBudgetPatch() };
+    }
+    return declineResolutionForPrompt(promptKey);
   }
 
   const extractedPatch = extractPatchForPrompt(trimmed, promptKey);
   return extractedPatch ? { kind: "patch", patch: extractedPatch } : null;
+}
+
+/**
+ * When the user says "No" / "no preference", advance with defaults or a skip —
+ * never return null (that causes an infinite nudge loop on the same question).
+ */
+function declineResolutionForPrompt(promptKey: ClarificationPromptKey): ClarificationResolution | null {
+  switch (promptKey) {
+    case "budget":
+      return { kind: "patch", patch: defaultBudgetPatch() };
+    case "use_case":
+      return { kind: "skip" };
+    case "optimization":
+      return { kind: "patch", patch: { optimizationDirective: "best_value" } };
+    case "personal_wish":
+      // Neutral default so binding readiness advances after an explicit decline.
+      return { kind: "patch", patch: { personalWish: "freedom" } };
+    case "charging_or_range":
+      return { kind: "patch", patch: { rangeFloorKm: DEFAULT_DECLINED_RANGE_FLOOR_KM } };
+    case "vehicle_preferences":
+      // Mark: no specific features / brands / cargo / seats; open body if needed.
+      return { kind: "patch", patch: declinedOptionalPreferencesPatch(false) };
+    default:
+      return { kind: "skip" };
+  }
 }
 
 function matchPromptOptions(message: string, options: ClarificationOption[]) {
@@ -103,10 +225,6 @@ function optionMatches(message: string, option: ClarificationOption) {
     .map((token) => token.trim())
     .filter((token) => token.length >= 4);
   return labelTokens.some((token) => new RegExp(`\\b${escapeRegExp(token)}\\b`, "i").test(message));
-}
-
-function isSkipAnswer(message: string) {
-  return skipAnswerPattern.test(message);
 }
 
 function extractPatchForPrompt(message: string, promptKey: ClarificationPromptKey): CriteriaPatch | null {
@@ -144,6 +262,9 @@ function extractPatchForPrompt(message: string, promptKey: ClarificationPromptKe
       if (extracted.mustHaveFeatures.length) patch.mustHaveFeatures = extracted.mustHaveFeatures;
       if (extracted.qualitativeSignals.length) patch.qualitativeSignals = extracted.qualitativeSignals;
       return Object.keys(patch).length ? patch : null;
+    }
+    case "personal_wish": {
+      return extracted.personalWish ? { personalWish: extracted.personalWish } : null;
     }
     case "optimization": {
       return extracted.optimizationDirective

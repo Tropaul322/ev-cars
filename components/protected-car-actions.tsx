@@ -1,6 +1,8 @@
 "use client";
 
+import { toast } from "sonner";
 import { requireDemoAccess } from "@/lib/demo-access-client";
+import { resolveBuyNowAction } from "@/lib/buy-now";
 import type { SavedCarSnapshot } from "@/lib/repositories/saved-car-repository";
 import { SaveCarButton } from "./save-car-button";
 
@@ -13,13 +15,31 @@ export function ProtectedCarActions({
   hydrateSavedState?: boolean;
   snapshot: SavedCarSnapshot;
 }) {
+  async function handleBuyNow() {
+    const registered = await requireDemoAccess();
+    const action = resolveBuyNowAction({
+      registered,
+      listingUrl: snapshot.listingUrl,
+      carPagePath: `/car/${snapshot.id}`
+    });
+    if (action.kind === "require_registration") return;
+    toast.message("Opening purchase options…");
+    window.location.assign(action.href);
+  }
+
+  async function handleScheduleTestDrive() {
+    const registered = await requireDemoAccess();
+    if (!registered) return;
+    toast.message("Test-drive scheduling is coming soon — we’ll notify you when it’s ready.");
+  }
+
   return (
     <>
       <div className="mt-5 flex gap-3">
         <button
           type="button"
           className="flex-1 rounded-full bg-primary text-primary-foreground py-3 font-semibold hover:opacity-90"
-          onClick={() => void requireDemoAccess()}
+          onClick={() => void handleBuyNow()}
         >
           Buy now
         </button>
@@ -35,7 +55,7 @@ export function ProtectedCarActions({
       <button
         className="mt-3 w-full rounded-full bg-background py-3 font-semibold border border-border hover:bg-muted"
         type="button"
-        onClick={() => void requireDemoAccess()}
+        onClick={() => void handleScheduleTestDrive()}
       >
         Schedule test drive
       </button>

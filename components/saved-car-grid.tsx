@@ -198,7 +198,7 @@ function SavedCarSheet({
               target="_blank"
               rel="noreferrer"
             >
-              Open listing
+              Open offer
             </Link>
           ) : null}
         </div>

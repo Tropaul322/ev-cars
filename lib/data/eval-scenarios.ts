@@ -87,10 +87,7 @@ export const evalScenarios: EvalScenario[] = [
     expectedEligibleIds: [
       "mg4-luxury-2024",
       "byd-atto3-design-2024",
-      "volvo-ex30-extended-2024",
-      "kia-ev6-air-2022",
-      "polestar-2-longrange-2023",
-      "hyundai-ioniq5-2023"
+      "xpeng-g6-rwd-2024"
     ],
     acceptableTopKIds: ["mg4-luxury-2024", "byd-atto3-design-2024"],
     requiredExplanationFacts: ["priceEUR", "rangeKm"]

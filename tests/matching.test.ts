@@ -189,21 +189,21 @@ test("resolveClarificationAnswer maps free-text replies to chip patches", () => 
   assert.equal(resolveClarificationAnswer("no preference", "use_case", "en")?.kind, "skip");
 });
 
-test("match route advances after a free-text use-case answer", async () => {
+test("match route advances after a free-text body-style answer", async () => {
   const first = await runMatchRequest({ message: "Budget 10000 EUR" });
   assert.equal(first.type, "clarification");
-  assert.equal(first.prompt?.key, "use_case");
+  assert.equal(first.prompt?.key, "vehicle_preferences");
 
   const second = await runMatchRequest({
-    message: "I'm thinking about just cruising",
+    message: "SUV please",
     sessionId: first.sessionId,
     previousCriteria: first.criteria,
-    currentPromptKey: "use_case"
+    currentPromptKey: "vehicle_preferences"
   });
 
   assert.equal(second.type, "clarification");
   assert.equal(second.prompt?.key, "charging_or_range");
-  assert.ok(second.criteria.tripNeeds.includes("road_trip"));
+  assert.ok(second.criteria.bodyTypes.includes("suv"));
 });
 
 test("extracts Tesla Model Y as a specific model intent", () => {
@@ -285,12 +285,20 @@ test("extracts optimization directives in English and German", () => {
     ["beste Ladeleistung und Schnellladen", "fastest_charging"],
     ["niedrigste laufende Kosten", "lowest_running_cost"],
     ["familienfreundlich mit viel Platz", "best_family_fit"],
-    ["sportlich mit Fahrspass", "performance"]
+    ["sportlich mit Fahrspass", "performance"],
+    ["Maximum possible range, budget is irrelevant", "maximum_range"],
+    ["forget the family car, show me a fun 2-seater sports EV instead", "performance"],
+    ["Which EV gives the best price-to-performance ratio?", "best_value"]
   ];
 
   for (const [message, directive] of cases) {
     assert.equal(extractCriteria(message).optimizationDirective, directive, message);
   }
+});
+
+test("no-budget phrasing covers money-is-not-the-concern variants", () => {
+  assert.equal(extractCriteria("money is not the main concern, maximum range").budgetMaxEUR, 60000);
+  assert.equal(extractCriteria("budget is irrelevant, max range EV").budgetMinEUR, 25000);
 });
 
 test("no budget answers apply the default working range", () => {
@@ -307,7 +315,8 @@ test("no budget answers apply the default working range", () => {
 
 test("first-turn complete requests ask the optimization follow-up instead of matching", async () => {
   const data = await runMatchRequest({
-    message: "EV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay."
+    message:
+      "SUV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay — looking for freedom."
   });
 
   assert.equal(data.type, "clarification");
@@ -518,9 +527,10 @@ test("restating the brand during a profile ask keeps that brand", async () => {
 
 test("brand-widen with empty brands does not use alternatives cache", async () => {
   const previous = extractCriteria(
-    "Family SUV under 60000 EUR for 5 passengers, public charging, 420 km range."
+    "Family SUV under 60000 EUR for 5 passengers, public charging, 420 km range, looking for freedom."
   );
   assert.deepEqual(previous.brandPreferences, []);
+  assert.equal(previous.personalWish, "freedom");
 
   const scored = matchVehicles(seedVehicles, previous).recommendations.slice(0, 3);
   assert.ok(scored.length >= 3);
@@ -541,7 +551,7 @@ test("brand-widen with empty brands does not use alternatives cache", async () =
 
 test("brand-widen clears brands and grounds intro in match makes", async () => {
   const previous = extractCriteria(
-    "Ford sporty 2-seater under 40000 EUR, public charging, best value."
+    "Ford sporty SUV 2-seater under 40000 EUR, 350 km range, public charging, best value, looking for status."
   );
   assert.ok(previous.brandPreferences.length);
 
@@ -910,7 +920,7 @@ test("family-inferred passengers are soft but explicit seat constraints are hard
   );
 });
 
-test("2-seater phrasing prioritizes exact seat count over larger cars", () => {
+test("2-seater phrasing hard-rejects larger cars from the pool", () => {
   const template = seedVehicles[0];
   assert.ok(template);
   const twoSeatRoadster: Vehicle = {
@@ -945,12 +955,14 @@ test("2-seater phrasing prioritizes exact seat count over larger cars", () => {
   assert.equal(hasExactSeatPreference(criteria), true);
 
   const result = matchVehicles([fiveSeatFamily, twoSeatRoadster], criteria, 2);
-  assert.equal(result.recommendations.length, 2);
+  assert.equal(result.recommendations.length, 1);
   assert.equal(result.recommendations[0]?.vehicle.id, "exact-two-seater");
-  assert.equal(result.recommendations[1]?.vehicle.id, "larger-five-seater");
   assert.ok(
-    (result.recommendations[0]?.score ?? 0) > (result.recommendations[1]?.score ?? 0),
-    "exact 2-seater should outscore larger fallback"
+    result.rejected.some(
+      (item) =>
+        item.vehicle.id === "larger-five-seater" &&
+        item.reasons.some((reason) => /not a 2-seater|has 5 seats/i.test(reason))
+    )
   );
 });
 
@@ -1183,7 +1195,7 @@ test("hard passenger language does not bleed from earlier turns after a pivot", 
 
 test("ready criteria force a match instead of speaking search copy alone", async () => {
   const previous = extractCriteria(
-    "EV under 60000 EUR for family road trips, 420 km range, public charging, best value."
+    "SUV under 60000 EUR for family road trips, 420 km range, public charging, best value, looking for freedom."
   );
   const data = await runMatchRequest({
     message: "ok find matches",
@@ -1314,14 +1326,16 @@ test("match route asks for more information when only budget is known", async ()
   const data = await runMatchRequest({ message: "Budget 40000 EUR." });
 
   assert.equal(data.type, "clarification");
-  assert.ok(data.missingCriteria.includes("use_case"));
+  assert.ok(data.missingCriteria.includes("vehicle_preferences"));
   assert.ok(data.missingCriteria.includes("charging_or_range"));
+  assert.ok(data.missingCriteria.includes("personal_wish"));
   assert.equal(data.recommendations.length, 0);
 });
 
 test("match route returns Tesla Model Y and not Tesla Model 3 after the first-turn optimization prompt", async () => {
   const first = await runMatchRequest({
-    message: "Tesla Model Y under 60000 EUR for family road trips, 450 km range, public charging and winter."
+    message:
+      "Tesla Model Y SUV under 60000 EUR for family road trips, 450 km range, public charging and winter — looking for freedom."
   });
   assert.equal(first.type, "clarification");
   assert.equal(first.prompt?.key, "optimization");
@@ -1348,7 +1362,7 @@ test("match route returns Tesla Model Y and not Tesla Model 3 after the first-tu
   );
 });
 
-test("shouldAskLowConfidencePriorityQuestion skips after optimization is chosen", async () => {
+test("shouldAskLowConfidencePriorityQuestion never stitches follow-ups onto matches", async () => {
   const { shouldAskLowConfidencePriorityQuestion } = await import("../lib/match-service.ts");
   const withOptimization = {
     ...emptyCriteria("Ford under 40000", "en"),
@@ -1376,7 +1390,7 @@ test("shouldAskLowConfidencePriorityQuestion skips after optimization is chosen"
       withoutOptimization,
       getMissingCriteria(withoutOptimization)
     ),
-    true
+    false
   );
 });
 
@@ -1413,17 +1427,29 @@ matchRoute("match route collects criteria across turns and auto-matches when rea
   assert.equal(first.type, "clarification");
 
   const second = await runMatchRequest({
-    message: "I commute in Vienna, public charging, SUV or crossover, CarPlay.",
+    message: "I commute in Vienna, SUV, at least 400 km range, looking for freedom, CarPlay.",
     sessionId: first.sessionId,
     previousCriteria: first.criteria
   });
 
-  assert.equal(second.type, "matches");
-  assert.ok(second.recommendations.length > 0);
+  assert.ok(second.type === "matches" || second.type === "clarification");
+  if (second.type === "clarification") {
+    const matched = await answerOptimizationPrompt(second);
+    assert.equal(matched.type, "matches");
+    assert.ok(matched.recommendations.length > 0);
+  } else {
+    assert.ok(second.recommendations.length > 0);
+  }
 });
 
 test("clarification catalog options apply valid criteria patches", () => {
-  const keys: MissingCriteria[] = ["budget", "use_case", "charging_or_range", "vehicle_preferences"];
+  const keys: MissingCriteria[] = [
+    "budget",
+    "use_case",
+    "charging_or_range",
+    "vehicle_preferences",
+    "personal_wish"
+  ];
   for (const language of ["en", "de"] as const) {
     for (const key of keys) {
       const prompt = getClarificationPrompt(key, language);
@@ -1431,8 +1457,9 @@ test("clarification catalog options apply valid criteria patches", () => {
       assert.equal(prompt.showMatchAction, false);
 
       const skipOptions = prompt.options.filter((option) => option.skip);
-      assert.equal(skipOptions.length, key === "budget" ? 0 : 1);
-      if (key !== "budget") assert.equal(skipOptions[0]?.patch, undefined);
+      const expectsSkip = key === "use_case";
+      assert.equal(skipOptions.length, expectsSkip ? 1 : 0);
+      if (expectsSkip) assert.equal(skipOptions[0]?.patch, undefined);
 
       for (const option of prompt.options) {
         assert.ok(option.label.length > 0);
@@ -1453,25 +1480,25 @@ test("clarification catalog options apply valid criteria patches", () => {
 test("match route advances to the next question after a chip selection", async () => {
   const first = await runMatchRequest({ message: "Budget 40000 EUR" });
   assert.equal(first.type, "clarification");
-  assert.equal(first.prompt?.key, "use_case");
+  assert.equal(first.prompt?.key, "vehicle_preferences");
 
   const second = await runMatchRequest({
-    message: "Under \u20ac25,000",
+    message: "SUV",
     sessionId: first.sessionId,
     previousCriteria: first.criteria,
-    criteriaPatch: { budgetMaxEUR: 25000 },
-    currentPromptKey: "budget"
+    criteriaPatch: { bodyTypes: ["suv"] },
+    currentPromptKey: "vehicle_preferences"
   });
 
   assert.equal(second.type, "clarification");
-  assert.equal(second.criteria.budgetMaxEUR, 25000);
-  assert.notEqual(second.prompt?.key, "budget");
+  assert.ok(second.criteria.bodyTypes.includes("suv"));
+  assert.equal(second.prompt?.key, "charging_or_range");
 });
 
 test("match route answers questions conversationally without chips", async () => {
   const first = await runMatchRequest({ message: "Budget 40000 EUR" });
   const second = await runMatchRequest({
-    message: "I commute daily",
+    message: "SUV",
     sessionId: first.sessionId,
     previousCriteria: first.criteria
   });
@@ -1492,7 +1519,8 @@ test("match route answers questions conversationally without chips", async () =>
 
 matchRoute("match route does not re-run matching for conversational asides after results", async () => {
   const firstPrompt = await runMatchRequest({
-    message: "EV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay."
+    message:
+      "SUV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay, looking for freedom."
   });
   const first = await answerOptimizationPrompt(firstPrompt);
   assert.equal(first.type, "matches");
@@ -1511,72 +1539,86 @@ matchRoute("match route does not re-run matching for conversational asides after
 test("match route auto-matches when enough criteria are collected", async () => {
   const first = await runMatchRequest({ message: "Budget 40000 EUR" });
   const second = await runMatchRequest({
-    message: "I commute, SUV, home charging",
+    message: "I commute, SUV, 400 km range, looking for freedom",
     sessionId: first.sessionId,
     previousCriteria: first.criteria
   });
 
-  assert.equal(second.type, "matches");
-  assert.ok(second.recommendations.length > 0);
+  const matched = second.type === "clarification" ? await answerOptimizationPrompt(second) : second;
+  assert.equal(matched.type, "matches");
+  assert.ok(matched.recommendations.length > 0);
 });
 
 test("match route returns one visible recommendation plus cached alternatives", async () => {
   const first = await runMatchRequest({ message: "Budget 60000 EUR" });
   const second = await runMatchRequest({
-    message: "I commute, home charging, best value",
+    message: "I commute, SUV, 400 km range, looking for freedom, best value",
     sessionId: first.sessionId,
     previousCriteria: first.criteria
   });
 
-  assert.equal(second.type, "matches");
-  if (second.type === "matches") {
-    assert.equal(second.responseMode, "primary");
-    assert.equal(second.recommendations.length, 1);
-    const alternatives = second.alternativeRecommendations ?? [];
+  const matched = second.type === "clarification" ? await answerOptimizationPrompt(second) : second;
+  assert.equal(matched.type, "matches");
+  if (matched.type === "matches") {
+    assert.equal(matched.responseMode, "primary");
+    assert.equal(matched.recommendations.length, 1);
+    const alternatives = matched.alternativeRecommendations ?? [];
     assert.ok(alternatives.length >= 1 && alternatives.length <= 2);
-    assert.equal(second.alternativesAvailable, alternatives.length > 0);
+    assert.equal(matched.alternativesAvailable, alternatives.length > 0);
   }
 });
 
 test("match route still accepts an explicit show-matches request", async () => {
   const first = await runMatchRequest({ message: "Budget 60000 EUR" });
   const second = await runMatchRequest({
-    message: "I commute, SUV, home charging",
+    message: "I commute, SUV, 400 km range, looking for freedom",
     sessionId: first.sessionId,
     previousCriteria: first.criteria
   });
-  assert.equal(second.type, "matches");
+  const matched = second.type === "clarification" ? await answerOptimizationPrompt(second) : second;
+  assert.equal(matched.type, "matches");
 
   const third = await runMatchRequest({
     message: "Show me matches",
     sessionId: first.sessionId,
-    previousCriteria: second.criteria,
+    previousCriteria: matched.criteria,
     intent: "show_matches"
   });
 
   assert.notEqual(third.type, "clarification");
 });
 
-test("match route skips a question the user waves off", async () => {
+test("match route asks personal wish after body and range are known", async () => {
   const first = await runMatchRequest({ message: "Budget 40000 EUR" });
   assert.equal(first.type, "clarification");
-  assert.equal(first.prompt?.key, "use_case");
+  assert.equal(first.prompt?.key, "vehicle_preferences");
 
   const second = await runMatchRequest({
-    message: "No preference",
+    message: "SUV",
     sessionId: first.sessionId,
     previousCriteria: first.criteria,
-    skippedKeys: ["use_case"],
-    currentPromptKey: "use_case"
+    criteriaPatch: { bodyTypes: ["suv"] },
+    currentPromptKey: "vehicle_preferences"
   });
-
   assert.equal(second.type, "clarification");
   assert.equal(second.prompt?.key, "charging_or_range");
+
+  const third = await runMatchRequest({
+    message: "400 km",
+    sessionId: first.sessionId,
+    previousCriteria: second.criteria,
+    criteriaPatch: { rangeFloorKm: 400 },
+    currentPromptKey: "charging_or_range"
+  });
+
+  assert.equal(third.type, "clarification");
+  assert.equal(third.prompt?.key, "personal_wish");
 });
 
 matchRoute("match route fallback explanations use conversational paragraphs", async () => {
   const first = await runMatchRequest({
-    message: "Used EV under 35k for city commuting, home charging, CarPlay, heated seats, and low running costs."
+    message:
+      "Used compact EV under 35k for city commuting, 300 km range, home charging, CarPlay, heated seats, low running costs, looking for freedom."
   });
   const data = await answerOptimizationPrompt(first);
 
@@ -1590,7 +1632,8 @@ matchRoute("match route fallback explanations use conversational paragraphs", as
 
 matchRoute("match route does not substitute a different Kia model for EV6 searches", async () => {
   const first = await runMatchRequest({
-    message: "Kia EV6 under 70k for road trips, 450 km range, fast charging and CarPlay."
+    message:
+      "Kia EV6 SUV under 70k for road trips, 450 km range, fast charging and CarPlay, looking for freedom."
   });
   const data = await answerOptimizationPrompt(first);
 
@@ -1608,7 +1651,8 @@ matchRoute("match route does not substitute a different Kia model for EV6 search
 
 matchRoute("match route keeps Chinese car requests to Chinese-origin brands", async () => {
   const first = await runMatchRequest({
-    message: "Only Chinese SUV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay."
+    message:
+      "Only Chinese SUV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay, looking for freedom."
   });
   const data = await answerOptimizationPrompt(first);
 
@@ -1644,7 +1688,8 @@ test("match route asks for budget before Ford matching", async () => {
 
 matchRoute("match route next batch excludes vehicles already shown in the session", async () => {
   const firstPrompt = await runMatchRequest({
-    message: "EV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay."
+    message:
+      "EV SUV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay, looking for freedom."
   });
   const first = await answerOptimizationPrompt(firstPrompt);
   assert.equal(first.type, "matches");
@@ -1670,7 +1715,8 @@ matchRoute("match route next batch excludes vehicles already shown in the sessio
 
 matchRoute("match route next batch still uses session exclusions when previousCriteria is supplied", async () => {
   const firstPrompt = await runMatchRequest({
-    message: "EV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay."
+    message:
+      "EV SUV under 60000 EUR for family road trips, 420 km range, public charging and CarPlay, looking for freedom."
   });
   const first = await answerOptimizationPrompt(firstPrompt);
   assert.equal(first.type, "matches");
@@ -1695,7 +1741,8 @@ matchRoute("match route next batch still uses session exclusions when previousCr
 
 matchRoute("match route explains the blocker for explicit model searches", async () => {
   const first = await runMatchRequest({
-    message: "Kia EV6 under 15k for road trips, 450 km range, fast charging and CarPlay."
+    message:
+      "Kia EV6 SUV under 15k for road trips, 450 km range, fast charging and CarPlay, looking for freedom."
   });
   const data = await answerOptimizationPrompt(first);
 
@@ -1707,13 +1754,14 @@ matchRoute("match route explains the blocker for explicit model searches", async
 
 matchRoute("match route returns no_matches when hard filters eliminate the inventory", async () => {
   const impossible = {
-    ...extractCriteria("Only new SUV under 1000 EUR with at least 900 km range."),
+    ...extractCriteria("Only new SUV under 1000 EUR with at least 900 km range, looking for status."),
     budgetMaxEUR: 1000,
     budgetMinEUR: null,
     rangeFloorKm: 900,
     preferredCondition: "new" as const,
     bodyTypes: ["suv" as const],
-    latestUserMessage: "Only new SUV under 1000 EUR with at least 900 km range."
+    personalWish: "status" as const,
+    latestUserMessage: "Only new SUV under 1000 EUR with at least 900 km range, looking for status."
   };
   const data = await runMatchRequest({
     message: "Show matches",
@@ -1748,14 +1796,79 @@ function assertNoDuplicateListingUrls(recommendations: Array<{ vehicle: { listin
 }
 
 async function answerOptimizationPrompt(first: Awaited<ReturnType<typeof runMatchRequest>>) {
-  if (first.type === "matches" || first.type === "no_matches") return first;
-  assert.equal(first.type, "clarification");
-  assert.equal(first.prompt?.key, "optimization");
-  return await runMatchRequest({
-    message: "Best value",
-    sessionId: first.sessionId,
-    previousCriteria: first.criteria,
-    criteriaPatch: { optimizationDirective: "best_value" },
-    currentPromptKey: "optimization"
-  });
+  let current = first;
+  for (let turn = 0; turn < 8; turn += 1) {
+    if (current.type === "matches" || current.type === "no_matches") return current;
+    assert.equal(current.type, "clarification");
+    const key = current.prompt?.key;
+    assert.ok(key);
+
+    if (key === "optimization") {
+      return await runMatchRequest({
+        message: "Best value",
+        sessionId: current.sessionId,
+        previousCriteria: current.criteria,
+        criteriaPatch: { optimizationDirective: "best_value" },
+        currentPromptKey: "optimization"
+      });
+    }
+
+    if (key === "budget") {
+      current = await runMatchRequest({
+        message: "Under 50000",
+        sessionId: current.sessionId,
+        previousCriteria: current.criteria,
+        criteriaPatch: { budgetMaxEUR: 50000 },
+        currentPromptKey: "budget"
+      });
+      continue;
+    }
+
+    if (key === "vehicle_preferences") {
+      current = await runMatchRequest({
+        message: "SUV",
+        sessionId: current.sessionId,
+        previousCriteria: current.criteria,
+        criteriaPatch: { bodyTypes: ["suv"] },
+        currentPromptKey: "vehicle_preferences"
+      });
+      continue;
+    }
+
+    if (key === "charging_or_range") {
+      current = await runMatchRequest({
+        message: "at least 400 km range",
+        sessionId: current.sessionId,
+        previousCriteria: current.criteria,
+        criteriaPatch: { rangeFloorKm: 400 },
+        currentPromptKey: "charging_or_range"
+      });
+      continue;
+    }
+
+    if (key === "personal_wish") {
+      current = await runMatchRequest({
+        message: "freedom",
+        sessionId: current.sessionId,
+        previousCriteria: current.criteria,
+        criteriaPatch: { personalWish: "freedom" },
+        currentPromptKey: "personal_wish"
+      });
+      continue;
+    }
+
+    if (key === "use_case") {
+      current = await runMatchRequest({
+        message: "family",
+        sessionId: current.sessionId,
+        previousCriteria: current.criteria,
+        criteriaPatch: { tripNeeds: ["family"] },
+        currentPromptKey: "use_case"
+      });
+      continue;
+    }
+
+    throw new Error(`unhandled clarification key in answerOptimizationPrompt: ${key}`);
+  }
+  throw new Error("answerOptimizationPrompt exceeded clarification budget");
 }
