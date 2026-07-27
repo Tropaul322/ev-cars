@@ -210,7 +210,7 @@ const modelAliases: Array<[string, RegExp]> = [
   ["ZOE", /\bzoe\b/i]
 ];
 
-const optimizationDirectiveLabels: Record<OptimizationDirective, string> = {
+export const optimizationDirectiveLabels: Record<OptimizationDirective, string> = {
   best_value: "best value",
   maximum_range: "maximum range",
   most_reliable: "most reliable",
@@ -220,7 +220,7 @@ const optimizationDirectiveLabels: Record<OptimizationDirective, string> = {
   performance: "performance"
 };
 
-const personalWishLabels: Record<PersonalWish, string> = {
+export const personalWishLabels: Record<PersonalWish, string> = {
   status: "status",
   freedom: "freedom",
   childhood_memories: "childhood memories"

@@ -1,4 +1,4 @@
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import Image from "next/image";
 import { VehicleImage } from "@/components/vehicle-image";
 import Link from "next/link";
@@ -254,18 +254,6 @@ function RealVehicleDetail({
                 </div>
 
                 <ProtectedCarActions hydrateSavedState snapshot={snapshot} />
-
-                {vehicle.listingUrl ? (
-                  <Link
-                    href={vehicle.listingUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-background py-3 font-semibold border border-border hover:bg-muted"
-                  >
-                    Open original offer
-                    <ExternalLink className="size-4" aria-hidden="true" />
-                  </Link>
-                ) : null}
               </div>
 
               <div className="grid grid-cols-2 gap-3">

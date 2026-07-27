@@ -10,6 +10,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import { VehicleImage } from "@/components/vehicle-image";
+import { BuyNowButton } from "@/components/buy-now-button";
+import { ScoringBreakdownPanel } from "@/components/scoring-breakdown-panel";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -837,6 +839,7 @@ export default function ChatPage() {
                     alternativesRevealed={Boolean(message.alternativesRevealed)}
                     locked={Boolean(message.preview)}
                     animate={shouldAnimateEntrance}
+                    criteria={criteria}
                     onRevealAlternatives={() => revealAlternatives(index)}
                   />
                 );
@@ -1215,6 +1218,7 @@ function ResultsBlock({
   alternativesRevealed = false,
   locked = false,
   animate = true,
+  criteria = null,
   onRevealAlternatives,
 }: {
   matches: MatchResult[];
@@ -1222,6 +1226,7 @@ function ResultsBlock({
   alternativesRevealed?: boolean;
   locked?: boolean;
   animate?: boolean;
+  criteria?: UserCriteria | null;
   onRevealAlternatives?: () => void;
 }) {
   const [detailMatch, setDetailMatch] = useState<MatchResult | null>(null);
@@ -1292,7 +1297,7 @@ function ResultsBlock({
           ) : null}
         </div>
       </div>
-      <DetailsSheet match={detailMatch} onClose={() => setDetailMatch(null)} />
+      <DetailsSheet match={detailMatch} criteria={criteria} onClose={() => setDetailMatch(null)} />
     </>
   );
 }
@@ -1416,17 +1421,24 @@ function ListingCard({
             {match.explanation}
           </p>
 
-          <div className="mt-4 flex items-end justify-between gap-3">
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div className="font-display font-bold text-lg leading-tight">
               {formatEUR(match.tco.purchasePriceWithVAT)}
             </div>
-            <button
-              type="button"
-              onClick={() => onOpenDetails(match)}
-              className="rounded-full bg-primary text-primary-foreground px-5 py-2 text-sm font-semibold hover:opacity-90"
-            >
-              Details
-            </button>
+            <div className="flex gap-2 sm:justify-end">
+              <BuyNowButton
+                vehicleId={vehicle.id}
+                listingUrl={vehicle.listingUrl}
+                className="flex-1 rounded-full bg-primary text-primary-foreground px-5 py-2 text-sm font-semibold hover:opacity-90 sm:flex-none"
+              />
+              <button
+                type="button"
+                onClick={() => onOpenDetails(match)}
+                className="flex-1 rounded-full border border-border bg-background px-5 py-2 text-sm font-semibold hover:bg-muted sm:flex-none"
+              >
+                Details
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1436,9 +1448,11 @@ function ListingCard({
 
 function DetailsSheet({
   match,
+  criteria,
   onClose,
 }: {
   match: MatchResult | null;
+  criteria?: UserCriteria | null;
   onClose: () => void;
 }) {
   if (!match) return null;
@@ -1503,22 +1517,7 @@ function DetailsSheet({
             ))}
           </div>
 
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-              Score breakdown
-            </div>
-            <p className="mb-2 text-xs text-muted-foreground">
-              Overall match % is a weighted average of these factors
-              {match.ruleScore != null && match.ruleScore !== match.score
-                ? ` (rule score ${match.ruleScore}%; displayed ${match.score}% may include semantic ranking)`
-                : ""}. Weights shift with your priorities (budget fit, range, personal wish, optimization).
-            </p>
-            <div className="rounded-2xl bg-muted/50 p-3 grid grid-cols-1 gap-1.5">
-              {formatScoringBreakdown(match).map(({ label, value }) => (
-                <ScoreRow label={label} value={value} key={label} />
-              ))}
-            </div>
-          </div>
+          <ScoringBreakdownPanel match={match} criteria={criteria} />
 
           {detailSections.map((section) => (
             <div key={section.heading}>
@@ -1533,14 +1532,11 @@ function DetailsSheet({
             </div>
           ))}
 
-          <Link
+          <BuyNowButton
+            vehicleId={vehicle.id}
+            listingUrl={vehicle.listingUrl}
             className="inline-flex w-full items-center justify-center rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground hover:opacity-90"
-            href={vehicle.listingUrl ?? `/car/${vehicle.id}`}
-            target={vehicle.listingUrl ? "_blank" : undefined}
-            rel={vehicle.listingUrl ? "noreferrer" : undefined}
-          >
-            {vehicle.listingUrl ? "Open matching" : "Open car page"}
-          </Link>
+          />
         </div>
       </SheetContent>
     </Sheet>
@@ -1572,24 +1568,6 @@ function StatTile({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl bg-muted/50 px-4 py-3">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="font-display font-bold text-[15px] mt-0.5">{value}</div>
-    </div>
-  );
-}
-
-function ScoreRow({ label, value }: { label: string; value: number }) {
-  const tone = value >= 75 ? "text-foreground" : "text-muted-foreground";
-  return (
-    <div className="flex items-center gap-3 text-sm">
-      <span className="flex-1 text-muted-foreground">{label}</span>
-      <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden">
-        <div
-          className="h-full bg-primary rounded-full"
-          style={{ width: `${value}%` }}
-        />
-      </div>
-      <span className={`w-10 text-right font-semibold tabular-nums ${tone}`}>
-        {value}%
-      </span>
     </div>
   );
 }
@@ -1722,27 +1700,6 @@ function formatPriceRange(matches: MatchResult[]) {
   const min = Math.min(...prices);
   const max = Math.max(...prices);
   return min === max ? formatEUR(min) : `${formatEUR(min)} - ${formatEUR(max)}`;
-}
-
-function formatScoringBreakdown(match: MatchResult) {
-  const weights = match.scoringWeights;
-  const rows = [
-    { key: "priceFit", label: "Price", value: match.scoringBreakdown.priceFit },
-    { key: "rangeFit", label: "Range", value: match.scoringBreakdown.rangeFit },
-    { key: "efficiencyFit", label: "Efficiency", value: match.scoringBreakdown.efficiencyFit },
-    { key: "brandFit", label: "Brand", value: match.scoringBreakdown.brandFit },
-    { key: "cargoPassengerFit", label: "Cargo / seats", value: match.scoringBreakdown.cargoPassengerFit },
-    { key: "reliabilityFit", label: "Reliability", value: match.scoringBreakdown.reliabilityFit },
-    { key: "featureFit", label: "Features", value: match.scoringBreakdown.featureFit },
-  ] as const;
-
-  return rows.map((row) => {
-    const weightPct = weights ? Math.round((weights[row.key] ?? 0) * 100) : null;
-    return {
-      label: weightPct === null ? row.label : `${row.label} (${weightPct}% weight)`,
-      value: row.value,
-    };
-  });
 }
 
 function maxRangeLabel(matches: MatchResult[]) {

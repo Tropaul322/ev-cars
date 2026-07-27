@@ -59,6 +59,45 @@ export function parseVehicleSheetCsv(content: string): Vehicle[] {
     });
 }
 
+export function extractFirstListingUrl(raw: string): string | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+
+  const firstSegment = trimmed.split(/[;\n]+/)[0]?.trim() ?? "";
+  const match = firstSegment.match(/https?:\/\/[^\s,;]+/i);
+  return match?.[0]?.replace(/[.,)\]]+$/, "");
+}
+
+export function mergeListingUrlsIntoSheetCsv(content: string, listingUrlsById: Map<string, string>): string {
+  const rows = parseCsv(content.trim());
+  if (rows.length === 0) return content;
+
+  const [headerRow, ...dataRows] = rows;
+  const headers = headerRow.map((header) => header.trim());
+  let listingColumnIndex = headers.findIndex((header) => header === "listing_url" || header === "listingUrl");
+
+  if (listingColumnIndex === -1) {
+    headers.push("listing_url");
+    listingColumnIndex = headers.length - 1;
+  }
+
+  const updatedRows = dataRows
+    .filter((row) => row.some((value) => value.trim().length > 0))
+    .map((row) => {
+      const nextRow = [...row];
+      while (nextRow.length < headers.length) nextRow.push("");
+
+      const id = nextRow[0]?.trim();
+      if (id && listingUrlsById.has(id)) {
+        nextRow[listingColumnIndex] = listingUrlsById.get(id) ?? "";
+      }
+
+      return nextRow;
+    });
+
+  return `${[headers, ...updatedRows].map((row) => row.map(csvEscape).join(",")).join("\n")}\n`;
+}
+
 export function vehiclesToSupabaseCsv(vehicles: Vehicle[]): string {
   const lines = ["id,payload"];
   for (const vehicle of vehicles) {
