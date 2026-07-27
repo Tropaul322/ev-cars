@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyCriteria } from "../lib/criteria.ts";
+import type { UserCriteria } from "../lib/types.ts";
 import { seedVehicles } from "../lib/data/seed-vehicles.ts";
+
+function minimalVehicle(overrides: Partial<(typeof seedVehicles)[number]> & { id: string }) {
+  const template = seedVehicles[0];
+  assert.ok(template);
+  return { ...template, ...overrides };
+}
 import {
   buildHybridSearchFilters,
   buildVehicleEmbeddingQuery,
@@ -269,5 +276,79 @@ test("hybrid RPC receives ftsQuery as query_text", async () => {
     else process.env.SUPABASE_ANON_KEY = originalKey;
     delete process.env.FLOWRYD_VEHICLE_STRUCTURED_SEARCH;
     delete process.env.FLOWRYD_DISABLE_EMBEDDINGS;
+  }
+});
+
+test("light-hard retrieve filters omit body/range/model/must-haves", async () => {
+  process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
+  try {
+    const criteria: UserCriteria = {
+      ...emptyCriteria("must have heat pump SUV at least 400km", "en"),
+      budgetMaxEUR: 40000,
+      bodyTypes: ["suv"],
+      rangeFloorKm: 400,
+      modelPreferences: ["Model Y"],
+      mustHaveFeatures: ["heat_pump"],
+      avoidedBrands: ["Tesla"],
+      brandPreferences: ["Ford"]
+    };
+    criteria.latestUserMessage = "I must have an SUV with at least 400 km range and heat pump, no Tesla";
+
+    const filters = buildHybridSearchFilters(criteria);
+    assert.equal(filters.market, "AT");
+    assert.equal(filters.available, true);
+    assert.equal(filters.budgetMaxEUR, 40000);
+    assert.ok(filters.avoidedBrands.length > 0);
+    assert.equal(filters.hardRangeFloorKm, null);
+    assert.deepEqual(filters.hardBodyTypes, []);
+    assert.deepEqual(filters.hardBrandPreferences, []);
+    assert.deepEqual(filters.modelPreferences, []);
+    assert.deepEqual(filters.mustHaveFeatures, []);
+    assert.equal(filters.mileageMaxKm, null);
+    assert.equal(filters.batterySoHMin, null);
+    assert.equal(filters.hardPassengers, null);
+    assert.equal(filters.hardCondition, null);
+  } finally {
+    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+  }
+});
+
+test("classic pipeline keeps full hard retrieve filters (toggle OFF)", () => {
+  process.env.FLOWRYD_MATCHING_PIPELINE = "classic";
+  try {
+    const criteria: UserCriteria = {
+      ...emptyCriteria("I must have an SUV with at least 400 km range", "en"),
+      budgetMaxEUR: 40000,
+      bodyTypes: ["suv"],
+      rangeFloorKm: 400,
+      latestUserMessage: "I must have an SUV with at least 400 km range"
+    };
+    const filters = buildHybridSearchFilters(criteria);
+    assert.ok(filters.hardRangeFloorKm === 400 || (filters.hardBodyTypes?.length ?? 0) > 0);
+  } finally {
+    delete process.env.FLOWRYD_MATCHING_PIPELINE;
+  }
+});
+
+test("light-hard filterVehiclesForSearch keeps over-range SUV in pool when only budget/avoid apply", () => {
+  process.env.FLOWRYD_MATCHING_PIPELINE = "light_hard";
+  try {
+    const criteria: UserCriteria = {
+      ...emptyCriteria("SUV preferably 400km", "en"),
+      budgetMaxEUR: 50000,
+      rangeFloorKm: 400,
+      bodyTypes: ["suv"],
+      avoidedBrands: [] as string[]
+    };
+    const lowRangeSuv = minimalVehicle({
+      id: "low-range",
+      bodyType: "suv",
+      rangeKm: 280,
+      priceEUR: 35000
+    });
+    const kept = filterVehiclesForSearch([lowRangeSuv], criteria);
+    assert.equal(kept.length, 1);
+  } finally {
+    delete process.env.FLOWRYD_MATCHING_PIPELINE;
   }
 });
