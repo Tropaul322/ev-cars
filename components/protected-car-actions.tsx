@@ -2,8 +2,8 @@
 
 import { toast } from "sonner";
 import { requireDemoAccess } from "@/lib/demo-access-client";
-import { resolveBuyNowAction } from "@/lib/buy-now";
 import type { SavedCarSnapshot } from "@/lib/repositories/saved-car-repository";
+import { BuyNowButton } from "./buy-now-button";
 import { SaveCarButton } from "./save-car-button";
 
 export function ProtectedCarActions({
@@ -15,18 +15,6 @@ export function ProtectedCarActions({
   hydrateSavedState?: boolean;
   snapshot: SavedCarSnapshot;
 }) {
-  async function handleBuyNow() {
-    const registered = await requireDemoAccess();
-    const action = resolveBuyNowAction({
-      registered,
-      listingUrl: snapshot.listingUrl,
-      carPagePath: `/car/${snapshot.id}`
-    });
-    if (action.kind === "require_registration") return;
-    toast.message("Opening purchase options…");
-    window.location.assign(action.href);
-  }
-
   async function handleScheduleTestDrive() {
     const registered = await requireDemoAccess();
     if (!registered) return;
@@ -36,13 +24,11 @@ export function ProtectedCarActions({
   return (
     <>
       <div className="mt-5 flex gap-3">
-        <button
-          type="button"
+        <BuyNowButton
+          vehicleId={snapshot.id}
+          listingUrl={snapshot.listingUrl}
           className="flex-1 rounded-full bg-primary text-primary-foreground py-3 font-semibold hover:opacity-90"
-          onClick={() => void handleBuyNow()}
-        >
-          Buy now
-        </button>
+        />
         <SaveCarButton
           vehicleId={snapshot.id}
           snapshot={snapshot}

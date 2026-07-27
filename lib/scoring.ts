@@ -234,6 +234,10 @@ export function scoreVehicle(vehicle: Vehicle, criteria: UserCriteria): ScoringB
   };
 }
 
+export function getBaseScoringWeights(): Weights {
+  return { ...baseWeights };
+}
+
 export function deriveWeights(criteria: UserCriteria, vehicles: Vehicle[]): Weights {
   const weights = { ...baseWeights };
   if (vehicles.some((vehicle) => (vehicle.embeddingSimilarity ?? 0) > 0)) {

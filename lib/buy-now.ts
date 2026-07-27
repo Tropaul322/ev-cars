@@ -11,3 +11,11 @@ export function resolveBuyNowAction(input: {
   const href = input.listingUrl?.trim() || input.carPagePath;
   return { kind: "open_url", href };
 }
+
+export function openBuyNowHref(href: string) {
+  if (/^https?:\/\//i.test(href)) {
+    window.open(href, "_blank", "noopener,noreferrer");
+    return;
+  }
+  window.location.assign(href);
+}
