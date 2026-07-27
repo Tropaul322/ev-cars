@@ -39,6 +39,16 @@ test("blendSemanticSignals weights keyword scores ahead of topic affinity", () =
   assert.ok(keywordLed > topicLed);
 });
 
+test("blendSemanticSignals prefers embedding similarity when present", () => {
+  const withEmbedding = blendSemanticSignals({
+    keywordScore: 0.2,
+    topicScore: 0.2,
+    embeddingScore: 0.9
+  });
+  const withoutEmbedding = blendSemanticSignals({ keywordScore: 0.2, topicScore: 0.2 });
+  assert.ok(withEmbedding > withoutEmbedding);
+});
+
 test("buildRagContext exposes keyword vehicle scores and topic affinity fields", () => {
   const criteria = extractCriteria("Premium EV with public charging guidance under 45000 EUR.");
   const ragContext = buildRagContext({

@@ -19,7 +19,7 @@ import {
   isPlausiblePurchasePrice,
   resolveVehicleSearchOrder
 } from "../vehicle-search-helpers.ts";
-import { expandVehicleSearchLexicon } from "../vehicle-search-lexicon.ts";
+import { expandVehicleSearchLexicon, bodyTypeLexiconTokens } from "../vehicle-search-lexicon.ts";
 import {
   vehicleEmbeddingMinSimilarity,
   vehicleEmbeddingSearchEnabled,
@@ -304,21 +304,38 @@ export function buildVehicleFtsQuery(criteria: UserCriteria, message: string) {
 
 export function buildVehicleEmbeddingQuery(criteria: UserCriteria, message: string) {
   const lexicon = expandVehicleSearchLexicon(criteria, message);
+  const hardBody = hasHardBodyTypeConstraint(criteria);
+  const hardRange = hasHardRangeConstraint(criteria);
+  const bodyEmphasis = hardBody
+    ? criteria.bodyTypes.flatMap((body) => bodyTypeLexiconTokens(body))
+    : criteria.bodyTypes;
+  const rangeEmphasis = hardRange && criteria.rangeFloorKm
+    ? [
+        `${criteria.rangeFloorKm} km range`,
+        `${criteria.rangeFloorKm} km reichweite`,
+        `minimum ${criteria.rangeFloorKm} km`,
+        `mindestens ${criteria.rangeFloorKm} km`
+      ]
+    : criteria.rangeFloorKm
+      ? [`${criteria.rangeFloorKm} km range reichweite`]
+      : [];
   return [
     message,
     criteria.rawPrompt,
     ...lexicon.embeddingPhrases,
-    criteria.bodyTypes.join(" "),
+    ...bodyEmphasis,
+    ...rangeEmphasis,
     criteria.tripNeeds.join(" "),
     criteria.mustHaveFeatures.join(" "),
     criteria.qualitativeSignals.join(" "),
     criteria.brandPreferences.join(" "),
     criteria.modelPreferences.join(" "),
+    criteria.personalWish === "status" ? "premium prestige status luxury" : null,
+    criteria.personalWish === "freedom" ? "long range road trip freedom" : null,
     criteria.chargingAccess,
     resolveInventoryLocationFilter(criteria.location),
     criteria.cargoNeeds,
     criteria.preferredCondition,
-    criteria.rangeFloorKm ? `${criteria.rangeFloorKm} km range reichweite` : null,
     criteria.mileageMaxKm ? `${criteria.mileageMaxKm} km mileage kilometerstand` : null,
     criteria.batterySoHMin ? `battery health soh batteriegesundheit ${criteria.batterySoHMin}` : null,
     criteria.budgetMaxEUR ? `${criteria.budgetMaxEUR} eur budget` : null,

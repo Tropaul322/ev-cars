@@ -1639,28 +1639,17 @@ function LoadingBlock() {
           </div>
         </div>
       </div>
-      <div className="space-y-3">
-        {[0, 1].map((index) => (
-          <SkeletonModelCard key={index} delay={index * 150} />
-        ))}
-      </div>
+      <SkeletonAssistantBubble />
     </div>
   );
 }
 
-function SkeletonModelCard({ delay }: { delay: number }) {
+function SkeletonAssistantBubble() {
   return (
-    <div
-      className="rounded-3xl bg-bubble-bot/50 p-4 flex items-center gap-4 animate-in fade-in slide-in-from-bottom-2 duration-500 fill-mode-both animate-pulse"
-      style={{ animationDelay: `${delay}ms` }}
-    >
-      <div className="size-24 sm:size-28 shrink-0 rounded-2xl bg-muted/30" />
-      <div className="flex-1 space-y-2">
-        <div className="h-4 w-2/3 rounded-md bg-muted/30" />
-        <div className="h-3 w-1/2 rounded-md bg-muted/25" />
-        <div className="h-4 w-1/3 rounded-md bg-muted/30" />
-      </div>
-      <div className="h-9 w-28 rounded-full bg-muted/30" />
+    <div className="max-w-[85%] rounded-3xl bg-bubble-bot/50 px-5 py-4 space-y-2.5 animate-pulse">
+      <div className="h-3.5 w-[92%] rounded-md bg-muted/35" />
+      <div className="h-3.5 w-[78%] rounded-md bg-muted/30" />
+      <div className="h-3.5 w-[64%] rounded-md bg-muted/25" />
     </div>
   );
 }

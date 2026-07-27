@@ -71,8 +71,8 @@ const catalog: Record<MissingCriteria, LocalizedStep> = {
       de: "Welche Mindestreichweite brauchst du?"
     },
     explanation: {
-      en: "Range is how far the car can go on a charge. Pick a floor that fits your longest usual trip — I treat this as a soft preference unless you say “must” or “at least”.",
-      de: "Reichweite ist, wie weit das Auto mit einer Ladung kommt. Wähle eine Untergrenze für deine längste übliche Strecke — ich behandle das als weiche Präferenz, außer du sagst „muss“ oder „mindestens“."
+      en: "Range is how far the car can go on a charge. Pick a floor for your longest usual trip — chip selections are treated as a hard minimum in search.",
+      de: "Reichweite ist, wie weit das Auto mit einer Ladung kommt. Wähle eine Untergrenze für deine längste übliche Strecke — Chip-Auswahl gilt in der Suche als harte Mindestreichweite."
     },
     selectMode: "single",
     options: [
@@ -88,8 +88,8 @@ const catalog: Record<MissingCriteria, LocalizedStep> = {
       de: "Bevorzugst du eine Karosserieform? (mehrere möglich)"
     },
     explanation: {
-      en: "This is the shape of the car — an SUV for space and height, a compact for easy city parking, a sedan, a wagon for cargo, or a van for maximum room. Pick the body styles that appeal.",
-      de: "Es geht um die Form des Autos – ein SUV für Platz und Höhe, ein Kompakter fürs einfache Parken, eine Limousine, ein Kombi für Stauraum oder ein Van für maximalen Platz. Wähle die Formen, die dir gefallen."
+      en: "This is the shape of the car — an SUV for space and height, a compact for easy city parking, a sedan/limousine, a wagon for cargo, or a van for maximum room. Your chip choice becomes a hard filter across all of these styles.",
+      de: "Es geht um die Form des Autos – ein SUV für Platz und Höhe, ein Kompakter fürs einfache Parken, eine Limousine, ein Kombi für Stauraum oder ein Van für maximalen Platz. Deine Chip-Auswahl wird für alle Formen als harter Filter verwendet."
     },
     selectMode: "multi",
     options: [
@@ -106,8 +106,8 @@ const catalog: Record<MissingCriteria, LocalizedStep> = {
       de: "Welcher persönliche Wunsch soll die Empfehlung prägen?"
     },
     explanation: {
-      en: "Pick one emotional driver — status or freedom. Either is enough; it nudges scoring toward the cars that fit that priority.",
-      de: "Wähle einen emotionalen Treiber — Status oder Freiheit. Einer reicht; das verschiebt die Bewertung zu passenden Autos."
+      en: "Pick status (prestige / premium feel) or freedom (range and open-road fit). Either is enough; it nudges scoring toward cars that fit that priority.",
+      de: "Wähle Status (Prestige / Premium-Gefühl) oder Freiheit (Reichweite und Fernstrecken-Fit). Einer reicht; das verschiebt die Bewertung zu passenden Autos."
     },
     selectMode: "single",
     options: [

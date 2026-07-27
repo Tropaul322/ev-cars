@@ -253,6 +253,7 @@ export function emptyCriteria(rawPrompt = "", language: Language = "en"): UserCr
     qualitativeSignals: [],
     optimizationDirective: null,
     personalWish: null,
+    bindingConstraints: { bodyTypes: false, rangeFloor: false },
     location: null,
     rawPrompt,
     latestUserMessage: rawPrompt
@@ -331,11 +332,14 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
   const cargoNeeds = removals.has("cargo") ? null : extractCargoNeeds(text) ?? base.cargoNeeds;
   const extractedBodyTypes = extractBodyTypes(text);
   const shouldReplaceLists = hasReplaceIntent(text);
+  const thinBodyReply = isThinConstraintReply(text) && extractedBodyTypes.length > 0;
   const bodyTypes = removals.has("body")
     ? []
     : shouldReplaceLists && extractedBodyTypes.length
       ? extractedBodyTypes
-      : mergeUnique(base.bodyTypes, extractedBodyTypes);
+      : thinBodyReply
+        ? extractedBodyTypes
+        : mergeUnique(base.bodyTypes, extractedBodyTypes);
   const mustHaveFeatures = removals.has("features") ? [] : mergeUnique(base.mustHaveFeatures, extractFeatures(text));
   const extractedBrands = extractBrandPreferences(text);
   const brandFocus = looksLikeBrandFocusQuestion(normalizedPrompt);
@@ -374,6 +378,23 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
   const avoidedLower = new Set(avoidedBrands.map((brand) => brand.toLowerCase()));
   const preferredBrands = brandPreferences.filter((brand) => !avoidedLower.has(brand.toLowerCase()));
   const brandFit = deriveBrandFit(text, preferredBrands, base.brandFit);
+  const thinRangeReply =
+    isThinConstraintReply(text) &&
+    rangeFloorKm !== null &&
+    /\b\d{2,4}\s?(?:\+)?\s?(?:km|kilometer)\b/i.test(text);
+  const bindingConstraints = {
+    bodyTypes:
+      removals.has("body")
+        ? false
+        : thinBodyReply ||
+          (shouldReplaceLists && extractedBodyTypes.length > 0) ||
+          Boolean(base.bindingConstraints?.bodyTypes && bodyTypes.length > 0),
+    rangeFloor:
+      removals.has("range")
+        ? false
+        : thinRangeReply ||
+          Boolean(base.bindingConstraints?.rangeFloor && rangeFloorKm !== null)
+  };
 
   return {
     ...base,
@@ -402,6 +423,7 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
     qualitativeSignals,
     optimizationDirective,
     personalWish,
+    bindingConstraints,
     location,
     rawPrompt: [base.rawPrompt, normalizedPrompt].filter(Boolean).join("\n"),
     latestUserMessage: normalizedPrompt
@@ -619,7 +641,10 @@ export function removeCriteriaKey(criteria: UserCriteria, key: CriteriaChipKey):
     next.monthlyBudgetEUR = null;
   }
   if (key === "dailyKm") next.dailyKm = null;
-  if (key === "range") next.rangeFloorKm = null;
+  if (key === "range") {
+    next.rangeFloorKm = null;
+    next.bindingConstraints = { ...next.bindingConstraints, rangeFloor: false };
+  }
   if (key === "mileage") {
     next.mileageMaxKm = null;
     next.mileageTargetKm = null;
@@ -629,7 +654,10 @@ export function removeCriteriaKey(criteria: UserCriteria, key: CriteriaChipKey):
     next.batteryHealthRequired = false;
   }
   if (key === "condition") next.preferredCondition = "any";
-  if (key === "body") next.bodyTypes = [];
+  if (key === "body") {
+    next.bodyTypes = [];
+    next.bindingConstraints = { ...next.bindingConstraints, bodyTypes: false };
+  }
   if (key === "use_case") next.tripNeeds = [];
   if (key === "charging") next.chargingAccess = "unknown";
   if (key === "passengers") next.passengers = null;
@@ -666,6 +694,10 @@ export function normalizeCriteriaShape(criteria: UserCriteria): UserCriteria {
       criteria.personalWish === "status" || criteria.personalWish === "freedom"
         ? criteria.personalWish
         : null,
+    bindingConstraints: {
+      bodyTypes: Boolean(criteria.bindingConstraints?.bodyTypes),
+      rangeFloor: Boolean(criteria.bindingConstraints?.rangeFloor)
+    },
     mileageMaxKm: criteria.mileageMaxKm ?? null,
     mileageTargetKm: criteria.mileageTargetKm ?? null,
     batterySoHMin: criteria.batterySoHMin ?? null,
@@ -1046,6 +1078,7 @@ function isThinConstraintReply(message: string) {
 
 export function hasHardRangeConstraint(criteria: UserCriteria) {
   if (!criteria.rangeFloorKm) return false;
+  if (criteria.bindingConstraints?.rangeFloor) return true;
   return /(?:\b\d{2,4}\s?(?:km|kilometer)\b[^.\n]{0,36}\b(?:range|reichweite|single charge|ladung|autobahn)\b|\b(?:range|reichweite|single charge|ladung|autobahn)\b[^.\n]{0,36}\b\d{2,4}\s?(?:km|kilometer)\b|\b(?:at least|minimum|min\.?|must|need|require|mindestens|min(?:dest)?|brauche|benötige|benoetige)\b[^.\n]{0,40}\b\d{2,4}\s?(?:km|kilometer)\b)/i.test(
     constraintSourceText(criteria)
   );
@@ -1079,11 +1112,17 @@ const strictExclusiveCue =
 
 export function hasHardBodyTypeConstraint(criteria: UserCriteria) {
   if (!criteria.bodyTypes.length) return false;
+  if (criteria.bindingConstraints?.bodyTypes) return true;
   const text = constraintSourceText(criteria);
-  return (
+  if (
     strictExclusiveCue.test(text) &&
     /\b(suv|sedan|hatchback|wagon|van|compact|coupe|crossover|limousine|kombi|kleinwagen)\b/i.test(text)
-  );
+  ) {
+    return true;
+  }
+  // One/two-word body answers ("Sedan", "Limousine", "SUV") from guided flow are binding.
+  const latest = (criteria.latestUserMessage || "").trim();
+  return isThinConstraintReply(latest) && extractBodyTypes(latest).length > 0;
 }
 
 export function hasHardConditionConstraint(criteria: UserCriteria) {
@@ -1104,10 +1143,19 @@ export function hasHardBrandConstraint(criteria: UserCriteria) {
 
 export function hasHardBrandOriginConstraint(criteria: UserCriteria) {
   if (!criteria.preferredBrandOrigins.length) return false;
-  const text = constraintSourceText(criteria);
-  return (
+  // Origin exclusivity often appears in an earlier turn ("made in China") while later
+  // messages set range/budget — scan the full prompt, not only constraintSourceText.
+  const text = [criteria.rawPrompt, criteria.latestUserMessage].filter(Boolean).join("\n");
+  if (
     strictExclusiveCue.test(text) &&
     /\b(european|europe|europäisch|europaeisch|chinese|china|chinesisch|korean|korea|american|usa|us)\b/i.test(text)
+  ) {
+    return true;
+  }
+  // Clear origin shopping language is binding even without "only/must"
+  // ("made in China", "Chinese brand", "europäische Marke").
+  return /\b(?:made in|from|origin(?:ating)?(?:\s+from)?|hergestellt in|aus)\b[^.\n]{0,24}\b(?:china|chinese|europe|european|korea|korean|usa|us|america(?:n)?)\b|\b(?:chinese|european|korean|american)\s+brands?\b|\bchinesische?\s+marke\b|\beuropäische?\s+marke\b/i.test(
+    text
   );
 }
 
