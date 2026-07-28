@@ -21,8 +21,6 @@ import {
 } from "../vehicle-search-helpers.ts";
 import { expandVehicleSearchLexicon, bodyTypeLexiconTokens } from "../vehicle-search-lexicon.ts";
 import {
-  lightHardMatchingEnabled,
-  matchingPipeline,
   vehicleEmbeddingMinSimilarity,
   vehicleEmbeddingSearchEnabled,
   vehicleEmbeddingSearchLimit,
@@ -395,23 +393,6 @@ export function buildVehicleSearchParams(criteria: UserCriteria, offset = 0) {
   });
   if (offset > 0) params.set("offset", String(offset));
 
-  if (lightHardMatchingEnabled()) {
-    if (criteria.budgetMinEUR) params.append("price_eur", `gte.${criteria.budgetMinEUR}`);
-    if (criteria.budgetMaxEUR) params.append("price_eur", `lte.${criteria.budgetMaxEUR}`);
-    if (criteria.avoidedBrands.length) {
-      params.set("brand", `not.in.(${formatPostgrestInList(expandBrandSearchValues(criteria.avoidedBrands))})`);
-    }
-    const lightOrGroups: string[][] = [];
-    if (criteria.monthlyBudgetEUR) {
-      lightOrGroups.push([
-        "monthly_lease_eur.is.null",
-        `monthly_lease_eur.lte.${criteria.monthlyBudgetEUR}`
-      ]);
-    }
-    applyPostgrestOrGroups(params, lightOrGroups);
-    return params;
-  }
-
   const orGroups: string[][] = [];
   const searchRangeFloorKm = hasHardRangeConstraint(criteria) ? inferSearchRangeFloorKm(criteria) : null;
 
@@ -544,28 +525,6 @@ export type HybridSearchFilters = {
 
 /** Typed hard-filter payload for `search_vehicles_hybrid`. Soft preferences are omitted. */
 export function buildHybridSearchFilters(criteria: UserCriteria): HybridSearchFilters {
-  if (lightHardMatchingEnabled()) {
-    return {
-      market: "AT",
-      available: true,
-      budgetMinEUR: criteria.budgetMinEUR,
-      budgetMaxEUR: criteria.budgetMaxEUR,
-      monthlyBudgetEUR: criteria.monthlyBudgetEUR,
-      modelPreferences: [],
-      avoidedBrands: expandBrandSearchValues(criteria.avoidedBrands),
-      mustHaveFeatures: [],
-      hardRangeFloorKm: null,
-      hardBodyTypes: [],
-      hardPassengers: null,
-      hardCondition: null,
-      hardBrandPreferences: [],
-      hardBrandOrigins: [],
-      hardBrandOriginCountryCodes: [],
-      mileageMaxKm: null,
-      batterySoHMin: null,
-      location: null
-    };
-  }
   const hardBrandOrigins = hasHardBrandOriginConstraint(criteria)
     ? criteria.preferredBrandOrigins
     : [];
@@ -597,32 +556,7 @@ export function buildHybridSearchFilters(criteria: UserCriteria): HybridSearchFi
 }
 
 export function summarizeVehicleSearchFilters(criteria: UserCriteria) {
-  if (lightHardMatchingEnabled()) {
-    return {
-      matchingPipeline: matchingPipeline(),
-      retrievePolicy: "light_hard" as const,
-      market: "AT" as const,
-      available: true as const,
-      budgetMinEUR: criteria.budgetMinEUR,
-      budgetMaxEUR: criteria.budgetMaxEUR,
-      monthlyBudgetEUR: criteria.monthlyBudgetEUR,
-      preferredCondition: "any" as const,
-      rangeFloorKm: null,
-      mileageMaxKm: null,
-      batterySoHMin: null,
-      bodyTypes: [] as UserCriteria["bodyTypes"],
-      preferredBrandOrigins: [] as UserCriteria["preferredBrandOrigins"],
-      passengers: null,
-      brandPreferences: [] as string[],
-      modelPreferences: [] as string[],
-      avoidedBrands: criteria.avoidedBrands,
-      location: null,
-      mustHaveFeatures: [] as UserCriteria["mustHaveFeatures"]
-    };
-  }
   return {
-    matchingPipeline: matchingPipeline(),
-    retrievePolicy: "full_hard" as const,
     market: "AT",
     available: true,
     budgetMinEUR: criteria.budgetMinEUR,
@@ -685,20 +619,6 @@ function isVehicle(value: unknown): value is Vehicle {
 }
 
 export function filterVehiclesForSearch(vehicles: Vehicle[], criteria: UserCriteria) {
-  if (lightHardMatchingEnabled()) {
-    return vehicles.filter((vehicle) => {
-      if (vehicle.market !== "AT") return false;
-      if (!vehicle.available) return false;
-      if (!isPlausiblePurchasePrice(vehicle.priceEUR, vehicle.monthlyLeaseEUR)) return false;
-      if (criteria.budgetMinEUR && vehicle.priceEUR < criteria.budgetMinEUR) return false;
-      if (criteria.budgetMaxEUR && vehicle.priceEUR > criteria.budgetMaxEUR) return false;
-      if (criteria.monthlyBudgetEUR && estimateMonthlyVehiclePayment(vehicle) > criteria.monthlyBudgetEUR) {
-        return false;
-      }
-      if (criteria.avoidedBrands.some((brand) => sameBrand(brand, vehicle.make))) return false;
-      return true;
-    });
-  }
   const searchRangeFloorKm = hasHardRangeConstraint(criteria) ? inferSearchRangeFloorKm(criteria) : null;
   return vehicles.filter((vehicle) => {
     if (vehicle.market !== "AT") return false;

@@ -34,8 +34,6 @@ export function attachSearchCriteriaDebug<T extends MatchResponse>(
 
 function compactSearchFilters(filters: ReturnType<typeof summarizeVehicleSearchFilters>) {
   const compact: Record<string, unknown> = {
-    matchingPipeline: filters.matchingPipeline,
-    retrievePolicy: filters.retrievePolicy,
     market: filters.market,
     available: filters.available
   };

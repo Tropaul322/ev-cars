@@ -27,7 +27,6 @@ import {
   vehicleMatchesModelPreferences,
   vehiclePrimaryBrand
 } from "./vehicle-matching.ts";
-import { softenMatchPreferencesEnabled } from "./vehicle-search-settings.ts";
 
 export type MatchEngineResult = {
   recommendations: MatchResult[];
@@ -48,9 +47,6 @@ const baseWeights: Weights = {
 
 /** Reviewable hard vs soft attribute policy for matching. */
 export const hardFilterPolicy = {
-  /** Thin retrieve prefilter when matchingPipeline() === "light_hard". */
-  retrieveLight: ["market", "availability", "budget", "monthlyBudget", "avoidedBrands"],
-  /** Match-time hard filters (exclusive cues / must-haves / budget / market). */
   hard: [
     "market",
     "availability",
@@ -68,10 +64,6 @@ export const hardFilterPolicy = {
     "avoidedBrands",
     "mustHaveFeatures"
   ],
-  /**
-   * Soft preferences: scored regardless; when softenMatchPreferencesEnabled(),
-   * summarizeTradeoffs also surfaces mismatch reasons. Exclusive cues still use hasHard*.
-   */
   soft: [
     "familyInferredPassengers",
     "familyInferredCargo",
@@ -159,15 +151,12 @@ export function getHardFilterReasons(vehicle: Vehicle, criteria: UserCriteria) {
   if (criteria.monthlyBudgetEUR && estimateMonthlyVehiclePayment(vehicle) > criteria.monthlyBudgetEUR) {
     reasons.push(`above monthly budget of EUR ${criteria.monthlyBudgetEUR.toLocaleString("de-AT")}`);
   }
-  // Condition / range / body: hard only with exclusive language (hasHard*).
-  // Soften does not demote hard rejects; it only gates summarizeTradeoffs messaging for non-exclusive prefs.
   if (hasHardConditionConstraint(criteria) && criteria.preferredCondition !== "any" && vehicle.condition !== criteria.preferredCondition) {
     reasons.push(`condition is ${vehicle.condition}, not ${criteria.preferredCondition}`);
   }
   if (hasHardRangeConstraint(criteria) && criteria.rangeFloorKm && vehicle.rangeKm < criteria.rangeFloorKm) {
     reasons.push(`range below requested ${criteria.rangeFloorKm} km`);
   }
-  // Mileage stays hard in Phase 2 v1 (no exclusive-mileage helper yet).
   if (criteria.mileageMaxKm && vehicle.condition === "used" && vehicle.mileageKm === null) {
     reasons.push("mileage is not disclosed");
   }
@@ -495,31 +484,6 @@ function scoreReliability(vehicle: Vehicle, criteria: UserCriteria) {
 
 function summarizeTradeoffs(vehicle: Vehicle, criteria: UserCriteria, breakdown: ScoringBreakdown) {
   const tradeoffs: string[] = [];
-  if (softenMatchPreferencesEnabled()) {
-    if (
-      criteria.bodyTypes.length &&
-      !hasHardBodyTypeConstraint(criteria) &&
-      !criteria.bodyTypes.includes(vehicle.bodyType)
-    ) {
-      tradeoffs.push(
-        `body type is ${vehicle.bodyType}, not preferred ${criteria.bodyTypes.join(" or ")}`
-      );
-    }
-    if (
-      criteria.rangeFloorKm &&
-      !hasHardRangeConstraint(criteria) &&
-      vehicle.rangeKm < criteria.rangeFloorKm
-    ) {
-      tradeoffs.push(`range is below preferred ${criteria.rangeFloorKm} km`);
-    }
-    if (
-      criteria.preferredCondition !== "any" &&
-      !hasHardConditionConstraint(criteria) &&
-      vehicle.condition !== criteria.preferredCondition
-    ) {
-      tradeoffs.push(`condition is ${vehicle.condition}, not preferred ${criteria.preferredCondition}`);
-    }
-  }
   if (vehicle.condition === "used" && vehicle.batterySoH === null) {
     tradeoffs.push("battery state-of-health is not disclosed");
   }

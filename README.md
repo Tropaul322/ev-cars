@@ -50,9 +50,6 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o-mini
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_EMBEDDING_DIMENSIONS=1536
-FLOWRYD_MATCHING_PIPELINE=classic
-FLOWRYD_LIGHT_HARD_MATCHING=0
-FLOWRYD_SOFTEN_MATCH_PREFERENCES=0
 FLOWRYD_VEHICLE_STRUCTURED_SEARCH=1
 FLOWRYD_VEHICLE_EMBEDDING_SEARCH=0
 FLOWRYD_VEHICLE_EMBEDDING_SEARCH_LIMIT=200
@@ -73,16 +70,8 @@ Vehicle matching uses structured filters plus keyword/topic scoring by default.
 Set `FLOWRYD_VEHICLE_EMBEDDING_SEARCH=1` after populating vehicle embeddings to
 augment candidate retrieval with vector search, or set
 `FLOWRYD_VEHICLE_STRUCTURED_SEARCH=0` to disable structured Supabase filters.
-
-**Matching pipeline (master toggle):**
-
-- **Master OFF:** `FLOWRYD_MATCHING_PIPELINE=classic` or unset — full hard retrieve (today’s default).
-- **Master ON:** `FLOWRYD_MATCHING_PIPELINE=light_hard` — light hard filters, then embeddings, then remaining filters. Alias: `FLOWRYD_LIGHT_HARD_MATCHING=1` when the pipeline var is unset. If both are set, `FLOWRYD_MATCHING_PIPELINE` wins (e.g. `classic` disables light-hard even when the alias is `1`). Pair light-hard with `FLOWRYD_VEHICLE_EMBEDDING_SEARCH=1` after vehicle embeddings are deployed.
-- **Sub-flag:** `FLOWRYD_SOFTEN_MATCH_PREFERENCES=1` — surfaces tradeoff reasons for already-soft (non-exclusive) body type, range, and condition prefs via `summarizeTradeoffs`. Does not demote hard rejects; exclusive cues still use `hasHard*`. Ignored unless the master pipeline is `light_hard`. Trust constraints (e.g. must-have features, brand exclusions) are never softened.
-
 Set `FLOWRYD_MATCH_DEBUG=1` to attach match diagnostics to API responses and
-server logs (`matchingPipeline`, `embeddingHits`, `rejectedSummary`, etc.).
-Set `FLOWRYD_SHOW_SEARCH_CRITERIA=1` to attach a searchable
+server logs. Set `FLOWRYD_SHOW_SEARCH_CRITERIA=1` to attach a searchable
 criteria debug panel showing extracted criteria and the filters applied during
 inventory search.
 LLM paths fall back to deterministic local behavior if the model call is
