@@ -3,6 +3,7 @@ import {
   generateChatGreeting,
   generateClarificationResponse,
   generateConversationalResponse,
+  generateNonEvScopeResponse,
   generateNoMatchesMessage,
   generateNoMoreMatchesMessage,
   generateNudgeResponse,
@@ -196,6 +197,37 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       })
   );
   const { trigger, turnKind } = resolvedTurn;
+  if (trigger === "non_ev_request") {
+    const criteria = previousCriteria ?? emptyCriteria(body.message, detectLanguage(body.message, "en"));
+    const missingCriteria = getMissingCriteria(criteria);
+    const assistantMessage = await generateNonEvScopeResponse({
+      message: body.message,
+      criteria,
+      conversationHistory
+    });
+    await saveMatchSession({
+      id: sessionId,
+      testerRegistrationId: body.testerRegistrationId,
+      criteria,
+      selectedVehicleIds: sessionState.selectedVehicleIds,
+      cachedRecommendations: sessionState.cachedRecommendations
+    });
+    return attachSearchCriteriaDebug(
+      {
+        type: "chat",
+        sessionId,
+        assistantMessage,
+        message: assistantMessage,
+        criteria,
+        missingCriteria,
+        recommendations: [],
+        ragCitations: [],
+        rejectedSummary: []
+      },
+      criteria,
+      missingCriteria
+    );
+  }
   if (trigger === "explain_recommendations") {
     const criteria = previousCriteria ?? emptyCriteria(body.message, detectLanguage(body.message, "en"));
     const missingCriteria = getMissingCriteria(criteria);

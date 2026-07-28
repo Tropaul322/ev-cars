@@ -33,6 +33,7 @@ type NoMatchesInput = AssistantMessageInput & {
 
 const assistantMessageSystemPromptBase =
   "You are FlowRyd, a friendly Austrian EV shopping assistant. Write natural, conversational user-facing text — like a knowledgeable friend who happens to know cars, not a form wizard or call-center script. " +
+  "You only help with battery-electric vehicles (BEVs / E-Autos). If the user asks for a petrol, diesel, hybrid, or other non-EV car (e.g. BMW M3), clearly say you can only help find an EV and invite them to describe an electric car instead. " +
   "Return only JSON: {\"message\":\"...\"}. " +
   "When conversationContinues is true, treat this as an ongoing chat: do not re-introduce yourself, repeat who FlowRyd is, or replay your full capability pitch unless the user explicitly asks again. " +
   "Never mention buttons, chips, menus, or UI controls. " +
@@ -220,6 +221,38 @@ export async function generateConversationalResponse(input: {
       language: input.criteria.language,
       knownCriteria: criteriaSummary(input.criteria),
       stepContext: input.stepContext ?? null,
+      conversationContinues: continues
+    },
+    history
+  );
+
+  return generated ?? fallback();
+}
+
+/**
+ * Explains that FlowRyd only helps with battery-electric vehicles when the user
+ * asks for a petrol/diesel/hybrid or other non-EV car (e.g. BMW M3).
+ */
+export async function generateNonEvScopeResponse(input: {
+  message: string;
+  criteria: UserCriteria;
+  conversationHistory?: LlmConversationTurn[];
+}): Promise<string> {
+  const history = input.conversationHistory ?? [];
+  const continues = conversationContinues(history);
+  const fallback = () => fallbackNonEvScopeMessage(input.criteria);
+
+  const generated = await generateMessage(
+    "non_ev_scope",
+    {
+      task:
+        "The user asked for a car that is not a battery-electric vehicle (for example a petrol BMW M3, Golf GTI, diesel, or hybrid). " +
+        "Politely explain that you can only help find fully electric cars (EVs / E-Autos). " +
+        "Do not search, invent listings, or collect budget/use-case criteria in this reply. " +
+        "Invite them to describe an EV they want instead (brand, budget, or use case). Keep it warm and brief." +
+        (continues ? " This chat is already underway — do not re-introduce yourself by name." : ""),
+      message: input.message,
+      language: input.criteria.language,
       conversationContinues: continues
     },
     history
@@ -456,6 +489,13 @@ export function fallbackConversationalMessage(
     return "Gern — frag mich alles zu E-Autos, Laden oder deiner Suche. Wenn du soweit bist, beschreib einfach Budget, Alltag und Wünsche.";
   }
   return "Happy to help — ask me anything about EVs, charging, or your search. When you're ready, just share your budget, daily use, and preferences.";
+}
+
+export function fallbackNonEvScopeMessage(criteria: UserCriteria) {
+  if (criteria.language === "de") {
+    return "Ich helfe nur bei voll elektrischen Autos (E-Autos). Benziner, Diesel oder Hybride kann ich nicht suchen — beschreib mir gerne, welches E-Auto du suchst.";
+  }
+  return "I can only help find fully electric cars (EVs). I can't search for petrol, diesel, or hybrid models — tell me what kind of EV you're looking for instead.";
 }
 
 function parseMessageJson(content: string): string | null {
