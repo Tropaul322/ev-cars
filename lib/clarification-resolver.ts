@@ -23,11 +23,11 @@ export const DEFAULT_DECLINED_RANGE_FLOOR_KM = 300;
 const OPEN_BODY_TYPES: BodyType[] = ["suv", "sedan", "compact", "hatchback", "wagon", "van"];
 
 const skipAnswerPattern =
-  /\b(no preference|no pref|don't care|doesn'?t matter|not sure(?: yet)?|no idea|don'?t know|skip|whatever|anything|any style|any body|open to anything|no budget limit|no limit|just\s+(looking|browsing|exploring|want\s+to\s+see)|only\s+(looking|browsing|options?)|egal|keine präferenz|keine ahnung|weiß nicht|weiss nicht|unklar|passt schon|ist mir egal)\b/i;
+  /\b(no preference|no pref|don't care|doesn'?t matter|not sure(?: yet)?|no idea|don'?t know|skip|whatever(?:\s+works?)?|anything(?:\s+(?:would\s+)?works?)?|any(?:thing)?\s+(?:would\s+)?works?|any\s+is\s+(?:fine|ok|okay|good|alright)|any\s+of\s+(?:them|these|those|it)|(?:whichever|either)(?:\s+(?:one\s+)?(?:is\s+)?(?:fine|ok|okay|good))?|all\s+(?:of\s+them\s+)?(?:work|fine|ok|okay)|any style|any body|open to anything|no budget limit|no limit|just\s+(looking|browsing|exploring|want\s+to\s+see)|only\s+(looking|browsing|options?)|egal(?:\s+welche[srs]?)?|keine präferenz|keine ahnung|weiß nicht|weiss nicht|unklar|passt schon|ist mir egal|alles\s+(?:ok|gut|passt|fine))\b/i;
 
-/** Bare "No" / "None" / "Nein" and longer skip phrases — user declines extras. */
+/** Bare "No" / "None" / "Any" / "Nein" and longer skip phrases — user declines extras. */
 const declineAnswerPattern =
-  /^(no|nope|nah|nein|nee|none|nothing|no thanks|no thank you|not really|nothing specific|no specific(?:\s+features?)?|keine|nichts|nein danke|nicht wirklich)\.?$/i;
+  /^(no|nope|nah|nein|nee|none|nothing|any|anything|egal|no thanks|no thank you|not really|nothing specific|no specific(?:\s+features?)?|keine|nichts|nein danke|nicht wirklich)\.?$/i;
 
 const declineLeadInPattern =
   /^(no|nope|nah|nein|nee|none|nothing|not really)\b/i;
@@ -60,7 +60,11 @@ const optionSynonyms: Record<string, RegExp[]> = {
   opt_reliable: [/\b(reliable|reliability|zuverlässig|zuverlaessig|haltbar)\b/i],
   opt_family: [/\b(family fit|family|familie|familientauglich)\b/i],
   use_city: [/\b(city|urban|town|stadt|stadtfahr|inner city|short trips?|errands?|einkauf)\b/i],
-  use_commute: [/\b(commut|pendel|arbeitsweg|work(?:ing)?|office|job|daily drive|täglich|taeglich)\b/i],
+  use_commute: [
+    /\b(commut|pendel|arbeitsweg|office|job|daily drive|täglich|taeglich)\b/i,
+    /\b(?:to|for|at|from)\s+work\b/i,
+    /\bworking\b/i
+  ],
   use_family: [/\b(famil|kids?|children|kinder|school run|kindergarten|kinderwagen)\b/i],
   use_road_trip: [
     /\b(road\s*trip|long\s*(trip|drive|distance)|highway|motorway|autobahn|langstrecke|urlaub|vacation|holiday|weekend|wochenende)\b/i,
@@ -157,6 +161,15 @@ export function resolveClarificationAnswer(
 
   if (promptKey === "ready") return null;
 
+  // Soft declines ("Any would work") must win over accidental option hits
+  // like matching "work" to the commute chip.
+  if (looksLikeDeclineAnswer(trimmed)) {
+    if (promptKey === "budget" || looksLikeNoBudgetLimit(trimmed)) {
+      return { kind: "patch", patch: defaultBudgetPatch() };
+    }
+    return declineResolutionForPrompt(promptKey);
+  }
+
   const prompt =
     promptKey === "optimization"
       ? getOptimizationPrompt(language)
@@ -174,13 +187,6 @@ export function resolveClarificationAnswer(
     }
     const patch = mergeOptionPatches(matchedOptions.filter((option) => option.patch));
     return Object.keys(patch).length ? { kind: "patch", patch } : null;
-  }
-
-  if (looksLikeDeclineAnswer(trimmed)) {
-    if (promptKey === "budget" || looksLikeNoBudgetLimit(trimmed)) {
-      return { kind: "patch", patch: defaultBudgetPatch() };
-    }
-    return declineResolutionForPrompt(promptKey);
   }
 
   const extractedPatch = extractPatchForPrompt(trimmed, promptKey);

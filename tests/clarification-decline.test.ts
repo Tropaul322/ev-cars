@@ -34,6 +34,68 @@ test("looksLikeDeclineAnswer recognizes soft declines with extra wording", () =>
   assert.equal(looksLikeDeclineAnswer("looking for options under 40000"), false);
 });
 
+test("Any would work advances clarification instead of looping", () => {
+  for (const message of [
+    "Any would work",
+    "Anything would work",
+    "any is fine",
+    "any is ok",
+    "any of them",
+    "whatever works"
+  ]) {
+    assert.equal(looksLikeDeclineAnswer(message), true, `decline: ${message}`);
+    assert.equal(
+      resolveClarificationAnswer(message, "use_case", "en")?.kind,
+      "skip",
+      `use_case: ${message}`
+    );
+    assert.equal(
+      resolveClarificationAnswer(message, "vehicle_preferences", "en")?.kind,
+      "patch",
+      `vehicle_preferences: ${message}`
+    );
+    assert.equal(
+      resolveClarificationAnswer(message, "charging_or_range", "en")?.kind,
+      "patch",
+      `charging_or_range: ${message}`
+    );
+    assert.equal(
+      resolveClarificationAnswer(message, "personal_wish", "en")?.kind,
+      "patch",
+      `personal_wish: ${message}`
+    );
+  }
+});
+
+test("bare Any advances vehicle_preferences clarification", () => {
+  for (const message of ["Any", "any", "Anything", "Egal"]) {
+    assert.equal(looksLikeDeclineAnswer(message), true, `decline: ${message}`);
+    const resolved = resolveClarificationAnswer(message, "vehicle_preferences", "en");
+    assert.equal(resolved?.kind, "patch", message);
+    if (resolved?.kind === "patch") {
+      assert.ok((resolved.patch.bodyTypes?.length ?? 0) > 0, message);
+    }
+  }
+});
+
+test("match route advances after bare Any on body-style clarification", async () => {
+  const first = await runMatchRequest({
+    message: "Chinese EV in the 40000 to 60000 EUR range"
+  });
+  assert.equal(first.type, "clarification");
+  assert.equal(first.prompt?.key, "vehicle_preferences");
+
+  const second = await runMatchRequest({
+    message: "Any",
+    sessionId: first.sessionId,
+    previousCriteria: first.criteria,
+    currentPromptKey: "vehicle_preferences"
+  });
+
+  assert.notEqual(second.prompt?.key, "vehicle_preferences");
+  assert.ok((second.criteria.bodyTypes?.length ?? 0) > 0);
+});
+
 test("resolveClarificationAnswer advances on soft decline for personal_wish", () => {
   assert.deepEqual(
     resolveClarificationAnswer("Nope, just looking for the options", "personal_wish", "en"),

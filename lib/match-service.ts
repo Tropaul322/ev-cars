@@ -244,13 +244,17 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       rejectedSummary: []
     };
   }
+  const patternFallback = resolvedTurn.source === "pattern";
+  // Prefer LLM trigger; pattern heuristics only fill in when intent fell back to patterns.
   const isNextBatch =
-    trigger === "next_batch" || (looksLikeNextBatchRequest(body.message) && Boolean(previousCriteria));
+    trigger === "next_batch" ||
+    (patternFallback && looksLikeNextBatchRequest(body.message) && Boolean(previousCriteria));
   const brandWiden = looksLikeBrandWidenRequest(body.message);
   const isShowAlternatives =
     body.intent === "show_alternatives" ||
     trigger === "show_alternatives" ||
-    (looksLikeAlternativesRequest(body.message) &&
+    (patternFallback &&
+      looksLikeAlternativesRequest(body.message) &&
       Boolean(previousCriteria) &&
       !brandWiden);
   let skippedKeys = (body.skippedKeys ?? []).filter(isMissingCriteriaKey);
@@ -295,7 +299,8 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
           message: body.message,
           previousCriteria,
           criteriaOverride: body.criteriaOverride ?? null,
-          conversationHistory
+          conversationHistory,
+          currentPromptKey: body.currentPromptKey ?? null
         }),
       () => {
         const fallbackCriteria = body.criteriaOverride
@@ -315,7 +320,22 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     criteriaChanged = previousCriteria
       ? !criteriaEquivalent(previousCriteria, criteria)
       : hasMeaningfulCriteria(criteria);
+  }
 
+  // Intent LLM criteriaPatch is primary over hardcoded clarification.
+  if (resolvedTurn.criteriaPatch && Object.keys(resolvedTurn.criteriaPatch).length > 0) {
+    criteria = applyChipPatch(criteria, resolvedTurn.criteriaPatch);
+    confidence = getCriteriaConfidence(criteria);
+    criteriaChanged = true;
+  }
+
+  // Hardcoded clarification resolver is fallback only — when LLM paths did not advance.
+  if (
+    !body.criteriaPatch &&
+    !isMetaQuestion &&
+    !isSmallTalk &&
+    !criteriaChanged
+  ) {
     const clarificationKey = resolveActiveClarificationKey(body.currentPromptKey, criteria, skippedKeys);
     if (
       clarificationKey &&
@@ -324,14 +344,12 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     ) {
       const resolution = resolveClarificationAnswer(body.message, clarificationKey, criteria.language);
       if (resolution?.kind === "skip") {
-        // Optional groups (e.g. use_case) can be skipped; binding keys use decline patches instead.
         if (isMissingCriteriaKey(clarificationKey) && clarificationKey === "use_case") {
           skippedKeys = Array.from(new Set([...skippedKeys, clarificationKey]));
         }
         criteriaChanged = true;
       } else if (resolution?.kind === "patch") {
         let patch = resolution.patch;
-        // If body style is already known, a decline must clear extras without reopening all bodies.
         if (
           clarificationKey === "vehicle_preferences" &&
           criteria.bodyTypes.length > 0 &&
@@ -383,12 +401,6 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
         criteriaChanged = true;
       }
     }
-  }
-
-  if (resolvedTurn.criteriaPatch && Object.keys(resolvedTurn.criteriaPatch).length > 0) {
-    criteria = applyChipPatch(criteria, resolvedTurn.criteriaPatch);
-    confidence = getCriteriaConfidence(criteria);
-    criteriaChanged = true;
   }
 
   if (!criteria.location && body.testerLocation) {

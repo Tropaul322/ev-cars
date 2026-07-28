@@ -118,6 +118,28 @@ test("routes English and German why-recommendation follow-ups to explanation", (
   assert.ok(detectPatternTriggers("Warum steht das über dem anderen?").includes("explain_recommendations"));
 });
 
+test("routes explain-the-results follow-ups to explanation without rematching", () => {
+  for (const message of [
+    "Can you explain the results ?",
+    "Can you explain the results?",
+    "Explain the results",
+    "explain these recommendations",
+    "Can you explain these cars?",
+    "Erklär die Ergebnisse",
+    "Kannst du die Ergebnisse erklären?"
+  ]) {
+    assert.ok(
+      detectPatternTriggers(message).includes("explain_recommendations"),
+      `expected explain route for: ${message}`
+    );
+    assert.equal(
+      resolveConversationTurnPatternOnly({ message }).trigger,
+      "explain_recommendations",
+      `expected pattern-only explain for: ${message}`
+    );
+  }
+});
+
 test("does not route unrelated criteria or EV questions to explanation", () => {
   for (const message of [
     "Why do I need 450 km range?",
@@ -134,7 +156,7 @@ test("does not route unrelated criteria or EV questions to explanation", () => {
   }
 });
 
-test("keeps deterministic explanation routes authoritative", async () => {
+test("falls back to pattern explanation route when LLM is disabled", async () => {
   const resolved = await resolveConversationTurn({
     message: "Why are you suggesting these cars?",
     currentPromptKey: "use_case"
@@ -142,6 +164,22 @@ test("keeps deterministic explanation routes authoritative", async () => {
 
   assert.equal(resolved.trigger, "explain_recommendations");
   assert.equal(resolved.source, "pattern");
+});
+
+test("pattern fallback routes bare Any to clarify during active prompt", () => {
+  const resolved = resolveConversationTurnPatternOnly({
+    message: "Any",
+    currentPromptKey: "vehicle_preferences"
+  });
+  assert.equal(resolved.trigger, "clarify");
+  assert.notEqual(resolved.trigger, "small_talk");
+});
+
+test("pattern fallback routes explain-the-results without rematch", () => {
+  const resolved = resolveConversationTurnPatternOnly({
+    message: "Can you explain the results ?"
+  });
+  assert.equal(resolved.trigger, "explain_recommendations");
 });
 
 test("parseTriggerJson accepts trigger routing JSON", () => {
