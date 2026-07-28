@@ -92,6 +92,7 @@ Core rules:
 13. "large trunk" / "großer Kofferraum" → cargoNeeds: "high". Do not put large_trunk in mustHaveFeatures.
 14. Winter / mountains / snow imply tripNeeds, not mustHaveFeatures awd, unless the user explicitly asks for AWD/allrad.
 15. personalWish is only "status" or "freedom". Status → also add qualitativeSignals "premium". Never invent childhood memories.
+16. FlowRyd is EV-only. If the user asks for a non-electric car (petrol/diesel/hybrid, or ICE models like BMW M3 / Golf GTI), return an empty criteriaPatch {} — do not invent brandPreferences or modelPreferences for non-EVs.
 
 Hard vs soft filters (universal — every body style, not only limousine/sedan):
 - HARD filters eliminate non-matching inventory before ranking. Soft preferences only re-rank.

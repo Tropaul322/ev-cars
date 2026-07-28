@@ -35,15 +35,16 @@ const catalog: Record<MissingCriteria, LocalizedStep> = {
       de: "Welches Budget passt für dich?"
     },
     explanation: {
-      en: "This is the purchase-price range I should respect. It is a hard limit, so I never show cars above it. Pick a range below or type an exact number.",
-      de: "Das ist die Kaufpreis-Spanne, die ich einhalten soll. Es ist eine harte Grenze – teurere Autos zeige ich nie. Wähle eine Spanne oder nenne eine genaue Zahl."
+      en: "This is the purchase-price range I should respect. Upper caps are hard limits, so I never show cars above them. Pick a range below or type an exact number.",
+      de: "Das ist die Kaufpreis-Spanne, die ich einhalten soll. Obere Grenzen sind hart – teurere Autos zeige ich nie. Wähle eine Spanne oder nenne eine genaue Zahl."
     },
     selectMode: "single",
     options: [
       { id: "budget_under_25k", label: { en: "Under €25,000", de: "Unter 25.000 €" }, patch: { budgetMaxEUR: 25000 } },
       { id: "budget_25_40k", label: { en: "€25,000–40,000", de: "25.000–40.000 €" }, patch: { budgetMinEUR: 25000, budgetMaxEUR: 40000 } },
       { id: "budget_40_60k", label: { en: "€40,000–60,000", de: "40.000–60.000 €" }, patch: { budgetMaxEUR: 60000 } },
-      { id: "budget_over_60k", label: { en: "€60,000–90,000", de: "60.000–90.000 €" }, patch: { budgetMinEUR: 60000, budgetMaxEUR: 90000 } }
+      { id: "budget_over_60k", label: { en: "€60,000–90,000", de: "60.000–90.000 €" }, patch: { budgetMinEUR: 60000, budgetMaxEUR: 90000 } },
+      { id: "budget_over_90k", label: { en: "Over €90,000", de: "Über 90.000 €" }, patch: { budgetMinEUR: 90000, budgetMaxEUR: null } }
     ]
   },
   use_case: {

@@ -10,6 +10,7 @@ import {
   isCasualSmallTalk,
   isExplicitShowMatches,
   looksLikeEvQuestion,
+  looksLikeNonEvVehicleRequest,
   mergeConversationTurnClassification,
   parseTriggerJson,
   parseTurnKindJson,
@@ -149,7 +150,31 @@ test("parseTriggerJson accepts trigger routing JSON", () => {
     trigger: "brand_focus",
     criteriaPatch: { brandPreferences: ["Ford"] }
   });
+  assert.deepEqual(parseTriggerJson('{"trigger":"non_ev_request"}'), { trigger: "non_ev_request" });
   assert.equal(parseTriggerJson('{"trigger":"invalid"}'), null);
+});
+
+test("detects non-EV vehicle requests like BMW M3", () => {
+  assert.equal(looksLikeNonEvVehicleRequest("I want a BMW M3"), true);
+  assert.equal(looksLikeNonEvVehicleRequest("zeig mir einen Golf GTI"), true);
+  assert.equal(looksLikeNonEvVehicleRequest("I need a petrol car"), true);
+  assert.equal(looksLikeNonEvVehicleRequest("I want a BMW"), false);
+  assert.equal(looksLikeNonEvVehicleRequest("I want a BMW i4"), false);
+  assert.equal(looksLikeNonEvVehicleRequest("Show me a Tesla Model Y"), false);
+  assert.ok(detectPatternTriggers("I want a BMW M3").includes("non_ev_request"));
+  assert.equal(
+    resolveConversationTurnPatternOnly({ message: "I want a BMW M3" }).trigger,
+    "non_ev_request"
+  );
+});
+
+test("match request declines non-EV cars without starting clarification", async () => {
+  const response = await runMatchRequest({ message: "I want a BMW M3" });
+
+  assert.equal(response.type, "chat");
+  assert.equal(response.prompt, undefined);
+  assert.match(response.assistantMessage, /electric|EV/i);
+  assert.doesNotMatch(response.assistantMessage, /budget works for you/i);
 });
 
 test("parseTurnKindJson accepts classifier JSON", () => {

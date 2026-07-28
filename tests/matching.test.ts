@@ -1681,6 +1681,13 @@ test("clarification catalog options apply valid criteria patches", () => {
       }
     }
 
+    const budgetPrompt = getClarificationPrompt("budget", language);
+    const over90 = budgetPrompt.options.find((option) => option.id === "budget_over_90k");
+    assert.ok(over90);
+    assert.match(over90.label, language === "de" ? /90\.000/ : /90,000/);
+    assert.equal(over90.patch?.budgetMinEUR, 90000);
+    assert.equal(over90.patch?.budgetMaxEUR, null);
+
     const optimizationPrompt = getOptimizationPrompt(language);
     assert.equal(optimizationPrompt.key, "optimization");
     assert.equal(optimizationPrompt.showMatchAction, false);

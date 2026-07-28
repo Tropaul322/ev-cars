@@ -45,7 +45,15 @@ const optionSynonyms: Record<string, RegExp[]> = {
   ],
   budget_25_40k: [/\b(25|30|35|40)\s*k\b/i, /\b(25|30|35|40)[.,]000\b/i],
   budget_40_60k: [/\b(40|45|50|55|60)\s*k\b/i, /\b(40|45|50|55|60)[.,]000\b/i],
-  budget_over_60k: [/\b(over|above|more than|über|ueber|mehr als)\b[^.]{0,20}\b(60|70|80|90)\s*k\b/i],
+  budget_over_60k: [
+    /\b(60|70|80)\s*k\b/i,
+    /\b(60|70|80)[.,]000\b/i,
+    /\b(60\.?000|60000)\s*(?:-|–|to|bis)\s*(90\.?000|90000)\b/i
+  ],
+  budget_over_90k: [
+    /\b(over|above|more than|über|ueber|mehr als)\b[^.]{0,24}\b(90\s*k|90\.?000|90000)\b/i,
+    /\b(90\s*k|90\.?000|90000)\s*\+\b/i
+  ],
   budget_skip: [/\b(no budget|no limit|unlimited budget|kein budget|kein limit)\b/i],
   opt_best_value: [/\b(best value|value for money|preis[-\s]?leistung|preiswert)\b/i],
   opt_max_range: [/\b(max(?:imum)? range|longest range|maximale reichweite|größte reichweite|groesste reichweite)\b/i],
