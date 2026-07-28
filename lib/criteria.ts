@@ -1174,7 +1174,11 @@ function extractTripNeeds(text: string): TripNeed[] {
   if (/(city|urban|stadt|stadtfahr|inner city|short trips?|errands?|einkauf|wien|graz|linz|salzburg)/i.test(text)) {
     tripNeeds.push("city");
   }
-  if (/(commute|commuting|pendel|arbeitsweg|daily|täglich|taeglich|office|work(?:ing)?)/i.test(text)) {
+  if (
+    /(commute|commuting|pendel|arbeitsweg|daily|täglich|taeglich|office)/i.test(text) ||
+    /\b(?:to|for|at|from)\s+work\b/i.test(text) ||
+    /\bworking\b/i.test(text)
+  ) {
     tripNeeds.push("commute");
   }
   if (

@@ -64,11 +64,12 @@ type NormalizeCriteriaInput = {
   previousCriteria?: UserCriteria | null;
   criteriaOverride?: UserCriteria | null;
   conversationHistory?: LlmConversationTurn[];
+  currentPromptKey?: string | null;
 };
 
 const normalizerPrompt = `You extract and UPDATE EV shopping criteria from German or English chat.
 
-Input: prior conversation turns (when provided), the user's latest message, and optional previousCriteria from earlier turns.
+Input: prior conversation turns (when provided), the user's latest message, optional previousCriteria, and optional currentPromptKey (the clarification step currently asked).
 Output: ONLY valid JSON in this shape:
 {
   "criteriaPatch": { ...fields changed in this turn... },
@@ -93,6 +94,16 @@ Core rules:
 14. Winter / mountains / snow imply tripNeeds, not mustHaveFeatures awd, unless the user explicitly asks for AWD/allrad.
 15. personalWish is only "status" or "freedom". Status → also add qualitativeSignals "premium". Never invent childhood memories.
 16. FlowRyd is EV-only. If the user asks for a non-electric car (petrol/diesel/hybrid, or ICE models like BMW M3 / Golf GTI), return an empty criteriaPatch {} — do not invent brandPreferences or modelPreferences for non-EVs.
+17. CRITICAL — Indifference / no-preference answers must ADVANCE the active clarification. Never return {} when the user waves off the current question.
+    Phrases: "Any", "Anything", "Any would work", "any is fine", "no preference", "whatever", "doesn't matter", "egal", "alles ok", "keine Präferenz".
+    Use currentPromptKey (or conversation context if missing) to decide the patch:
+    - vehicle_preferences (body style): bodyTypes ["suv","sedan","compact","hatchback","wagon","van"], bindingConstraints.bodyTypes false
+    - charging_or_range: rangeFloorKm 300, bindingConstraints.rangeFloor false
+    - personal_wish: personalWish "freedom"
+    - budget: budgetMinEUR 25000, budgetMaxEUR 60000
+    - optimization: optimizationDirective "best_value"
+    - use_case: remove ["use_case"]
+    Returning an empty patch here causes the SAME clarification question to loop — that is a failure.
 
 Hard vs soft filters (universal — every body style, not only limousine/sedan):
 - HARD filters eliminate non-matching inventory before ranking. Soft preferences only re-rank.
@@ -130,7 +141,8 @@ export async function normalizeCriteria({
   message,
   previousCriteria,
   criteriaOverride,
-  conversationHistory = []
+  conversationHistory = [],
+  currentPromptKey = null
 }: NormalizeCriteriaInput): Promise<CriteriaNormalization> {
   if (criteriaOverride) {
     return await buildNormalization(message, normalizeCriteriaShape(criteriaOverride), {}, conversationHistory);
@@ -141,7 +153,12 @@ export async function normalizeCriteria({
   const fallbackPatch = diffCriteria(previousCriteria, fallbackCriteria);
   const pivoted = Boolean(previousCriteria && isTopicPivot(message, previousCriteria));
 
-  const llmPatch = await generateCriteriaPatch(message, mergeBase ?? null, conversationHistory);
+  const llmPatch = await generateCriteriaPatch(
+    message,
+    mergeBase ?? null,
+    conversationHistory,
+    currentPromptKey
+  );
   if (!llmPatch) {
     const criteria = finalizeMergedCriteria(message, previousCriteria, fallbackCriteria, pivoted);
     return await buildNormalization(message, criteria, fallbackPatch, conversationHistory);
@@ -422,17 +439,21 @@ async function buildNormalization(
 async function generateCriteriaPatch(
   message: string,
   previousCriteria: UserCriteria | null,
-  conversationHistory: LlmConversationTurn[] = []
+  conversationHistory: LlmConversationTurn[] = [],
+  currentPromptKey: string | null = null
 ): Promise<CriteriaPatch | null> {
   if (process.env.FLOWRYD_DISABLE_LLM === "1") return null;
-  if (openAiConfigured()) return generateOpenAiCriteriaPatch(message, previousCriteria, conversationHistory);
+  if (openAiConfigured()) {
+    return generateOpenAiCriteriaPatch(message, previousCriteria, conversationHistory, currentPromptKey);
+  }
   return null;
 }
 
 async function generateOpenAiCriteriaPatch(
   message: string,
   previousCriteria: UserCriteria | null,
-  conversationHistory: LlmConversationTurn[] = []
+  conversationHistory: LlmConversationTurn[] = [],
+  currentPromptKey: string | null = null
 ): Promise<CriteriaPatch | null> {
   if (!openAiConfigured()) return null;
 
@@ -446,7 +467,7 @@ async function generateOpenAiCriteriaPatch(
         messages: buildLlmMessages(
           normalizerPrompt,
           conversationHistory,
-          JSON.stringify(buildNormalizerInput(message, previousCriteria))
+          JSON.stringify(buildNormalizerInput(message, previousCriteria, currentPromptKey))
         )
       },
       { timeout: openAiChatTimeout("criteria-normalizer") }
@@ -457,11 +478,16 @@ async function generateOpenAiCriteriaPatch(
   }
 }
 
-function buildNormalizerInput(message: string, previousCriteria: UserCriteria | null) {
+function buildNormalizerInput(
+  message: string,
+  previousCriteria: UserCriteria | null,
+  currentPromptKey: string | null = null
+) {
   const detectedLanguage = detectLanguage(message, previousCriteria?.language ?? "en");
   return {
     message,
     detectedLanguage,
+    currentPromptKey,
     responseLanguageInstruction: `Set criteriaPatch.language to "${detectedLanguage}" when the user's current message is clearly ${detectedLanguage === "de" ? "German" : "English"}.`,
     previousCriteria,
     modificationExamples: [
@@ -505,6 +531,24 @@ function buildNormalizerInput(message: string, previousCriteria: UserCriteria | 
           personalWish: "status",
           qualitativeSignals: ["premium"],
           brandFit: "high"
+        }
+      },
+      {
+        previous: { budgetMaxEUR: 60000, preferredBrandOrigins: ["china"] },
+        currentPromptKey: "vehicle_preferences",
+        message: "Any",
+        criteriaPatch: {
+          bodyTypes: ["suv", "sedan", "compact", "hatchback", "wagon", "van"],
+          bindingConstraints: { bodyTypes: false }
+        }
+      },
+      {
+        previous: { budgetMaxEUR: 60000, bodyTypes: ["suv"] },
+        currentPromptKey: "charging_or_range",
+        message: "Any would work",
+        criteriaPatch: {
+          rangeFloorKm: 300,
+          bindingConstraints: { rangeFloor: false }
         }
       }
     ],
