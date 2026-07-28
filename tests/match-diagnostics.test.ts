@@ -44,8 +44,6 @@ test("countPrimaryVehicleKeys ignores alias keys", () => {
 
 test("buildMatchDiagnostics explains missing embedding search", () => {
   const diagnostics = buildMatchDiagnostics({
-    matchingPipeline: "classic",
-    retrievePolicy: "full_hard",
     embeddingQueryStatus: "unavailable",
     embeddingHits: 0,
     structuredHits: 120,
@@ -58,47 +56,5 @@ test("buildMatchDiagnostics explains missing embedding search", () => {
     recommendations: []
   });
 
-  assert.equal(diagnostics.matchingPipeline, "classic");
-  assert.equal(diagnostics.retrievePolicy, "full_hard");
   assert.match(diagnostics.selectionNotes.join(" "), /Semantic search was skipped/i);
-});
-
-test("buildMatchDiagnostics includes classic retrievePolicy and matchingPipeline", () => {
-  const diagnostics = buildMatchDiagnostics({
-    matchingPipeline: "classic",
-    retrievePolicy: "full_hard",
-    embeddingQueryStatus: "disabled",
-    embeddingHits: 0,
-    structuredHits: 10,
-    candidatePoolSize: 10,
-    scoringPoolSize: 10,
-    excludedShownKeys: [],
-    isNextBatch: false,
-    criteriaChanged: false,
-    searchOffset: 0,
-    recommendations: []
-  });
-
-  assert.equal(diagnostics.matchingPipeline, "classic");
-  assert.equal(diagnostics.retrievePolicy, "full_hard");
-});
-
-test("buildMatchDiagnostics includes light_hard pipeline fields", () => {
-  const diagnostics = buildMatchDiagnostics({
-    matchingPipeline: "light_hard",
-    retrievePolicy: "light_hard",
-    embeddingQueryStatus: "ok",
-    embeddingHits: 5,
-    structuredHits: 10,
-    candidatePoolSize: 15,
-    scoringPoolSize: 12,
-    excludedShownKeys: [],
-    isNextBatch: false,
-    criteriaChanged: false,
-    searchOffset: 0,
-    recommendations: []
-  });
-
-  assert.equal(diagnostics.matchingPipeline, "light_hard");
-  assert.equal(diagnostics.retrievePolicy, "light_hard");
 });
