@@ -51,6 +51,11 @@ import {
 } from "./match-diagnostics.ts";
 import { matchDebug } from "./match-debug.ts";
 import { detectPromptInjection, promptInjectionResponse } from "./prompt-guard.ts";
+import {
+  diversifyRecommendations,
+  resolveMaxPerBrand,
+  vehicleModelKey
+} from "./recommendation-diversity.ts";
 import { attachSearchCriteriaDebug } from "./search-criteria-debug.ts";
 import { buildRagContext } from "./rag.ts";
 import { recoverShownVehicleKeysFromChat, listChatMessages } from "./repositories/chat-repository.ts";
@@ -79,6 +84,7 @@ import { vehicleMatchesModelPreferences } from "./vehicle-matching.ts";
 const MATCH_CANDIDATE_LIMIT = 36;
 const MATCH_MODEL_CANDIDATE_LIMIT = 3;
 const MATCH_MODEL_DIVERSITY_LIMIT = 2;
+const MATCH_BRAND_DIVERSITY_LIMIT = 1;
 const MATCH_LISTING_DIVERSITY_LIMIT = 1;
 const DEFAULT_RECOMMENDATION_LIMIT = 8;
 const FOCUSED_RECOMMENDATION_LIMIT = 12;
@@ -766,8 +772,11 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
   const diversifiedRecommendations = diversifyRecommendations(
     rankedRecommendations,
     MATCH_CANDIDATE_LIMIT,
-    MATCH_MODEL_DIVERSITY_LIMIT,
-    MATCH_LISTING_DIVERSITY_LIMIT
+    {
+      maxPerModel: MATCH_MODEL_DIVERSITY_LIMIT,
+      maxPerListing: MATCH_LISTING_DIVERSITY_LIMIT,
+      maxPerBrand: resolveMaxPerBrand(criteria.brandPreferences, MATCH_BRAND_DIVERSITY_LIMIT)
+    }
   );
   const diagnostics = buildMatchDiagnostics({
     embeddingQueryStatus:
@@ -1231,50 +1240,6 @@ function scoreCandidateForModel(vehicle: Vehicle, criteria: UserCriteria) {
     freshnessScore +
     embeddingScore * embeddingWeight
   );
-}
-
-function diversifyRecommendations(
-  matches: MatchResult[],
-  limit: number,
-  maxPerModel: number,
-  maxPerListing: number
-) {
-  const selected: MatchResult[] = [];
-  const modelCounts = new Map<string, number>();
-  const listingCounts = new Map<string, number>();
-  const selectedIds = new Set<string>();
-
-  for (const match of matches) {
-    if (selected.length >= limit) break;
-    const modelKey = vehicleModelKey(match.vehicle);
-    const listingKey = vehiclePrimaryMatchKey(match.vehicle);
-    const modelCount = modelCounts.get(modelKey) ?? 0;
-    const listingCount = listingCounts.get(listingKey) ?? 0;
-    if (modelCount >= maxPerModel) continue;
-    if (listingCount >= maxPerListing) continue;
-    selected.push(match);
-    selectedIds.add(match.vehicle.id);
-    modelCounts.set(modelKey, modelCount + 1);
-    listingCounts.set(listingKey, listingCount + 1);
-  }
-
-  if (selected.length < limit) {
-    for (const match of matches) {
-      if (selected.length >= limit) break;
-      if (selectedIds.has(match.vehicle.id)) continue;
-      const listingKey = vehiclePrimaryMatchKey(match.vehicle);
-      if ((listingCounts.get(listingKey) ?? 0) >= maxPerListing) continue;
-      selected.push(match);
-      selectedIds.add(match.vehicle.id);
-      listingCounts.set(listingKey, (listingCounts.get(listingKey) ?? 0) + 1);
-    }
-  }
-
-  return selected;
-}
-
-function vehicleModelKey(vehicle: Vehicle) {
-  return `${vehicle.make} ${vehicle.model}`.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function clampScore(value: number) {
