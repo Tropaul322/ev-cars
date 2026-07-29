@@ -91,7 +91,7 @@ async function upsertVehicles(rows: VehicleUploadRow[], batchSize: number): Prom
 
 function parseArgs(args: string[]): UploadOptions {
   const optionsValue: UploadOptions = {
-    filePath: path.join(root, "inventory-scraping", "willhaben.json"),
+    filePath: path.join(root, "inventory-scraping", "output", "willhaben.json"),
     dryRun: false,
     limit: null,
     batchSize: 50

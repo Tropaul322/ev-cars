@@ -13,6 +13,7 @@ explainable recommendations, and side-by-side comparison.
 - API routes for matching, vehicle lookup, comparison, and seed ingestion.
 - Node test runner coverage for parser, matching, TCO, and eval scenarios.
 - Repeatable scraper for the public FlowRyd static dashboard.
+- Python marketplace scraper (`inventory-scraping/`) for willhaben and AutoScout24.
 
 ## Local setup
 
@@ -227,66 +228,123 @@ test a subset, `--from-supabase` for a DB-backed dry-run, or override `--model=`
 
 ## Austrian Inventory Scraping
 
-Inventory crawling lives in `inventory-scraping/` and uses source-specific
-parsers (AutoScout24, willhaben, Tesla API, bmw-boerse, generic OEM cards, RAG
-context pages). Fetching is pluggable via `--fetcher=scrapingbee` (default) or
-`--fetcher=crawl4ai` (Python + headless Chromium). It covers willhaben.at, AutoScout24.at,
-gebrauchtwagen.at, selected Austrian OEM EV pages, and context sources such as
-umweltfoerderung.at and e-control.at.
+Marketplace inventory crawling is a standalone Python package under
+`inventory-scraping/` (`ev-cars-scraper`). It scrapes Austrian EV listings from
+**willhaben** and **AutoScout24**, writes per-source JSON/CSV, optionally
+downloads compressed listing photos, and does **not** write to Supabase
+directly. Upload into the app DB is a separate Node step.
 
-List configured sources:
+More detail lives in [`inventory-scraping/README.md`](inventory-scraping/README.md).
 
-```bash
-npm run inventory:list-sources
-```
+### Setup
 
-Dry-run without DB writes:
+Requires Python >= 3.10:
 
 ```bash
-npm run inventory:crawl -- --dry-run --max-listings-per-source=10
+npm run inventory:setup
+cp inventory-scraping/.env.example inventory-scraping/.env
 ```
 
-Run a subset:
+Optional: if you crawl with `--backend crawl4ai`, install Playwright browsers:
 
 ```bash
-npm run inventory:crawl -- --source=willhaben_at_ev,autoscout24_at_ev_all
+cd inventory-scraping && source .venv/bin/activate && crawl4ai-setup
 ```
 
-Re-parse cached HTML without network access:
+Configure rate limits, search URLs, image download, and optional Groq enrichment
+in `inventory-scraping/.env` (see `.env.example`). Common knobs:
+
+- `REQUEST_DELAY_SEC`, `CONCURRENCY`, `BATCH_SIZE`, `BATCH_DELAY_SEC`
+- `WILLHABEN_SEARCH_URL`, `AUTOSCOUT24_SEARCH_URL`
+- `DOWNLOAD_IMAGES`, `IMAGES_DIR`, `OUTPUT_DIR` (default `./output`)
+- `GROQ_API_KEY` + `ENABLE_GROQ_FALLBACK` for LLM fill-in of missing fields
+
+Run crawls from `inventory-scraping/` so relative `OUTPUT_DIR=./output` resolves
+correctly, or set an absolute `OUTPUT_DIR`.
+
+### Crawl
+
+Smoke test:
 
 ```bash
-npm run inventory:crawl:offline -- --source=autoscout24_at_ev_all
+cd inventory-scraping
+source .venv/bin/activate
+python -m ev_cars_scraper crawl --source willhaben --max-pages 1 --limit 3
 ```
 
-**ScrapingBee (default):**
+From the repo root (after `npm run inventory:setup`):
 
 ```bash
-SCRAPINGBEE_API_KEY=...
+npm run inventory:crawl -- --source willhaben --max-pages 1 --limit 3
+npm run inventory:crawl:willhaben
+npm run inventory:crawl:autoscout24
 ```
 
-**Crawl4AI (local Python browser):**
+Useful flags:
+
+- `--concurrency 5` — parallel listing fetches (recommended for full runs)
+- `--max-pages` / `--limit` — cap search pages / detail fetches for development
+- `--no-resume` — ignore checkpoint and start search from page 1
+- `--resume-search` — continue from `last_search_page` in the checkpoint
+- `--backend httpx` (default) or `--backend crawl4ai`
+- `--enable-groq-fallback` — enrich null fields via Groq (`GROQ_API_KEY` required)
+- `--no-download-images` — keep remote image URLs only
+- `--no-batch` — disable batch pauses between listing groups
+
+Full fresh re-crawl of both sources (clears checkpoints + refreshes local images):
 
 ```bash
-npm run inventory:crawl4ai:setup
-export FLOWRYD_PYTHON=inventory-scraping/crawl4ai/.venv/bin/python
-npm run inventory:crawl:crawl4ai -- --source=willhaben_at_ev --skip-db
+npm run inventory:refresh
 ```
 
-**Supabase upload (optional):**
+Unit tests for the scraper:
 
 ```bash
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=...
+npm run inventory:test
 ```
 
-Use `--skip-db` for local-only crawling. Per-source audit files are written to
-`inventory-scraping/output/json/` and `inventory-scraping/output/csv/`, plus
-combined `vehicles.json`, `context-pages.json`, and `summary.json`.
+### Output
+
+Per source under `inventory-scraping/output/` (gitignored):
+
+- `willhaben.json` / `willhaben.csv` / `willhaben.jsonl`
+- `autoscout24.json` / `autoscout24.csv` / `autoscout24.jsonl`
+- checkpoints: `*.checkpoint.json`
+- crawl logs: `*-crawl.log`
+- listing photos: `images/<source>/<listingId>.jpg`
+
+The JSON `images` field stores local relative paths (for example
+`images/willhaben/2062053964.jpg`) instead of short-lived CDN URLs.
+
+Checked-in snapshot folders such as `inventory-scraping/willhaben/` and
+`inventory-scraping/autoscaut24/` are historical crawl artifacts; new runs write
+to `output/` by default.
+
+### Upload to Supabase
 
 Apply `supabase/migrations/202606090001_add_inventory_scraping_metadata.sql`
 before DB uploads. Scraped vehicles include listing URL, seller type, VIN when
-visible, high-resolution image URLs, manufacturer country, and deterministic
-dedupe keys. The `vehicles_dedupe_key_unique` index prevents duplicate scraped
-cars from being inserted when the same listing is rediscovered. Vehicle uploads
-write payload rows only; run `npm run supabase:embed-vehicles` after inventory
-uploads when vehicle vector search is enabled.
+visible, images, and deterministic dedupe keys. The `vehicles_dedupe_key_unique`
+index prevents duplicate scraped cars when the same listing is rediscovered.
+
+Point the upload scripts at the scraper JSON. Defaults are
+`inventory-scraping/output/willhaben.json` and
+`inventory-scraping/output/autoscout24.json`:
+
+```bash
+npm run supabase:upload-willhaben -- --dry-run
+npm run supabase:upload-willhaben
+
+npm run supabase:upload-autoscout24 -- --dry-run
+npm run supabase:upload-autoscout24
+```
+
+For a historical snapshot folder, pass `--file=` explicitly, for example
+`--file=inventory-scraping/willhaben/willhaben.json`.
+
+Uploads write vehicle payload rows only. When vehicle vector search is enabled,
+run embeddings afterwards:
+
+```bash
+npm run supabase:embed-vehicles
+```
