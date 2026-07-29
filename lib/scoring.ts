@@ -387,7 +387,28 @@ function scoreFeatures(vehicle: Vehicle, criteria: UserCriteria) {
     : (["apple_carplay", "adaptive_cruise_control", "lane_keeping_assist", "heated_seats"] as const);
   const normalizedFeatures = normalizeVehicleFeatures(vehicle.features, vehicle);
   const hits = desired.filter((feature) => normalizedFeatures.includes(feature)).length;
-  return Math.round((hits / desired.length) * 100);
+  const featureScore = Math.round((hits / desired.length) * 100);
+  if (!criteria.preferredColors.length) return featureScore;
+  const colorScore = scorePreferredColor(vehicle, criteria.preferredColors);
+  return Math.round(featureScore * 0.85 + colorScore * 0.15);
+}
+
+function scorePreferredColor(vehicle: Vehicle, preferredColors: string[]) {
+  const exterior = (vehicle.exteriorColor ?? "").toLowerCase();
+  if (!exterior) return 70;
+  const hit = preferredColors.some((color) => {
+    const needle = color.toLowerCase();
+    if (exterior.includes(needle)) return true;
+    if (needle === "grey" && /gr[eay]y|grau/.test(exterior)) return true;
+    if (needle === "black" && /schwarz|black/.test(exterior)) return true;
+    if (needle === "white" && /wei[sß]s|white/.test(exterior)) return true;
+    if (needle === "blue" && /blau|blue/.test(exterior)) return true;
+    if (needle === "silver" && /silber|silver/.test(exterior)) return true;
+    if (needle === "red" && /\brot\b|red/.test(exterior)) return true;
+    if (needle === "green" && /grün|gruen|green/.test(exterior)) return true;
+    return false;
+  });
+  return hit ? 100 : 52;
 }
 
 function scoreBrand(vehicle: Vehicle, criteria: UserCriteria) {

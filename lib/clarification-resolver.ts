@@ -1,4 +1,4 @@
-import { getClarificationPrompt, getOptimizationPrompt } from "./clarification-catalog.ts";
+import { getClarificationPrompt, getOptimizationPrompt, getPreferredColorPrompt } from "./clarification-catalog.ts";
 import {
   DEFAULT_BUDGET_MAX_EUR,
   DEFAULT_BUDGET_MIN_EUR,
@@ -87,7 +87,14 @@ const optionSynonyms: Record<string, RegExp[]> = {
   range_450: [/\b(450|400)\b/i],
   range_550: [/\b(550|500|600)\b/i],
   wish_status: [/\bstatus\b/i, /\bprestige\b/i, /\bansehen\b/i],
-  wish_freedom: [/\bfreedom\b/i, /\bfreiheit\b/i]
+  wish_freedom: [/\bfreedom\b/i, /\bfreiheit\b/i],
+  color_black: [/\b(black|schwarz)\b/i],
+  color_white: [/\b(white|weiß|weiss)\b/i],
+  color_blue: [/\b(blue|blau)\b/i],
+  color_grey: [/\b(gr[eay]y|grau)\b/i],
+  color_silver: [/\b(silver|silber)\b/i],
+  color_red: [/\b(red|rot)\b/i],
+  color_any: [/\b(any color|any colour|no preference|farbe egal|keine präferenz|keine praeferenz)\b/i]
 };
 
 /**
@@ -173,7 +180,9 @@ export function resolveClarificationAnswer(
   const prompt =
     promptKey === "optimization"
       ? getOptimizationPrompt(language)
-      : getClarificationPrompt(promptKey, language);
+      : promptKey === "preferred_color"
+        ? getPreferredColorPrompt(language)
+        : getClarificationPrompt(promptKey, language);
   const matchedOptions = matchPromptOptions(trimmed, prompt.options);
   if (matchedOptions.length) {
     const skipOption = matchedOptions.find((option) => option.skip);
@@ -213,6 +222,8 @@ function declineResolutionForPrompt(promptKey: ClarificationPromptKey): Clarific
     case "vehicle_preferences":
       // Mark: no specific features / brands / cargo / seats; open body if needed.
       return { kind: "patch", patch: declinedOptionalPreferencesPatch(false) };
+    case "preferred_color":
+      return { kind: "patch", patch: { acceptAnyColor: true, preferredColors: [] } };
     default:
       return { kind: "skip" };
   }
@@ -282,6 +293,12 @@ function extractPatchForPrompt(message: string, promptKey: ClarificationPromptKe
     case "optimization": {
       return extracted.optimizationDirective
         ? { optimizationDirective: extracted.optimizationDirective }
+        : null;
+    }
+    case "preferred_color": {
+      if (extracted.acceptAnyColor) return { acceptAnyColor: true, preferredColors: [] };
+      return extracted.preferredColors.length
+        ? { preferredColors: extracted.preferredColors, acceptAnyColor: false }
         : null;
     }
     default:
