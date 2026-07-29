@@ -186,6 +186,10 @@ export type UserCriteria = {
   optimizationDirective: OptimizationDirective | null;
   /** Emotional driver: status or freedom. */
   personalWish: PersonalWish | null;
+  /** Soft exterior-color preferences for exact-model lookups. */
+  preferredColors: string[];
+  /** True when the user waived color preference (any color is fine). */
+  acceptAnyColor: boolean;
   /**
    * Structured binding flags from clarification chips / explicit LLM patches.
    * When true, the matching field is a hard filter even without "only/must" wording.
@@ -207,7 +211,7 @@ export type CriteriaPatch = Partial<
   }
 >;
 
-export type ClarificationPromptKey = MissingCriteria | "ready" | "optimization";
+export type ClarificationPromptKey = MissingCriteria | "ready" | "optimization" | "preferred_color";
 
 export type ClarificationOption = {
   id: string;

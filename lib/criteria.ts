@@ -253,6 +253,8 @@ export function emptyCriteria(rawPrompt = "", language: Language = "en"): UserCr
     qualitativeSignals: [],
     optimizationDirective: null,
     personalWish: null,
+    preferredColors: [],
+    acceptAnyColor: false,
     bindingConstraints: { bodyTypes: false, rangeFloor: false },
     location: null,
     rawPrompt,
@@ -298,7 +300,13 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
   const removals = extractRemovals(text);
 
   const budgetRange = removals.has("budget") ? { min: null, max: null } : extractBudgetRange(text);
-  const usesDefaultBudget = !removals.has("budget") && looksLikeNoBudgetLimit(text);
+  const extractedModelsEarly = extractModelPreferences(normalizedPrompt);
+  const hasExactModelSignal =
+    extractedModelsEarly.length > 0 ||
+    (!removals.has("model") && base.modelPreferences.length > 0);
+  // Exact-model shoppers often mean premium cars above the working 60k default.
+  const usesDefaultBudget =
+    !removals.has("budget") && looksLikeNoBudgetLimit(text) && !hasExactModelSignal;
   const budgetMinEUR = removals.has("budget")
     ? null
     : budgetRange.min ?? (usesDefaultBudget ? DEFAULT_BUDGET_MIN_EUR : base.budgetMinEUR);
@@ -353,7 +361,7 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
   const preferredBrandOrigins = removals.has("origin")
     ? []
     : mergeUnique(base.preferredBrandOrigins, extractPreferredBrandOrigins(text));
-  const extractedModels = extractModelPreferences(normalizedPrompt);
+  const extractedModels = extractedModelsEarly;
   const modelPreferences = removals.has("model")
     ? []
     : shouldReplaceLists && extractedModels.length
@@ -368,6 +376,16 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
   const qualitativeSignals = removals.has("qualitative")
     ? []
     : mergeUnique(base.qualitativeSignals, extractQualitativeSignals(text));
+  const extractedColors = extractPreferredColors(text);
+  const preferredColors = removals.has("color")
+    ? []
+    : shouldReplaceLists && extractedColors.length
+      ? extractedColors
+      : mergeUnique(base.preferredColors, extractedColors);
+  const acceptAnyColor =
+    removals.has("color")
+      ? false
+      : base.acceptAnyColor || looksLikeAnyColorPreference(text);
   const optimizationDirective = removals.has("optimization")
     ? null
     : extractOptimizationDirective(text) ?? base.optimizationDirective;
@@ -423,6 +441,8 @@ export function extractCriteria(prompt: string, previous?: UserCriteria): UserCr
     qualitativeSignals,
     optimizationDirective,
     personalWish,
+    preferredColors,
+    acceptAnyColor: preferredColors.length ? false : acceptAnyColor,
     bindingConstraints,
     location,
     rawPrompt: [base.rawPrompt, normalizedPrompt].filter(Boolean).join("\n"),
@@ -489,6 +509,7 @@ export type CriteriaReadiness = {
 export function getCriteriaReadiness(criteria: UserCriteria): CriteriaReadiness {
   // Binding minimum criteria (PoC Test Summary §4): budget, body type, range, personal wish.
   // Brand/origin alone must not unlock matching.
+  // Exact model preference is enough — the shopper already named the car.
   const groups: Record<MissingCriteria, boolean> = {
     budget: Boolean(criteria.budgetMinEUR || criteria.budgetMaxEUR || criteria.monthlyBudgetEUR),
     vehicle_preferences: hasBodyTypeSignal(criteria),
@@ -506,12 +527,40 @@ export function getCriteriaReadiness(criteria: UserCriteria): CriteriaReadiness 
   const collectedCriteriaCount = bindingKeys.filter((key) => groups[key]).length;
   const missingCriteria = bindingKeys.filter((key) => !groups[key]);
 
+  if (hasExactModelPreference(criteria)) {
+    return {
+      readyToMatch: true,
+      collectedCriteriaCount,
+      groups,
+      missingCriteria: []
+    };
+  }
+
   return {
     readyToMatch: missingCriteria.length === 0,
     collectedCriteriaCount,
     groups,
     missingCriteria
   };
+}
+
+/** True when the user named a concrete model (e.g. BMW iX3), not just a brand. */
+export function hasExactModelPreference(criteria: UserCriteria) {
+  return criteria.modelPreferences.length > 0;
+}
+
+/** Traditional 4-step binding groups without the exact-model shortcut. */
+export function hasTraditionalBindingCriteria(criteria: UserCriteria) {
+  return Boolean(
+    (criteria.budgetMinEUR || criteria.budgetMaxEUR || criteria.monthlyBudgetEUR) &&
+      hasBodyTypeSignal(criteria) &&
+      hasRangeSignal(criteria) &&
+      criteria.personalWish
+  );
+}
+
+export function isColorPreferenceSettled(criteria: UserCriteria) {
+  return Boolean(criteria.acceptAnyColor || criteria.preferredColors.length > 0);
 }
 
 export function getCriteriaConfidence(criteria: UserCriteria) {
@@ -547,6 +596,7 @@ export function criteriaSummary(criteria: UserCriteria) {
   if (criteria.bodyTypes.length) parts.push(criteria.bodyTypes.join(", "));
   if (criteria.preferredBrandOrigins.length) parts.push(`${criteria.preferredBrandOrigins.join(", ")} origin`);
   if (criteria.modelPreferences?.length) parts.push(criteria.modelPreferences.join(", "));
+  if (criteria.preferredColors?.length) parts.push(criteria.preferredColors.join(", "));
   if (criteria.tripNeeds.length) parts.push(criteria.tripNeeds.join(", "));
   if (criteria.chargingAccess !== "unknown") parts.push(`${criteria.chargingAccess} charging`);
   if (criteria.qualitativeSignals.length) parts.push(criteria.qualitativeSignals.join(", "));
@@ -573,7 +623,8 @@ export type CriteriaChipKey =
   | "qualitative"
   | "optimization"
   | "personal_wish"
-  | "location";
+  | "location"
+  | "color";
 
 export type CriteriaChip = {
   key: CriteriaChipKey;
@@ -630,6 +681,9 @@ export function criteriaChips(criteria: UserCriteria): CriteriaChip[] {
     chips.push({ key: "personal_wish", label: personalWishLabels[criteria.personalWish] });
   }
   if (criteria.location) chips.push({ key: "location", label: criteria.location });
+  if (criteria.preferredColors.length) {
+    chips.push({ key: "color", label: criteria.preferredColors.join(", ") });
+  }
   return chips;
 }
 
@@ -674,6 +728,10 @@ export function removeCriteriaKey(criteria: UserCriteria, key: CriteriaChipKey):
   if (key === "optimization") next.optimizationDirective = null;
   if (key === "personal_wish") next.personalWish = null;
   if (key === "location") next.location = null;
+  if (key === "color") {
+    next.preferredColors = [];
+    next.acceptAnyColor = false;
+  }
   return next;
 }
 
@@ -694,6 +752,10 @@ export function normalizeCriteriaShape(criteria: UserCriteria): UserCriteria {
       criteria.personalWish === "status" || criteria.personalWish === "freedom"
         ? criteria.personalWish
         : null,
+    preferredColors: Array.isArray(criteria.preferredColors)
+      ? criteria.preferredColors.filter((color): color is string => typeof color === "string" && color.trim().length > 0)
+      : [],
+    acceptAnyColor: Boolean(criteria.acceptAnyColor),
     bindingConstraints: {
       bodyTypes: Boolean(criteria.bindingConstraints?.bodyTypes),
       rangeFloor: Boolean(criteria.bindingConstraints?.rangeFloor)
@@ -789,6 +851,7 @@ function extractRemovals(text: string) {
     removals.add("personal_wish");
   }
   if (/\b(location|ort|wien|graz|linz|salzburg|plz)\b/i.test(text)) removals.add("location");
+  if (/\b(color|colour|farbe)\b/i.test(text)) removals.add("color");
   return removals;
 }
 
@@ -1228,6 +1291,30 @@ function extractModelPreferences(text: string) {
     .map(([model]) => model);
 
   return Array.from(new Set(explicit));
+}
+
+const colorAliases: Array<[string, RegExp]> = [
+  ["black", /\b(black|schwarz(?:e[rnms]?)?)\b/i],
+  ["white", /\b(white|weiß(?:e[rnms]?)?|weiss(?:e[rnms]?)?)\b/i],
+  ["blue", /\b(blue|blau(?:e[rnms]?)?)\b/i],
+  ["grey", /\b(gr[eay]y|grau(?:e[rnms]?)?)\b/i],
+  ["silver", /\b(silver|silber(?:n(?:e[rnms]?)?)?)\b/i],
+  ["red", /\b(red|rot(?:e[rnms]?)?)\b/i],
+  ["green", /\b(green|grün(?:e[rnms]?)?|gruen(?:e[rnms]?)?)\b/i],
+  ["beige", /\b(beige)\b/i],
+  ["brown", /\b(brown|braun(?:e[rnms]?)?)\b/i]
+];
+
+function extractPreferredColors(text: string) {
+  return Array.from(
+    new Set(colorAliases.filter(([, pattern]) => pattern.test(text)).map(([color]) => color))
+  );
+}
+
+function looksLikeAnyColorPreference(text: string) {
+  return /\b(any color|any colour|color does(?:n'?t)? matter|colour does(?:n'?t)? matter|no color preference|no colour preference|farbe egal|egal welche farbe|keine farb(?:e|en)?(?:\s+präferenz|\s+praeferenz)?)\b/i.test(
+    text
+  );
 }
 
 function extractAvoidedBrands(text: string) {

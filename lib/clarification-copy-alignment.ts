@@ -33,6 +33,11 @@ export function clarificationReplyMisalignedWithPrompt(
       return mentionsChargingLocation && !/\b(suv|sedan|compact|wagon|van|body|karosserie)\b/i.test(text);
     case "use_case":
       return mentionsChargingLocation && !/\b(city|commute|family|road\s+trip|winter|pendel)\b/i.test(text);
+    case "preferred_color":
+      return (
+        mentionsChargingLocation &&
+        !/\b(color|colour|farbe|black|white|blue|grey|gray|silver|red)\b/i.test(text)
+      );
     default:
       return false;
   }
