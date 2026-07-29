@@ -1141,12 +1141,12 @@ function appendLowConfidenceQuestion(message: string, lowConfidenceQuestion?: st
 function alternativesAssistantMessage(criteria: UserCriteria, count: number) {
   if (criteria.language === "de") {
     return count === 1
-      ? "Hier ist die vorbereitete Alternative aus derselben Bewertung."
-      : `Hier sind die ${count} vorbereiteten Alternativen aus derselben Bewertung.`;
+      ? "Die zweitbeste passende Option ist die folgende."
+      : "Die zweit- und drittbesten passenden Optionen sind die folgenden.";
   }
   return count === 1
-    ? "Here is the prepared alternative from the same scoring pass."
-    : `Here are the ${count} prepared alternatives from the same scoring pass.`;
+    ? "The second best matching option is the following."
+    : "The second and third best matching options are the following.";
 }
 
 function appendDefaultBudgetNotice(message: string, criteria: UserCriteria, userMessage: string) {

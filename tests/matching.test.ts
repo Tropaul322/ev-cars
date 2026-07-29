@@ -752,6 +752,10 @@ test("show_alternatives returns cached runner-ups without running a new search",
   if (response.type === "matches") {
     assert.equal(response.responseMode, "alternatives");
     assert.equal(response.alternativesAvailable, false);
+    assert.match(
+      response.assistantMessage,
+      /The second and third best matching options are the following\./
+    );
     assert.deepEqual(
       response.recommendations.map((match) => match.vehicle.id),
       scored.slice(1, 3).map((match) => match.vehicle.id)
