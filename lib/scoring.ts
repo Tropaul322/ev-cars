@@ -13,12 +13,14 @@ import type {
   RagContext,
   RejectedVehicle,
   ScoringBreakdown,
+  SemanticBoostBreakdown,
+  SemanticBoostComponent,
   UserCriteria,
   Vehicle
 } from "./types.ts";
 import { getRagEvidenceForVehicle } from "./rag.ts";
 import { buildRecommendationReasonLedger } from "./recommendation-reasons.ts";
-import { blendSemanticSignals, scoreVehicleTopicAffinity } from "./semantic-scoring.ts";
+import { blendSemanticSignals, scoreVehicleTopicAffinity, semanticSignalShares } from "./semantic-scoring.ts";
 import { calculateTco, estimateMonthlyVehiclePayment } from "./tco.ts";
 import {
   vehicleMatchesBrandOriginPreferences,
@@ -96,19 +98,22 @@ export function matchVehicles(
 
     const tco = calculateTco(vehicle, criteria);
     const scoringBreakdown = scoreVehicle(vehicle, criteria);
-    const baseScore = Math.round(
+    const ruleScore = Math.round(
       Object.entries(scoringBreakdown).reduce((sum, [key, value]) => {
         return sum + value * weights[key as keyof ScoringBreakdown];
       }, 0)
     );
     const ragScore = getRagScore(vehicle, options.ragContext);
-    const ruleScore = applySemanticScoreBlend(baseScore, vehicle, criteria, options.ragContext);
+    // Semantic blend can raise the displayed/ranking score; ruleScore stays the
+    // transparent weighted average shown in the score breakdown panel.
+    const semantic = applySemanticScoreBlend(ruleScore, vehicle, criteria, options.ragContext);
 
     const match = {
       vehicle,
-      score: ruleScore,
+      score: semantic.score,
       ruleScore,
       scoreSource: "rules",
+      ...(semantic.boost ? { semanticBoost: semantic.boost } : {}),
       ragScore,
       ragEvidence: getRagEvidenceForVehicle(vehicle, options.ragContext),
       hardFilterStatus: "passed",
@@ -536,26 +541,120 @@ function applySemanticScoreBlend(
   vehicle: Vehicle,
   criteria: UserCriteria,
   ragContext?: RagContext
-) {
+): { score: number; boost?: SemanticBoostBreakdown } {
   const keywordScore = ragContext?.vehicleScores[vehicle.id] ?? 0;
   const topicScore = ragContext ? scoreVehicleTopicAffinity(vehicle, criteria, ragContext.topicAffinity) : 0;
   const embeddingScore = vehicle.embeddingSimilarity ?? 0;
   const hasKeywordOrTopic = keywordScore > 0 || topicScore > 0;
 
   if (!hasKeywordOrTopic && embeddingScore <= 0) {
-    return clamp(baseScore, 0, 100);
+    return { score: clamp(baseScore, 0, 100) };
   }
 
   // Additive semantic boost — never crush a strong rule score the way a
   // 0–1 mix toward mid keyword/topic scores would (that demoted Chinese
   // origin hits below weaker European listings in live PoC flows).
-  const semanticBlend = blendSemanticSignals({
+  const signalInput = {
     keywordScore,
     topicScore,
     ...(embeddingScore > 0 ? { embeddingScore } : {})
-  });
+  };
+  const semanticBlend = blendSemanticSignals(signalInput);
   const boostScale = embeddingScore > 0 && hasKeywordOrTopic ? 20 : embeddingScore > 0 ? 18 : 14;
-  return clamp(baseScore + Math.round(semanticBlend * boostScale), 0, 100);
+  const rawBoost = Math.round(semanticBlend * boostScale);
+  const score = clamp(baseScore + rawBoost, 0, 100);
+  const totalPoints = score - clamp(baseScore, 0, 100);
+  if (totalPoints <= 0) {
+    return { score };
+  }
+
+  const shares = semanticSignalShares(signalInput);
+  const components = allocateSemanticBoostPoints(totalPoints, shares, {
+    keywordScore,
+    topicScore,
+    embeddingScore
+  });
+  return {
+    score,
+    boost: {
+      totalPoints,
+      blendStrength: semanticBlend,
+      boostScale,
+      components
+    }
+  };
+}
+
+function allocateSemanticBoostPoints(
+  totalPoints: number,
+  shares: { embedding: number; keyword: number; topic: number },
+  signals: { keywordScore: number; topicScore: number; embeddingScore: number }
+): SemanticBoostComponent[] {
+  const shareEntries = (
+    [
+      ["embedding", shares.embedding, signals.embeddingScore],
+      ["keyword", shares.keyword, signals.keywordScore],
+      ["topic", shares.topic, signals.topicScore]
+    ] as const
+  ).filter(([, share]) => share > 0);
+
+  const shareTotal = shareEntries.reduce((sum, [, share]) => sum + share, 0);
+  if (shareTotal <= 0) return [];
+
+  const provisional = shareEntries.map(([key, share, signal]) => ({
+    key,
+    signal,
+    points: Math.floor((totalPoints * share) / shareTotal)
+  }));
+  let remaining = totalPoints - provisional.reduce((sum, row) => sum + row.points, 0);
+  // Give leftover points to the largest shares so the parts always sum to totalPoints.
+  const byShareDesc = [...provisional].sort((a, b) => {
+    const shareA = shareEntries.find(([key]) => key === a.key)?.[1] ?? 0;
+    const shareB = shareEntries.find(([key]) => key === b.key)?.[1] ?? 0;
+    return shareB - shareA;
+  });
+  for (const row of byShareDesc) {
+    if (remaining <= 0) break;
+    row.points += 1;
+    remaining -= 1;
+  }
+
+  return provisional
+    .filter((row) => row.points > 0)
+    .map((row) => describeSemanticBoostComponent(row.key, row.signal, row.points));
+}
+
+function describeSemanticBoostComponent(
+  key: SemanticBoostComponent["key"],
+  signal: number,
+  points: number
+): SemanticBoostComponent {
+  const signalPct = Math.round(signal * 100);
+  if (key === "embedding") {
+    return {
+      key,
+      label: "Listing meaning match",
+      detail: `Embedding similarity ${signalPct}% — this listing’s text aligns with how you described what you want.`,
+      signal,
+      points
+    };
+  }
+  if (key === "keyword") {
+    return {
+      key,
+      label: "Spec & notes overlap",
+      detail: `Keyword overlap ${signalPct}% — make, model, range, and listing notes echo terms from your request.`,
+      signal,
+      points
+    };
+  }
+  return {
+    key,
+    label: "Topic fit",
+    detail: `Topic affinity ${signalPct}% — the car fits themes in your search (for example range, charging, or trip use).`,
+    signal,
+    points
+  };
 }
 
 function getRagScore(vehicle: Vehicle, ragContext?: RagContext) {

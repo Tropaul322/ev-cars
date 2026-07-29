@@ -94,6 +94,32 @@ export function blendSemanticSignals(input: {
   return input.keywordScore * 0.65 + input.topicScore * 0.35;
 }
 
+export type SemanticSignalShares = {
+  embedding: number;
+  keyword: number;
+  topic: number;
+};
+
+/** Raw blend shares used for point attribution (same weights as blendSemanticSignals). */
+export function semanticSignalShares(input: {
+  keywordScore: number;
+  topicScore: number;
+  embeddingScore?: number;
+}): SemanticSignalShares {
+  if (input.embeddingScore !== undefined && input.embeddingScore > 0) {
+    return {
+      embedding: input.embeddingScore * 0.6,
+      keyword: input.keywordScore * 0.55 * 0.4,
+      topic: input.topicScore * 0.45 * 0.4
+    };
+  }
+  return {
+    embedding: 0,
+    keyword: input.keywordScore * 0.65,
+    topic: input.topicScore * 0.35
+  };
+}
+
 function normalizeBrand(value: string) {
   return value.toLowerCase().replace("mercedes-benz", "mercedes").replace("volkswagen", "vw");
 }

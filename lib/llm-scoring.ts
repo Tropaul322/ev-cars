@@ -89,7 +89,9 @@ export function applyLlmRankings(matches: MatchResult[], rankings: LlmVehicleRan
         llmScore: ranking.score,
         score: ranking.score,
         scoreSource: "llm" as const,
-        llmFitSummary: ranking.fitSummary
+        llmFitSummary: ranking.fitSummary,
+        // LLM replaces the displayed score; semantic boost no longer explains the delta.
+        semanticBoost: undefined
       };
     })
     .sort(
@@ -187,7 +189,7 @@ export function buildLlmScoringInput(
         features: match.vehicle.features.slice(0, 8),
         available: match.vehicle.available
       },
-      ruleScore: match.score,
+      ruleScore: match.ruleScore ?? match.score,
       tradeoffs: match.ruledOutReasons.slice(0, 2),
       retrievedEvidence: match.ragEvidence.slice(0, 1).map((evidence, evidenceIndex) => ({
         evidenceId: `E${evidenceIndex + 1}`,

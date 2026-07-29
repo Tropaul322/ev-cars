@@ -105,3 +105,20 @@ export function formatWeightDelta(deltaPct: number) {
   const sign = deltaPct > 0 ? "+" : "";
   return `${sign}${deltaPct} pp vs default`;
 }
+
+export function formatMatchScoreEquation(
+  ruleScore: number,
+  displayedScore: number,
+  boost?: { totalPoints: number; blendStrength: number; boostScale: number } | null
+) {
+  const delta = displayedScore - ruleScore;
+  if (delta === 0) {
+    return `${ruleScore}% match = weighted rule score (no wording boost)`;
+  }
+  if (boost && boost.totalPoints === delta) {
+    const blendPct = Math.round(boost.blendStrength * 100);
+    return `${ruleScore} + round(${blendPct}% wording fit × ${boost.boostScale} max) = ${displayedScore}%`;
+  }
+  const sign = delta > 0 ? "+" : "−";
+  return `${ruleScore} ${sign} ${Math.abs(delta)} = ${displayedScore}%`;
+}

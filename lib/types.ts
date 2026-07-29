@@ -281,6 +281,26 @@ export type RagContext = {
 
 export type MatchScoreSource = "rules" | "llm";
 
+export type SemanticBoostComponent = {
+  key: "embedding" | "keyword" | "topic";
+  label: string;
+  detail: string;
+  /** 0–1 strength of this signal before blending. */
+  signal: number;
+  /** Points this signal contributed to the displayed match boost. */
+  points: number;
+};
+
+export type SemanticBoostBreakdown = {
+  /** Total points added on top of the weighted rule score (after clamping). */
+  totalPoints: number;
+  /** Combined wording-fit strength 0–1 before scaling into points. */
+  blendStrength: number;
+  /** Max points the blend can add (14, 18, or 20 depending on available signals). */
+  boostScale: number;
+  components: SemanticBoostComponent[];
+};
+
 export type MatchResult = {
   vehicle: Vehicle;
   score: number;
@@ -288,6 +308,8 @@ export type MatchResult = {
   llmScore?: number;
   scoreSource?: MatchScoreSource;
   llmFitSummary?: string;
+  /** How semantic relevance raised score above the weighted rule average. */
+  semanticBoost?: SemanticBoostBreakdown;
   ragScore: number;
   ragEvidence: RagEvidence[];
   hardFilterStatus: "passed";
