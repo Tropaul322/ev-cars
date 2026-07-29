@@ -179,6 +179,22 @@ test("binding minimum criteria require budget, body type, range, and personal wi
   assert.deepEqual(getMissingCriteria(complete), []);
 });
 
+test("exact model preference unlocks matching without the 4 binding steps", () => {
+  const exact = {
+    ...emptyCriteria("BMW iX3", "en"),
+    brandPreferences: ["BMW"],
+    modelPreferences: ["iX3"]
+  };
+  assert.equal(getCriteriaReadiness(exact).readyToMatch, true);
+  assert.deepEqual(getMissingCriteria(exact), []);
+
+  const brandOnly = {
+    ...emptyCriteria("BMW", "en"),
+    brandPreferences: ["BMW"]
+  };
+  assert.equal(getCriteriaReadiness(brandOnly).readyToMatch, false);
+});
+
 test("personal wish clarification offers status and freedom", () => {
   const prompt = getClarificationPrompt("personal_wish", "en");
   assert.equal(prompt.key, "personal_wish");

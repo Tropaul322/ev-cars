@@ -193,6 +193,43 @@ export function getOptimizationPrompt(language: Language): ClarificationPrompt {
   };
 }
 
+const preferredColorStep: LocalizedStep = {
+  question: {
+    en: "Is there a preferred color you like?",
+    de: "Gibt es eine Farbe, die du bevorzugst?"
+  },
+  explanation: {
+    en: "Optional — I can already search for the exact model. Pick a color to prefer matching exteriors, or skip if any color works.",
+    de: "Optional — ich kann das genaue Modell schon suchen. Wähle eine bevorzugte Farbe oder überspringe, wenn jede Farbe passt."
+  },
+  selectMode: "single",
+  options: [
+    { id: "color_black", label: { en: "Black", de: "Schwarz" }, patch: { preferredColors: ["black"] } },
+    { id: "color_white", label: { en: "White", de: "Weiß" }, patch: { preferredColors: ["white"] } },
+    { id: "color_blue", label: { en: "Blue", de: "Blau" }, patch: { preferredColors: ["blue"] } },
+    { id: "color_grey", label: { en: "Grey", de: "Grau" }, patch: { preferredColors: ["grey"] } },
+    { id: "color_silver", label: { en: "Silver", de: "Silber" }, patch: { preferredColors: ["silver"] } },
+    { id: "color_red", label: { en: "Red", de: "Rot" }, patch: { preferredColors: ["red"] } },
+    {
+      id: "color_any",
+      label: { en: "No preference", de: "Keine Präferenz" },
+      skip: true,
+      patch: { acceptAnyColor: true, preferredColors: [] }
+    }
+  ]
+};
+
+export function getPreferredColorPrompt(language: Language): ClarificationPrompt {
+  return {
+    key: "preferred_color",
+    question: preferredColorStep.question[language],
+    explanation: preferredColorStep.explanation[language],
+    selectMode: preferredColorStep.selectMode,
+    options: preferredColorStep.options.map((option) => localizeOption(option, language)),
+    showMatchAction: false
+  };
+}
+
 /**
  * Picks the next clarification prompt for the current criteria, skipping any
  * groups the user has explicitly waved off. Returns the ready prompt once every
@@ -213,6 +250,7 @@ export function getPromptExplanation(
 ): string {
   if (key === "ready") return readyStep.explanation[language];
   if (key === "optimization") return optimizationStep.explanation[language];
+  if (key === "preferred_color") return preferredColorStep.explanation[language];
   return catalog[key].explanation[language];
 }
 

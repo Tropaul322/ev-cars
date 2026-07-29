@@ -296,6 +296,12 @@ export function applyCriteriaPatch(
   if (deterministic.brandPreferences.length && !replaceIntent) {
     criteria.brandPreferences = mergeUnique(criteria.brandPreferences, deterministic.brandPreferences);
   }
+  if (deterministic.preferredColors.length && !replaceIntent) {
+    criteria.preferredColors = mergeUnique(criteria.preferredColors, deterministic.preferredColors);
+    criteria.acceptAnyColor = false;
+  } else if (deterministic.acceptAnyColor) {
+    criteria.acceptAnyColor = true;
+  }
   if (deterministic.avoidedBrands.length) {
     criteria.avoidedBrands = mergeUnique(criteria.avoidedBrands, deterministic.avoidedBrands);
   }
@@ -323,7 +329,8 @@ const patchListFields = [
   "mustHaveFeatures",
   "qualitativeSignals",
   "preferredBrandOrigins",
-  "avoidedBrands"
+  "avoidedBrands",
+  "preferredColors"
 ] as const;
 
 /**
@@ -343,6 +350,16 @@ export function applyChipPatch(base: UserCriteria, patch: CriteriaPatch): UserCr
     if (key === "remove" || key === "language" || key === "bindingConstraints") continue;
     if (key === "bodyTypes" && Array.isArray(value)) {
       next.bodyTypes = value.filter((item): item is (typeof next.bodyTypes)[number] => typeof item === "string");
+      continue;
+    }
+    if (key === "preferredColors" && Array.isArray(value)) {
+      next.preferredColors = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+      next.acceptAnyColor = next.preferredColors.length === 0 ? next.acceptAnyColor : false;
+      continue;
+    }
+    if (key === "acceptAnyColor" && value === true) {
+      next.acceptAnyColor = true;
+      next.preferredColors = [];
       continue;
     }
     if ((patchListFields as readonly string[]).includes(key as string) && Array.isArray(value)) {
@@ -411,6 +428,10 @@ function applyRemoval(criteria: UserCriteria, removal: string) {
   }
   if (removal === "origin") criteria.preferredBrandOrigins = [];
   if (removal === "model") criteria.modelPreferences = [];
+  if (removal === "color") {
+    criteria.preferredColors = [];
+    criteria.acceptAnyColor = false;
+  }
 }
 
 function mergeUnique<T>(left: T[], right: T[]) {
@@ -668,6 +689,12 @@ function cleanPatch(patch: CriteriaPatch): CriteriaPatch {
   }
   if (Array.isArray(patch.modelPreferences)) {
     clean.modelPreferences = patch.modelPreferences.filter((value): value is string => typeof value === "string");
+  }
+  if (Array.isArray(patch.preferredColors)) {
+    clean.preferredColors = patch.preferredColors.filter((value): value is string => typeof value === "string");
+  }
+  if (typeof patch.acceptAnyColor === "boolean") {
+    clean.acceptAnyColor = patch.acceptAnyColor;
   }
   if (Array.isArray(patch.avoidedBrands)) {
     clean.avoidedBrands = patch.avoidedBrands.filter((value): value is string => typeof value === "string");

@@ -11,6 +11,7 @@ import {
 } from "./assistant-messages.ts";
 import {
   getOptimizationPrompt,
+  getPreferredColorPrompt,
   isMissingCriteriaKey,
   nextClarificationPrompt
 } from "./clarification-catalog.ts";
@@ -28,6 +29,9 @@ import {
   getCriteriaConfidence,
   getCriteriaReadiness,
   getMissingCriteria,
+  hasExactModelPreference,
+  hasTraditionalBindingCriteria,
+  isColorPreferenceSettled,
   looksLikeBrandWidenRequest,
   looksLikeNoBudgetLimit
 } from "./criteria.ts";
@@ -346,6 +350,7 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     if (
       clarificationKey &&
       (clarificationKey === "optimization" ||
+        clarificationKey === "preferred_color" ||
         (isMissingCriteriaKey(clarificationKey) && getMissingCriteria(criteria).includes(clarificationKey)))
     ) {
       const resolution = resolveClarificationAnswer(body.message, clarificationKey, criteria.language);
@@ -517,14 +522,25 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
       : 0;
 
   const nextPrompt = nextClarificationPrompt(criteria, skippedKeys);
+  const exactModel = hasExactModelPreference(criteria);
+  const traditionalReady = hasTraditionalBindingCriteria(criteria);
+  const shouldAskPreferredColor =
+    exactModel &&
+    !traditionalReady &&
+    !isColorPreferenceSettled(criteria) &&
+    body.intent !== "show_matches" &&
+    trigger !== "show_matches" &&
+    !body.criteriaOverride;
   // Chip-only first messages still clarify once; criteriaOverride is an intentional force path.
-  // If the opening message already named an optimization (best value, family fit, …), search immediately.
-  const firstTurnMustClarify = !hasPriorContext && !body.criteriaOverride;
+  // Exact model preference skips the usual first-turn optimization gate.
+  const firstTurnMustClarify = !hasPriorContext && !body.criteriaOverride && !exactModel;
   const forceFirstTurnOptimization =
     firstTurnMustClarify && nextPrompt.key === "ready" && !criteria.optimizationDirective;
-  const promptForTurn = forceFirstTurnOptimization
-    ? getOptimizationPrompt(criteria.language)
-    : nextPrompt;
+  const promptForTurn = shouldAskPreferredColor
+    ? getPreferredColorPrompt(criteria.language)
+    : forceFirstTurnOptimization
+      ? getOptimizationPrompt(criteria.language)
+      : nextPrompt;
 
   const isChatTurn =
     !body.criteriaPatch &&
@@ -539,9 +555,10 @@ export async function runMatchRequest(body: MatchServiceRequest): Promise<MatchR
     promptForTurn.key === "ready" && readiness.readyToMatch && hasMeaningfulCriteria(criteria);
 
   const wantsMatch =
+    !shouldAskPreferredColor &&
     !isChatTurn &&
     !forceFirstTurnOptimization &&
-    readiness.groups.budget &&
+    (readiness.groups.budget || exactModel) &&
     readiness.readyToMatch &&
     (readyToSearch ||
       body.intent === "show_matches" ||
@@ -1281,6 +1298,9 @@ function resolveActiveClarificationKey(
   skippedKeys: MissingCriteria[]
 ): ClarificationPromptKey | null {
   if (currentPromptKey === "optimization") return "optimization";
+  if (currentPromptKey === "preferred_color" && !isColorPreferenceSettled(criteria)) {
+    return "preferred_color";
+  }
   if (
     currentPromptKey &&
     isMissingCriteriaKey(currentPromptKey) &&
