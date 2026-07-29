@@ -274,8 +274,8 @@ test("OPEN: final match % is a transparent weighted average of the 7 factors", a
 });
 
 test("wording: listing copy is renamed to matching", () => {
-  assert.equal(formatMatchInventoryLabel(1, 1), "1 model • 1 matching found");
-  assert.equal(formatMatchInventoryLabel(2, 3), "2 models • 3 matching found");
+  assert.equal(formatMatchInventoryLabel(1, 1), "1 model • matching found");
+  assert.equal(formatMatchInventoryLabel(2, 3), "2 models • matching found");
   assert.equal(formatSeeMatchesLabel(1), "See 1 matching");
   assert.equal(formatSeeMatchesLabel(2), "See 2 matching");
 });
